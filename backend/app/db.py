@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
   prompt_version TEXT NOT NULL,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
+  author_type TEXT NOT NULL DEFAULT 'model',
   created_at TEXT NOT NULL,
   UNIQUE(episode_id, stage, version)
 );
@@ -99,10 +100,28 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   stage TEXT NOT NULL,
   status TEXT NOT NULL,
   message TEXT NOT NULL DEFAULT '',
+  parent_run_id TEXT,
+  error_stage TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
 """
+
+
+MIGRATION_COLUMNS = {
+    "artifact_versions": {
+        "author_type": "TEXT NOT NULL DEFAULT 'model'",
+    },
+    "workflow_runs": {
+        "parent_run_id": "TEXT",
+        "error_stage": "TEXT NOT NULL DEFAULT ''",
+        "position": "INTEGER NOT NULL DEFAULT 0",
+        "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
+    },
+}
 
 
 def now_iso() -> str:
@@ -131,6 +150,22 @@ class Database:
     def init(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            for table, columns in MIGRATION_COLUMNS.items():
+                existing = {
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                for column, definition in columns.items():
+                    if column not in existing:
+                        connection.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                        )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
+                ON workflow_runs(parent_run_id, position)
+                """
+            )
 
     def rows(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         with self.connect() as connection:
@@ -153,6 +188,7 @@ class Database:
 
 JSON_COLUMNS = {
     "book_ids",
+    "metadata_json",
     "source_section_ids",
 }
 
@@ -164,5 +200,5 @@ def decode_row(row: dict[str, Any]) -> dict[str, Any]:
             try:
                 row[key] = json.loads(value)
             except json.JSONDecodeError:
-                row[key] = []
+                row[key] = {} if key == "metadata_json" else []
     return row

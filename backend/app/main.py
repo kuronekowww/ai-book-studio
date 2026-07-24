@@ -10,12 +10,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .batches import BatchService
 from .config import get_settings
 from .db import Database, now_iso
 from .ingestion import parse_book
 from .obsidian import ObsidianSyncService
 from .providers import build_provider
-from .workflows import WorkflowService
+from .workflows import StageGenerationError, WorkflowService
 
 
 settings = get_settings()
@@ -23,6 +24,7 @@ database = Database(settings.database_path)
 database.init()
 provider = build_provider(settings)
 workflows = WorkflowService(database, provider)
+batches = BatchService(database, workflows, concurrency=5)
 obsidian = ObsidianSyncService(database)
 
 app = FastAPI(title="AI Book Studio API", version="0.1.0")
@@ -72,6 +74,10 @@ class GeneratePayload(BaseModel):
     from_stage: str = "outline"
 
 
+class FinalVersionPayload(BaseModel):
+    content: str = Field(min_length=1)
+
+
 class SyncPayload(BaseModel):
     vault_path: str
     book_id: str | None = None
@@ -104,6 +110,7 @@ async def execute_episode_run(
     )
     try:
         await workflows.generate_episode(episode_id, from_stage)
+        batches.reconcile_episode_success(episode_id)
         current = database.row("SELECT status FROM workflow_runs WHERE id = ?", (run_id,))
         status = "cancelled" if current and current["status"] == "cancelled" else "succeeded"
         database.execute(
@@ -113,6 +120,15 @@ async def execute_episode_run(
             WHERE id = ?
             """,
             (status, "声音版本已生成" if status == "succeeded" else "用户已取消", now_iso(), run_id),
+        )
+    except StageGenerationError as error:
+        database.execute(
+            """
+            UPDATE workflow_runs
+            SET status = 'failed', message = ?, error_stage = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (str(error)[:500], error.stage, now_iso(), run_id),
         )
     except Exception as error:
         database.execute(
@@ -127,14 +143,26 @@ async def execute_episode_run(
 
 @app.on_event("startup")
 async def resume_incomplete_runs() -> None:
-    incomplete = database.rows(
+    incomplete_batches = database.rows(
         """
         SELECT * FROM workflow_runs
-        WHERE status IN ('pending', 'running')
+        WHERE scope_type = 'project_batch'
+          AND status IN ('pending', 'running')
         ORDER BY created_at
         """
     )
-    for run in incomplete:
+    for run in incomplete_batches:
+        create_task(batches.run_batch(run["id"]))
+    incomplete_episodes = database.rows(
+        """
+        SELECT * FROM workflow_runs
+        WHERE scope_type = 'episode'
+          AND parent_run_id IS NULL
+          AND status IN ('pending', 'running')
+        ORDER BY created_at
+        """
+    )
+    for run in incomplete_episodes:
         create_task(execute_episode_run(run["id"], run["scope_id"], run["stage"]))
 
 
@@ -296,7 +324,10 @@ def list_projects() -> list[dict[str, Any]]:
         count = database.row(
             """
             SELECT COUNT(*) AS episode_count,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_count
+              SUM(
+                CASE WHEN status IN ('completed', 'review', 'approved')
+                THEN 1 ELSE 0 END
+              ) AS completed_count
             FROM episodes WHERE project_id = ?
             """,
             (project["id"],),
@@ -362,12 +393,44 @@ def confirm_project(project_id: str) -> dict[str, Any]:
         raise not_found("项目") from error
 
 
+@app.post("/api/projects/{project_id}/generate-all")
+async def generate_all(project_id: str) -> dict[str, Any]:
+    try:
+        batch = batches.create_batch(project_id)
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if batch["status"] == "pending":
+        create_task(batches.run_batch(batch["id"]))
+    return batch
+
+
+@app.get("/api/projects/{project_id}/batch")
+def project_batch(project_id: str) -> dict[str, Any] | None:
+    if not database.row("SELECT id FROM projects WHERE id = ?", (project_id,)):
+        raise not_found("项目")
+    return batches.latest_batch(project_id)
+
+
 @app.get("/api/episodes/{episode_id}")
 def episode_detail(episode_id: str) -> dict[str, Any]:
     try:
         return workflows.episode_detail(episode_id)
     except KeyError as error:
         raise not_found("声音") from error
+
+
+@app.post("/api/episodes/{episode_id}/final-versions")
+def save_manual_final(
+    episode_id: str, payload: FinalVersionPayload
+) -> dict[str, Any]:
+    try:
+        return workflows.save_manual_final(episode_id, payload.content)
+    except KeyError as error:
+        raise not_found("声音") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/api/episodes/{episode_id}/generate")
@@ -412,6 +475,8 @@ def cancel_run(run_id: str) -> dict[str, Any]:
     run = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
     if not run:
         raise not_found("运行记录")
+    if run["scope_type"] == "project_batch":
+        return batches.cancel_batch(run_id)
     if run["status"] in {"succeeded", "failed", "cancelled"}:
         return run
     database.execute(

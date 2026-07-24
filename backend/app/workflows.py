@@ -21,6 +21,13 @@ def extract_sentence(text: str) -> str:
     return candidates[0] if candidates else clean_excerpt(text, 160)
 
 
+class StageGenerationError(RuntimeError):
+    def __init__(self, stage: str, error: Exception):
+        self.stage = stage
+        self.original = error
+        super().__init__(str(error))
+
+
 class WorkflowService:
     def __init__(self, database: Database, provider: ModelProvider):
         self.database = database
@@ -194,8 +201,10 @@ class WorkflowService:
         return self.project_detail(project_id)
 
     def confirm_project(self, project_id: str) -> dict[str, Any]:
+        if not self.database.row("SELECT id FROM projects WHERE id = ?", (project_id,)):
+            raise KeyError(project_id)
         self.database.execute(
-            "UPDATE projects SET status = 'production', updated_at = ? WHERE id = ?",
+            "UPDATE projects SET status = 'ready', updated_at = ? WHERE id = ?",
             (now_iso(), project_id),
         )
         self.database.execute(
@@ -204,7 +213,9 @@ class WorkflowService:
         )
         return self.project_detail(project_id)
 
-    async def generate_episode(self, episode_id: str, from_stage: str = "outline") -> dict[str, Any]:
+    async def generate_episode(
+        self, episode_id: str, from_stage: str = "outline"
+    ) -> dict[str, Any]:
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:
             raise KeyError(episode_id)
@@ -220,6 +231,10 @@ class WorkflowService:
         start = stages.index(from_stage)
         previous = source
         for stage in stages[start:]:
+            self.database.execute(
+                "UPDATE episodes SET status = ? WHERE id = ?",
+                (f"generating_{stage}", episode_id),
+            )
             prompt_id = {
                 "outline": "episode_outline",
                 "draft": "episode_draft",
@@ -229,16 +244,31 @@ class WorkflowService:
             if stage != "outline":
                 latest = self.latest_artifact(episode_id, stages[stages.index(stage) - 1])
                 previous = latest["content"] if latest else previous
-            content = await self.provider.generate(prompt, previous)
+            try:
+                content = await self.provider.generate(prompt, previous)
+            except Exception as error:
+                self.database.execute(
+                    "UPDATE episodes SET status = 'failed' WHERE id = ?",
+                    (episode_id,),
+                )
+                raise StageGenerationError(stage, error) from error
             self._save_artifact(episode_id, stage, content, prompt.version)
         self.database.execute(
-            "UPDATE episodes SET status = 'completed' WHERE id = ?",
+            "UPDATE episodes SET status = 'review' WHERE id = ?",
             (episode_id,),
         )
         return self.episode_detail(episode_id)
 
     def _save_artifact(
-        self, episode_id: str, stage: str, content: str, prompt_version: str
+        self,
+        episode_id: str,
+        stage: str,
+        content: str,
+        prompt_version: str,
+        *,
+        author_type: str = "model",
+        provider: str | None = None,
+        model: str | None = None,
     ) -> None:
         current = self.database.row(
             """
@@ -252,8 +282,9 @@ class WorkflowService:
         self.database.execute(
             """
             INSERT INTO artifact_versions
-              (id, episode_id, stage, version, content, prompt_version, provider, model, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (id, episode_id, stage, version, content, prompt_version,
+               provider, model, author_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uuid.uuid4().hex,
@@ -262,11 +293,33 @@ class WorkflowService:
                 version,
                 content,
                 prompt_version,
-                self.provider.name,
-                self.provider.model,
+                provider or self.provider.name,
+                model or self.provider.model,
+                author_type,
                 now_iso(),
             ),
         )
+
+    def save_manual_final(self, episode_id: str, content: str) -> dict[str, Any]:
+        if not self.database.row("SELECT id FROM episodes WHERE id = ?", (episode_id,)):
+            raise KeyError(episode_id)
+        clean_content = content.strip()
+        if not clean_content:
+            raise ValueError("终稿内容不能为空")
+        self._save_artifact(
+            episode_id,
+            "final",
+            clean_content,
+            "human-edit-v1",
+            author_type="human",
+            provider="human",
+            model="manual-edit",
+        )
+        self.database.execute(
+            "UPDATE episodes SET status = 'review' WHERE id = ?",
+            (episode_id,),
+        )
+        return self.episode_detail(episode_id)
 
     def latest_artifact(self, episode_id: str, stage: str) -> dict[str, Any] | None:
         return self.database.row(

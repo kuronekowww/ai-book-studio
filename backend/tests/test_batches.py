@@ -1,0 +1,143 @@
+import asyncio
+import sqlite3
+import uuid
+
+from app.batches import BatchService
+from app.db import Database, now_iso
+from app.workflows import StageGenerationError
+
+
+def seed_project(database: Database, count: int = 7) -> tuple[str, list[str]]:
+    project_id = uuid.uuid4().hex
+    now = now_iso()
+    database.execute(
+        """
+        INSERT INTO projects (id, title, book_ids, status, created_at, updated_at)
+        VALUES (?, '并发测试专辑', '[]', 'ready', ?, ?)
+        """,
+        (project_id, now, now),
+    )
+    episode_ids = [uuid.uuid4().hex for _ in range(count)]
+    database.executemany(
+        """
+        INSERT INTO episodes
+          (id, project_id, position, title, content_type, style, status, source_section_ids)
+        VALUES (?, ?, ?, ?, '解读', '观点', 'ready', '[]')
+        """,
+        [
+            (episode_id, project_id, position, f"声音 {position}")
+            for position, episode_id in enumerate(episode_ids, start=1)
+        ],
+    )
+    return project_id, episode_ids
+
+
+class TrackingWorkflows:
+    def __init__(self, database: Database, failing_id: str):
+        self.database = database
+        self.failing_id = failing_id
+        self.active = 0
+        self.max_active = 0
+
+    def latest_artifact(self, episode_id: str, stage: str):
+        return self.database.row(
+            """
+            SELECT * FROM artifact_versions
+            WHERE episode_id = ? AND stage = ?
+            ORDER BY version DESC LIMIT 1
+            """,
+            (episode_id, stage),
+        )
+
+    async def generate_episode(self, episode_id: str, from_stage: str):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(0.01)
+            if episode_id == self.failing_id:
+                raise StageGenerationError("draft", RuntimeError("模拟模型失败"))
+            self.database.execute(
+                "UPDATE episodes SET status = 'review' WHERE id = ?",
+                (episode_id,),
+            )
+        finally:
+            self.active -= 1
+
+
+def test_batch_limits_concurrency_and_isolates_failure(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    project_id, episode_ids = seed_project(database)
+    workflows = TrackingWorkflows(database, failing_id=episode_ids[2])
+    batches = BatchService(database, workflows, concurrency=5)  # type: ignore[arg-type]
+
+    batch = batches.create_batch(project_id)
+    duplicate = batches.create_batch(project_id)
+    assert duplicate["id"] == batch["id"]
+
+    asyncio.run(batches.run_batch(batch["id"]))
+    result = batches.batch_detail(batch["id"])
+    assert workflows.max_active == 5
+    assert result["status"] == "partial_failed"
+    assert result["summary"]["completed"] == 6
+    assert result["summary"]["failed"] == 1
+    failed = next(child for child in result["children"] if child["status"] == "failed")
+    assert failed["error_stage"] == "draft"
+    assert database.row(
+        "SELECT status FROM projects WHERE id = ?", (project_id,)
+    )["status"] == "partial_failed"
+
+    batches.reconcile_episode_success(episode_ids[2])
+    reconciled = batches.batch_detail(batch["id"])
+    assert reconciled["status"] == "succeeded"
+    assert reconciled["summary"]["failed"] == 0
+
+
+def test_batch_skips_existing_final(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    project_id, episode_ids = seed_project(database, count=2)
+    now = now_iso()
+    database.execute(
+        """
+        INSERT INTO artifact_versions
+          (id, episode_id, stage, version, content, prompt_version,
+           provider, model, author_type, created_at)
+        VALUES (?, ?, 'final', 1, '已有终稿', 'v1', 'demo', 'demo', 'model', ?)
+        """,
+        (uuid.uuid4().hex, episode_ids[0], now),
+    )
+    workflows = TrackingWorkflows(database, failing_id="")
+    batches = BatchService(database, workflows, concurrency=5)  # type: ignore[arg-type]
+    batch = batches.create_batch(project_id)
+    assert batch["summary"]["total"] == 1
+    assert batch["children"][0]["scope_id"] == episode_ids[1]
+
+
+def test_database_adds_batch_columns_to_existing_tables(tmp_path) -> None:
+    path = tmp_path / "studio.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE artifact_versions (
+              id TEXT PRIMARY KEY, episode_id TEXT, stage TEXT, version INTEGER,
+              content TEXT, prompt_version TEXT, provider TEXT, model TEXT,
+              created_at TEXT
+            );
+            CREATE TABLE workflow_runs (
+              id TEXT PRIMARY KEY, scope_type TEXT, scope_id TEXT, stage TEXT,
+              status TEXT, message TEXT, created_at TEXT, updated_at TEXT
+            );
+            """
+        )
+    database = Database(path)
+    database.init()
+    with sqlite3.connect(path) as connection:
+        artifact_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(artifact_versions)")
+        }
+        run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(workflow_runs)")
+        }
+    assert "author_type" in artifact_columns
+    assert {"parent_run_id", "error_stage", "position", "metadata_json"} <= run_columns

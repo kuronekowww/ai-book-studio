@@ -72,6 +72,7 @@ type ArtifactVersion = {
   provider: string;
   model: string;
   prompt_version: string;
+  author_type: "model" | "human";
   created_at: string;
 };
 
@@ -87,10 +88,30 @@ type WorkflowRun = {
   scope_type: string;
   scope_id: string;
   stage: string;
-  status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  status: "pending" | "running" | "succeeded" | "partial_failed" | "failed" | "cancelled";
   message: string;
+  parent_run_id?: string | null;
+  error_stage?: string;
+  position?: number;
   created_at: string;
   updated_at: string;
+};
+
+type BatchChild = WorkflowRun & {
+  episode_title: string;
+  episode_status: string;
+};
+
+type BatchRun = WorkflowRun & {
+  children: BatchChild[];
+  summary: {
+    total: number;
+    completed: number;
+    failed: number;
+    running: number;
+    pending: number;
+    concurrency: number;
+  };
 };
 
 const statusLabels: Record<string, string> = {
@@ -98,8 +119,17 @@ const statusLabels: Record<string, string> = {
   ready_to_analyze: "待拆书",
   analyzed: "知识已入库",
   outline_review: "待确认大纲",
-  production: "生产中",
-  ready: "等待生成",
+  production: "等待生产",
+  ready: "等待生产",
+  producing: "批量生产中",
+  review: "待审核",
+  approved: "已确认",
+  partial_failed: "部分失败",
+  queued: "排队中",
+  generating_outline: "生成细纲",
+  generating_draft: "生成初稿",
+  generating_final: "口语化调整",
+  failed: "生成失败",
   completed: "已完成",
 };
 
@@ -135,6 +165,7 @@ export default function Home() {
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
+  const [batch, setBatch] = useState<BatchRun | null>(null);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [busy, setBusy] = useState("");
@@ -189,6 +220,36 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (
+      !selectedProject ||
+      !batch ||
+      !["pending", "running"].includes(batch.status)
+    ) {
+      return;
+    }
+    const projectId = selectedProject.id;
+    const episodeId = selectedEpisode?.id;
+    const interval = window.setInterval(() => {
+      Promise.all([
+        request<BatchRun | null>(`/api/projects/${projectId}/batch`),
+        request<Project>(`/api/projects/${projectId}`),
+        episodeId
+          ? request<Episode>(`/api/episodes/${episodeId}`)
+          : Promise.resolve(null),
+      ])
+        .then(([nextBatch, nextProject, nextEpisode]) => {
+          setBatch(nextBatch);
+          setSelectedProject(nextProject);
+          if (nextEpisode) setSelectedEpisode(nextEpisode);
+        })
+        .catch((caught: unknown) => {
+          setError(caught instanceof Error ? caught.message : "批次状态刷新失败");
+        });
+    }, 800);
+    return () => window.clearInterval(interval);
+  }, [batch, selectedEpisode?.id, selectedProject]);
+
   const runAction = async (label: string, action: () => Promise<void>) => {
     setBusy(label);
     setError("");
@@ -212,8 +273,12 @@ export default function Home() {
 
   const openProject = async (projectId: string) => {
     await runAction("载入项目", async () => {
-      const project = await request<Project>(`/api/projects/${projectId}`);
+      const [project, latestBatch] = await Promise.all([
+        request<Project>(`/api/projects/${projectId}`),
+        request<BatchRun | null>(`/api/projects/${projectId}/batch`),
+      ]);
       setSelectedProject(project);
+      setBatch(latestBatch);
       setSelectedEpisode(null);
       setView("projects");
     });
@@ -306,6 +371,7 @@ export default function Home() {
         { method: "POST" },
       );
       setSelectedProject(project);
+      setBatch(null);
       await refresh();
     });
 
@@ -323,6 +389,22 @@ export default function Home() {
         ),
       );
       setSelectedEpisode(null);
+      setBatch(null);
+      await refresh();
+    });
+
+  const generateAll = () =>
+    selectedProject &&
+    runAction("启动整张专辑生产", async () => {
+      const result = await request<BatchRun>(
+        `/api/projects/${selectedProject.id}/generate-all`,
+        { method: "POST" },
+      );
+      setBatch(result);
+      setSelectedProject(
+        await request<Project>(`/api/projects/${selectedProject.id}`),
+      );
+      setNotice(`已启动 ${result.summary.total} 条声音，最多 5 条并行生产`);
       await refresh();
     });
 
@@ -356,6 +438,25 @@ export default function Home() {
       }
       await refresh();
     });
+
+  const saveFinalVersion = async (content: string): Promise<boolean> => {
+    if (!selectedEpisode) return false;
+    let saved = false;
+    await runAction("保存人工终稿", async () => {
+      const result = await request<Episode>(
+        `/api/episodes/${selectedEpisode.id}/final-versions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        },
+      );
+      setSelectedEpisode(result);
+      saved = true;
+      await refresh();
+    });
+    return saved;
+  };
 
   const cancelRun = (runId: string) =>
     runAction("取消任务", async () => {
@@ -475,13 +576,17 @@ export default function Home() {
           {view === "projects" &&
             (selectedProject ? (
               <ProjectWorkspace
+                key={`${selectedProject.id}:${selectedEpisode?.id || "none"}:${selectedEpisode?.versions?.find((item) => item.stage === "final")?.version || 0}`}
                 project={selectedProject}
                 episode={selectedEpisode}
+                batch={batch}
                 onBack={() => { setSelectedProject(null); setSelectedEpisode(null); }}
                 onConfirm={() => void confirmOutline()}
                 onSaveOutline={(episodes) => void saveOutline(episodes)}
                 onOpenEpisode={openEpisode}
                 onGenerate={generateEpisode}
+                onGenerateAll={() => void generateAll()}
+                onSaveFinal={saveFinalVersion}
                 busy={Boolean(busy)}
               />
             ) : (
@@ -937,20 +1042,26 @@ function ProjectsView({
 function ProjectWorkspace({
   project,
   episode,
+  batch,
   onBack,
   onConfirm,
   onSaveOutline,
   onOpenEpisode,
   onGenerate,
+  onGenerateAll,
+  onSaveFinal,
   busy,
 }: {
   project: Project;
   episode: Episode | null;
+  batch: BatchRun | null;
   onBack: () => void;
   onConfirm: () => void;
   onSaveOutline: (episodes: Episode[]) => void;
   onOpenEpisode: (id: string) => Promise<void>;
   onGenerate: (stage: "outline" | "draft" | "final") => void;
+  onGenerateAll: () => void;
+  onSaveFinal: (content: string) => Promise<boolean>;
   busy: boolean;
 }) {
   const latestByStage = useMemo(() => {
@@ -960,10 +1071,67 @@ function ProjectWorkspace({
     }
     return map;
   }, [episode]);
+  const finalVersions = useMemo(
+    () =>
+      (episode?.versions || [])
+        .filter((version) => version.stage === "final")
+        .sort((left, right) => right.version - left.version),
+    [episode],
+  );
+  const batchByEpisode = useMemo(
+    () =>
+      new Map(
+        (batch?.children || []).map((child) => [child.scope_id, child]),
+      ),
+    [batch],
+  );
+  const [finalDraft, setFinalDraft] = useState(
+    latestByStage.final?.content || "",
+  );
+  const [dirty, setDirty] = useState(false);
+  const batchActive = Boolean(
+    batch && ["pending", "running"].includes(batch.status),
+  );
+  const batchDone =
+    (batch?.summary.completed || 0) + (batch?.summary.failed || 0);
+  const batchPercent = batch?.summary.total
+    ? Math.round((batchDone / batch.summary.total) * 100)
+    : 0;
+  const allFinalsReady = Boolean(
+    project.episodes?.length &&
+    project.episodes.every((item) =>
+      ["completed", "review", "approved"].includes(item.status),
+    ),
+  );
+  const activeChild = episode ? batchByEpisode.get(episode.id) : undefined;
+  const retryStage =
+    activeChild?.status === "failed" &&
+    ["outline", "draft", "final"].includes(activeChild.error_stage || "")
+      ? activeChild.error_stage as "outline" | "draft" | "final"
+      : null;
+
+  const confirmLeave = () =>
+    !dirty || window.confirm("当前终稿还有未保存修改，确定要放弃并离开吗？");
+
+  const selectEpisode = (episodeId: string) => {
+    if (confirmLeave()) void onOpenEpisode(episodeId);
+  };
+
+  const saveDraft = async () => {
+    const saved = await onSaveFinal(finalDraft);
+    if (saved) setDirty(false);
+  };
 
   return (
     <>
-      <button className="back-button" onClick={onBack}>← 返回内容项目</button>
+      <button
+        className="back-button"
+        onClick={() => {
+          if (confirmLeave()) onBack();
+        }}
+      >
+        ← 返回内容项目
+      </button>
       <div className="project-head">
         <div>
           <span className={`state-pill state-${project.status}`}>
@@ -979,10 +1147,10 @@ function ProjectWorkspace({
         )}
       </div>
 
-      <div className="studio-grid">
+      <div className={project.status === "outline_review" ? "studio-grid outline-mode" : "studio-grid"}>
         <section className="episode-rail">
           <div className="panel-heading">
-            <div><p className="eyebrow">ALBUM</p><h3>声音目录</h3></div>
+            <div><p className="eyebrow">专辑</p><h3>声音目录</h3></div>
             <span>{project.episodes?.length || 0} 条</span>
           </div>
           {project.status === "outline_review" ? (
@@ -992,74 +1160,222 @@ function ProjectWorkspace({
               disabled={busy}
             />
           ) : (
-            <div className="episode-list">
-              {(project.episodes || []).map((item) => (
+            <>
+              <div className="batch-card">
+                <div className="batch-card-title">
+                  <div>
+                    <strong>
+                      {batchActive ? "正在批量生产" : batch ? "最近一次生产" : "等待开始生产"}
+                    </strong>
+                    <span>声音之间最多 5 条并行</span>
+                  </div>
+                  <em>{batch ? `${batchPercent}%` : "0%"}</em>
+                </div>
+                <div className="batch-track">
+                  <span style={{ width: `${batchPercent}%` }} />
+                </div>
+                <div className="batch-metrics">
+                  <span>完成 <strong>{batch?.summary.completed || 0}</strong></span>
+                  <span>进行 <strong>{batch?.summary.running || 0}</strong></span>
+                  <span>失败 <strong>{batch?.summary.failed || 0}</strong></span>
+                </div>
                 <button
-                  key={item.id}
-                  className={episode?.id === item.id ? "episode-row active" : "episode-row"}
-                  onClick={() => void onOpenEpisode(item.id)}
+                  className="primary-button batch-button"
+                  disabled={busy || batchActive || allFinalsReady}
+                  onClick={onGenerateAll}
                 >
-                  <span>{String(item.position).padStart(2, "0")}</span>
-                  <div><strong>{item.title}</strong><small>{item.content_type} · {item.style}</small></div>
-                  <em>{item.status === "completed" ? "完成" : "待生成"}</em>
+                  {batchActive
+                    ? "正在生成全部终稿…"
+                    : allFinalsReady
+                      ? "全部终稿已生成"
+                      : "生成全部终稿"}
                 </button>
-              ))}
-            </div>
+              </div>
+              <div className="episode-list">
+                {(project.episodes || []).map((item) => {
+                  const child = batchByEpisode.get(item.id);
+                  const label = child?.status === "failed"
+                    ? `失败 · ${stageLabels[child.error_stage as keyof typeof stageLabels] || "生成"}`
+                    : statusLabels[item.status] || item.status;
+                  return (
+                    <button
+                      key={item.id}
+                      className={episode?.id === item.id ? "episode-row active" : "episode-row"}
+                      onClick={() => selectEpisode(item.id)}
+                    >
+                      <span>{String(item.position).padStart(2, "0")}</span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <small>{item.content_type} · {item.style}</small>
+                      </div>
+                      <em className={child?.status === "failed" ? "failed" : ""}>{label}</em>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </section>
 
         <section className="editor-panel">
           {!episode ? (
             <div className="editor-empty">
-              <span>稿</span><h3>选择一条声音</h3><p>查看原文证据、生成三个阶段并保留历史版本。</p>
+              <span>稿</span><h3>选择一条声音终稿</h3><p>终稿将在这里放大显示，细纲和初稿默认折叠。</p>
             </div>
           ) : (
             <>
               <div className="editor-head">
                 <div>
-                  <p className="eyebrow">EPISODE {String(episode.position).padStart(2, "0")}</p>
+                  <p className="eyebrow">声音 {String(episode.position).padStart(2, "0")}</p>
                   <h3>{episode.title}</h3>
                   <span>{episode.content_type} · {episode.style} · 引用 {episode.sources?.length || 0} 个原文小节</span>
                 </div>
-                <button className="primary-button" disabled={busy || project.status === "outline_review"} onClick={() => onGenerate("outline")}>
-                  {episode.versions?.length ? "重新生成整条声音" : "生成细纲、初稿与终稿"}
-                </button>
+                <div className="editor-actions">
+                  {retryStage && (
+                    <button
+                      className="primary-button"
+                      disabled={busy}
+                      onClick={() => onGenerate(retryStage)}
+                    >
+                      从失败的{stageLabels[retryStage]}重跑
+                    </button>
+                  )}
+                  <button className="quiet-button" disabled={busy} onClick={() => onGenerate("outline")}>
+                    重新生成整条
+                  </button>
+                </div>
               </div>
 
-              <div className="artifact-tabs">
-                {(["outline", "draft", "final"] as const).map((stage) => {
+              <div className="supporting-artifacts">
+                {(["outline", "draft"] as const).map((stage) => {
                   const artifact = latestByStage[stage];
                   return (
-                    <article className="artifact-card" key={stage}>
-                      <div className="artifact-head">
-                        <div><span>{stageLabels[stage]}</span><small>{artifact ? `v${artifact.version}` : "未生成"}</small></div>
-                        {artifact && stage !== "outline" && (
-                          <button disabled={busy} onClick={() => onGenerate(stage)}>从这里重跑</button>
-                        )}
-                      </div>
-                      <div className="artifact-body">
+                    <details className="supporting-card" key={stage}>
+                      <summary>
+                        <div>
+                          <strong>{stageLabels[stage]}</strong>
+                          <span>{artifact ? `v${artifact.version} · ${artifact.model}` : "未生成"}</span>
+                        </div>
+                        <span>展开查看</span>
+                      </summary>
+                      <div className="supporting-body">
                         {artifact ? artifact.content : "等待上一步完成"}
                       </div>
                       {artifact && (
-                        <footer>{artifact.provider} · {artifact.model} · prompt {artifact.prompt_version}</footer>
+                        <footer>
+                          <span>prompt {artifact.prompt_version}</span>
+                          <button disabled={busy} onClick={() => onGenerate(stage)}>
+                            从这里重跑
+                          </button>
+                        </footer>
                       )}
-                    </article>
+                    </details>
                   );
                 })}
               </div>
 
-              <div className="evidence-block">
-                <div className="panel-heading"><div><p className="eyebrow">EVIDENCE</p><h3>原文证据</h3></div></div>
-                {(episode.sources || []).map((source) => (
-                  <details key={source.id}>
-                    <summary>{source.title}<span>{source.id.slice(0, 8)}</span></summary>
-                    <p>{source.content}</p>
-                  </details>
-                ))}
+              <div className="final-editor-block">
+                <div className="final-editor-heading">
+                  <div>
+                    <p className="eyebrow">主要审核内容</p>
+                    <h3>声音终稿</h3>
+                  </div>
+                  <span>
+                    {latestByStage.final
+                      ? `${latestByStage.final.author_type === "human" ? "人工编辑" : "模型生成"} · v${latestByStage.final.version}`
+                      : "等待生成"}
+                  </span>
+                </div>
+                <textarea
+                  className="final-editor"
+                  aria-label="声音终稿编辑器"
+                  value={finalDraft}
+                  placeholder="批量生产完成后，声音终稿会显示在这里。"
+                  onChange={(event) => {
+                    setFinalDraft(event.target.value);
+                    setDirty(true);
+                  }}
+                />
+                <div className="final-editor-footer">
+                  <span className={dirty ? "unsaved" : ""}>
+                    {dirty ? "有未保存修改" : `${finalDraft.length} 字 · 已保存`}
+                  </span>
+                  <div>
+                    <button
+                      className="quiet-button"
+                      disabled={busy || !latestByStage.draft}
+                      onClick={() => onGenerate("final")}
+                    >
+                      重新口语化
+                    </button>
+                    <button
+                      className="primary-button"
+                      disabled={busy || !dirty || !finalDraft.trim()}
+                      onClick={() => void saveDraft()}
+                    >
+                      保存修改 · 新建版本
+                    </button>
+                  </div>
+                </div>
               </div>
             </>
           )}
         </section>
+
+        {project.status !== "outline_review" && (
+          <aside className="review-inspector">
+            {!episode ? (
+              <div className="inspector-empty">选择声音后查看证据与版本。</div>
+            ) : (
+              <>
+                <div className="panel-heading">
+                  <div><p className="eyebrow">证据</p><h3>原文引用</h3></div>
+                  <span>{episode.sources?.length || 0} 条</span>
+                </div>
+                <div className="evidence-list">
+                  {(episode.sources || []).map((source) => (
+                    <details key={source.id}>
+                      <summary>
+                        <span>{source.title}</span>
+                        <small>{source.id.slice(0, 8)}</small>
+                      </summary>
+                      <p>{source.content}</p>
+                    </details>
+                  ))}
+                </div>
+                <div className="version-panel">
+                  <div className="panel-heading">
+                    <div><p className="eyebrow">历史</p><h3>终稿版本</h3></div>
+                    <span>{finalVersions.length} 个</span>
+                  </div>
+                  <div className="version-list">
+                    {finalVersions.map((version) => (
+                      <button
+                        key={version.id}
+                        className={version.id === latestByStage.final?.id ? "version-row active" : "version-row"}
+                        onClick={() => {
+                          setFinalDraft(version.content);
+                          setDirty(version.id !== latestByStage.final?.id);
+                        }}
+                      >
+                        <div>
+                          <strong>v{version.version}</strong>
+                          <span>{version.author_type === "human" ? "人工编辑" : version.model}</span>
+                        </div>
+                        <small>
+                          {version.id === latestByStage.final?.id ? "当前" : "作为编辑起点"}
+                        </small>
+                      </button>
+                    ))}
+                    {!finalVersions.length && (
+                      <div className="panel-empty">终稿生成后会保留版本记录。</div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </aside>
+        )}
       </div>
     </>
   );

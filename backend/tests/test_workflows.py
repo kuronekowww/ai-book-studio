@@ -61,3 +61,11 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     assert sum(item["stage"] == "outline" for item in versions) == 1
     assert sum(item["stage"] == "draft" for item in versions) == 2
     assert sum(item["stage"] == "final" for item in versions) == 2
+
+    model_final = next(item for item in versions if item["stage"] == "final")
+    service.save_manual_final(episode_id, f"{model_final['content']}\n人工修订")
+    updated_versions = service.episode_detail(episode_id)["versions"]
+    final_versions = [item for item in updated_versions if item["stage"] == "final"]
+    assert len(final_versions) == 3
+    assert final_versions[0]["author_type"] == "human"
+    assert final_versions[-1]["author_type"] == "model"
