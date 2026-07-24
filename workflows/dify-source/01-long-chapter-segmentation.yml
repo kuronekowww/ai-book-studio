@@ -1,0 +1,477 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】书籍长章节分段
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: code
+      id: 1749526635723-source-1752820683961-target
+      source: '1749526635723'
+      sourceHandle: source
+      target: '1752820683961'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: iteration
+      id: 1752820683961-source-1752820719870-target
+      source: '1752820683961'
+      sourceHandle: source
+      target: '1752820719870'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1752820719870'
+        sourceType: iteration-start
+        targetType: llm
+      id: 1752820719870start-source-1752820752456-target
+      source: 1752820719870start
+      sourceHandle: source
+      target: '1752820752456'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: iteration
+        targetType: code
+      id: 1752820719870-source-1752822471444-target
+      source: '1752820719870'
+      sourceHandle: source
+      target: '1752822471444'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: 1752822471444-source-1754474564072-target
+      source: '1752822471444'
+      sourceHandle: source
+      target: '1754474564072'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1754474564072-source-1752822764220-target
+      source: '1754474564072'
+      sourceHandle: source
+      target: '1752822764220'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: 书籍原文
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: content
+      height: 109
+      id: '1749526635723'
+      position:
+        x: -157.84755266872213
+        y: 282
+      positionAbsolute:
+        x: -157.84755266872213
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\n\ndef main(text: str) -> dict:\n    try:\n        # 解析输入的JSON字符串\n\
+          \        data = json.loads(text)\n        \n        # 获取chapterContents数组\n\
+          \        chapter_contents = data.get('chapterContents', [])\n        \n\
+          \        # 创建结果数组\n        result = []\n        \n        # 遍历每个章节，提取内容并转换为JSON字符串\n\
+          \        for chapter in chapter_contents:\n            chapter_obj = {\n\
+          \                'title': chapter.get('title', ''),\n                'content':\
+          \ chapter.get('content', ''),\n                'sectionContents': chapter.get('sectionContents',\
+          \ [])\n            }\n            # 将每个章节对象转换为JSON字符串并添加到结果数组\n        \
+          \    result.append(json.dumps(chapter_obj, ensure_ascii=False))\n      \
+          \  \n        return {\n            \"result\": result\n        }\n    \n\
+          \    except json.JSONDecodeError as e:\n        print(f\"JSON解析错误: {e}\"\
+          )\n        return {\"result\": []}\n    except Exception as e:\n       \
+          \ print(f\"发生错误: {e}\")\n        return {\"result\": []}"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: array[string]
+        selected: false
+        title: 代码执行
+        type: code
+        variables:
+        - value_selector:
+          - '1749526635723'
+          - content
+          value_type: string
+          variable: text
+      height: 52
+      id: '1752820683961'
+      position:
+        x: 193.39613929972268
+        y: 282
+      positionAbsolute:
+        x: 193.39613929972268
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        error_handle_mode: terminated
+        height: 178
+        is_parallel: false
+        iterator_input_type: array[string]
+        iterator_selector:
+        - '1752820683961'
+        - result
+        output_selector:
+        - '1752820752456'
+        - text
+        output_type: array[string]
+        parallel_nums: 10
+        selected: false
+        start_node_id: 1752820719870start
+        title: 迭代
+        type: iteration
+        width: 388
+      height: 178
+      id: '1752820719870'
+      position:
+        x: 497.3961392997227
+        y: 282
+      positionAbsolute:
+        x: 497.3961392997227
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 388
+      zIndex: 1
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1752820719870start
+      parentId: '1752820719870'
+      position:
+        x: 24
+        y: 68
+      positionAbsolute:
+        x: 521.3961392997227
+        y: 350
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1752820719870'
+        model:
+          completion_params:
+            temperature: 0.6
+            thinking: disabled
+          mode: chat
+          name: doubao-seed-2.0-lite
+          provider: langgenius/volcengine_maas/volcengine_maas
+        prompt_template:
+        - id: f7bb588b-13c3-4a38-b0d0-301ac3f3aad1
+          role: system
+          text: "# 你的任务\n根据输入的json格式的小说文本，识别文本内容，在原章节标题“title”的基础上，对文本再进行分段，添加分节的小标题“section_title”\n\
+            \n# 输出示例\n```text\n{\n    \"sectionContents\": [\n        {\n        \
+            \    \"section_title\":\"小标题名\",\n            \"first_sentence\":\"一直被幼年丧父的阴霾笼罩的企业高管，在外人看来光鲜亮丽，坐拥一切，但内心极度自我贬低，觉得自己一无是处。亚隆如何陪伴他走出内心的恐惧？\"\
+            \n        }\n],\n    \"title\": \"引言\"\n  }\n```\n"
+        - id: 51c3fff8-9ced-4ba8-97a3-7178e19f1a9b
+          role: user
+          text: "# 任务\n基于以下章节的原文内容，按语义逻辑划分成多个小节，步骤如下：\n1. 计算总字数：统计当前章节原文的总字数（不含标题）；\n\
+            2. 确定分段数量：\n   - 总字数＜6000，划分为2段；\n   - 6000≤总字数＜12000，划分为3段；\n   - 总字数≥12000，划分为n段，每段4000字左右。\n\
+            3. 每个分段后的小节字数必须在4000字左右。\n4. 按照要求划分小节。\n\n## 要求\n1. 小节划分需符合“语义完整性”：每个小节围绕一个子主题展开（如“蒸汽机的改良历程”“纺织机械的技术迭代”），必须保留完整情节，事件、论证或概念。\
+            \  \n2. 如果文本中含有以markdown的\"####\"标识（例如“####建造一个特洛伊木马”），或以短词语+换行标识（例如：“\\\
+            n\\n门槛上的人 \\n\\n”）的内容，则优先将其识别为小标题。\n3. 为每个小节生成：  \n   - 小节标题（简洁，10-20字，体现子主题，类似目录小标题）；\
+            \  \n   - 小节首句（必须是该小节在原文中的**第一句话**，一字不差，包含标点符号）。  \n4. 输出格式：严格使用JSON数组，保留输入的章节标题\"\
+            title\"，在\"sectionContents\"中，每个元素对应一个小节，包含“section_title”（小节标题）、“first_sentence”（首句原文）。\
+            \  \n5. 确保所有小节首句在原文中真实存在，且按原文顺序排列（不可颠倒）\n6. 每个章节中，各小节字数应该平均分配，小节之间的字数之差应该小于2000字\n\
+            \n## 书籍原文内容\n{{#1752820719870.item#}}\n"
+        selected: false
+        title: LLM 2
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 88
+      id: '1752820752456'
+      parentId: '1752820719870'
+      position:
+        x: 126.98602114885148
+        y: 68
+      positionAbsolute:
+        x: 624.3821604485742
+        y: 350
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+    - data:
+        code: "\nimport json\nimport re\ndef clean_json_string(s):\n    \"\"\"增强版清洗：处理单引号、转义符和格式标记\"\
+          \"\"\n    # 1. 去除```json标记\n    s = re.sub(r'^```json\\s*', '', s, flags=re.IGNORECASE)\n\
+          \    s = re.sub(r'\\s*```$', '', s)\n    # 2. 处理单引号（JSON中允许单引号，但统一转义为\\\
+          '避免冲突）\n    s = s.replace(\"'\", \"\\\\'\")\n    # 3. 修正转义符（确保\\\\n被正确识别为换行符转义）\n\
+          \    s = re.sub(r'\\\\\\\\n', r'\\\\n', s)  # 避免\\\\\\\\n被误解析为两个反斜杠\n  \
+          \  return s.strip()\n\ndef extract_chapters(input_array):\n    extracted\
+          \ = []\n    for idx, item in enumerate(input_array):\n        try:\n   \
+          \         # 清洗当前元素\n            cleaned = clean_json_string(item)\n    \
+          \        # 解析为JSON\n            chapter = json.loads(cleaned)\n        \
+          \    # 验证必要字段\n            if \"title\" in chapter and \"sectionContents\"\
+          \ in chapter:\n                extracted.append(chapter)\n             \
+          \   print(f\"✅ 第{idx+1}个元素：成功提取《{chapter['title']}》\")\n            else:\n\
+          \                print(f\"❌ 第{idx+1}个元素：缺少title或sectionContents\")\n   \
+          \     except json.JSONDecodeError as e:\n            print(f\"❌ 第{idx+1}个元素解析失败（位置：{e.pos}）：{e}\"\
+          )\n            # 打印错误位置附近的内容（方便排查）\n            error_context = cleaned[max(0,\
+          \ e.pos-30):e.pos+30]\n            print(f\"   错误位置附近：{error_context}\"\
+          )\n        except Exception as e:\n            print(f\"❌ 第{idx+1}个元素处理失败：{e}\"\
+          )\n    return extracted\n\ndef main(input_array: str):\n    # 执行合并\n   \
+          \ merged_result = extract_chapters(input_array)\n\n# 输出合并后的JSON（格式化显示）\n\
+          \    return {\n        \"result\": json.dumps(merged_result, ensure_ascii=False,\
+          \ indent=2),\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 2
+        type: code
+        variables:
+        - value_selector:
+          - '1752820719870'
+          - output
+          value_type: array[string]
+          variable: input_array
+      height: 52
+      id: '1752822471444'
+      position:
+        x: 945.3961392997227
+        y: 282
+      positionAbsolute:
+        x: 945.3961392997227
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1754474564072'
+          - result
+          value_type: array[object]
+          variable: result
+        selected: false
+        title: 结束 3
+        type: end
+      height: 88
+      id: '1752822764220'
+      position:
+        x: 1376.2629234821288
+        y: 535.7335683648125
+      positionAbsolute:
+        x: 1376.2629234821288
+        y: 535.7335683648125
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\nimport os\nimport re\n\ndef clean_for_match(s):\n    \"\
+          \"\"去除所有标点符号（包括中英文标点）和空白字符，只保留中文、英文、数字\"\"\"\n    s = re.sub(r'[\\s]', '',\
+          \ s)  # 先去掉所有空白\n    s = re.sub(r'[^\\u4e00-\\u9fa5a-zA-Z0-9]', '', s) \
+          \ # 再去掉所有标点\n    return s\n\ndef find_sentence_fuzzy(content, sentence):\n\
+          \    \"\"\"模糊查找句子在内容中的精确起始位置\"\"\"\n    # 1. 精确查找 - 优先使用精确匹配\n    idx =\
+          \ content.find(sentence)\n    if idx != -1:\n        return idx\n\n    #\
+          \ 2. 去除所有空白字符后查找\n    content_no_space = re.sub(r'[\\s]', '', content)\n\
+          \    sentence_no_space = re.sub(r'[\\s]', '', sentence)\n    idx = content_no_space.find(sentence_no_space)\n\
+          \    if idx != -1:\n        # 回溯原文位置 - 修正版\n        count = 0\n        original_pos\
+          \ = 0\n        for i, c in enumerate(content):\n            if c.strip()\
+          \ != '':\n                if count == idx:\n                    original_pos\
+          \ = i\n                    break\n                count += 1\n        return\
+          \ original_pos\n\n    # 3. 去除标点和空白后查找\n    content_clean = clean_for_match(content)\n\
+          \    sentence_clean = clean_for_match(sentence)\n    idx = content_clean.find(sentence_clean)\n\
+          \    if idx != -1:\n        # 回溯原文位置 - 修正版\n        count = 0\n        original_pos\
+          \ = 0\n        for i, c in enumerate(content):\n            if re.match(r'[\\\
+          u4e00-\\u9fa5a-zA-Z0-9]', c):\n                if count == idx:\n      \
+          \              original_pos = i\n                    break\n           \
+          \     count += 1\n        return original_pos\n\n    # 4. 前12字滑动窗口模糊查找\n\
+          \    head = sentence_clean[:12] if len(sentence_clean) > 12 else sentence_clean\n\
+          \    idx = content_clean.find(head)\n    if idx != -1:\n        count =\
+          \ 0\n        original_pos = 0\n        for i, c in enumerate(content):\n\
+          \            if re.match(r'[\\u4e00-\\u9fa5a-zA-Z0-9]', c):\n          \
+          \      if count == idx:\n                    original_pos = i\n        \
+          \            break\n                count += 1\n        return original_pos\n\
+          \n    # 5. 查找失败，输出详细调试信息\n    print(f\"警告：找不到锚点，章节内容前200字：{content[:200]}\"\
+          )\n    print(f\"警告：找不到锚点，小节首句：{sentence}\")\n    print(f\"警告：处理后首句：{sentence_clean}\"\
+          )\n    print(f\"警告：原文清洗后前200字：{content_clean[:200]}\")\n    return -1\n\n\
+          def main(input_json_str, section_json_str):\n    \"\"\"\n    主函数：处理书籍章节分段\n\
+          \    \n    Args:\n        input_json_str (str): 结构化书籍的JSON字符串\n        section_json_str\
+          \ (str): dify流程输出的JSON字符串\n        \n    Returns:\n        str: 处理后的JSON字符串\n\
+          \    \"\"\"\n    # 解析JSON字符串\n    data = json.loads(input_json_str)\n  \
+          \  section_titles_list = json.loads(section_json_str)\n\n    # 构建章节标题到小节列表的映射\n\
+          \    title_to_sections = {}\n    for chapter in section_titles_list:\n \
+          \       title = chapter.get('title', '').strip()\n        section_contents\
+          \ = chapter.get('sectionContents', [])\n        title_to_sections[title]\
+          \ = section_contents\n\n    # 处理每章\n    for chapter in data.get('chapterContents',\
+          \ []):\n        chapter_title = chapter.get('title', '').strip()\n     \
+          \   content = chapter.get('content', '')\n        section_info = title_to_sections.get(chapter_title,\
+          \ [])\n        section_contents = []\n        if not section_info or not\
+          \ content:\n            chapter['sectionContents'] = []\n            continue\n\
+          \n        # 找到每个小节的起始位置\n        starts = []\n        for info in section_info:\n\
+          \            first_sentence = info['first_sentence'].strip()\n         \
+          \   idx = find_sentence_fuzzy(content, first_sentence)\n            if idx\
+          \ == -1:\n                print(f\"警告：在章节《{chapter_title}》中找不到小节锚点：{first_sentence[:20]}...\"\
+          )\n                continue\n            starts.append((idx, info['section_title'],\
+          \ first_sentence))\n        \n        # 按起始位置排序\n        starts.sort()\n\
+          \        \n        # 切分内容\n        for i, (start_idx, sec_title, first_sentence)\
+          \ in enumerate(starts):\n            # 确定当前小节的结束位置\n            if i + 1\
+          \ < len(starts):\n                end_idx = starts[i+1][0]\n           \
+          \ else:\n                end_idx = len(content)\n            \n        \
+          \    # 提取当前小节的内容（从首句开始到下一小节开始前）\n            sec_content = content[start_idx:end_idx].strip()\n\
+          \            \n            section_contents.append({\n                'title':\
+          \ sec_title,\n                'content': sec_content\n            })\n \
+          \       \n        chapter['sectionContents'] = section_contents\n\n    #\
+          \ 返回处理后的JSON字符串\n    return {\n        \"result\": data\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: object
+        selected: false
+        title: 代码执行 3
+        type: code
+        variables:
+        - value_selector:
+          - '1749526635723'
+          - content
+          value_type: string
+          variable: input_json_str
+        - value_selector:
+          - '1752822471444'
+          - result
+          value_type: string
+          variable: section_json_str
+      height: 52
+      id: '1754474564072'
+      position:
+        x: 1249.3961392997226
+        y: 282
+      positionAbsolute:
+        x: 1249.3961392997226
+        y: 282
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: -1165.6214520019955
+      y: -251.2412820870972
+      zoom: 0.9862138632057167
+  rag_pipeline_variables: []

@@ -3,11 +3,16 @@
 .env.*
 !.env.example
 .venv/
+*.egg-info/
 __pycache__/
 *.py[cod]
 node_modules/
 dist/
 .vite/
+/.next/
+/.vinext/
+/out/
+/.wrangler/
 .pytest_cache/
 .ruff_cache/
 coverage/
@@ -19,4 +24,7 @@ storage/
 *.sqlite3
 original-books/
 .superpowers/
-
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

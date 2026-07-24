@@ -1,0 +1,467 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】思维导图
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInLoop: false
+        sourceType: start
+        targetType: code
+      id: 1748158370247-source-1751621954595-target
+      source: '1748158370247'
+      sourceHandle: source
+      target: '1751621954595'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: llm
+      id: 1751621954595-source-1748158513224-target
+      source: '1751621954595'
+      sourceHandle: source
+      target: '1748158513224'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 1748158513224-source-1749094129363-target
+      source: '1748158513224'
+      sourceHandle: source
+      target: '1749094129363'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1752658703413-source-1748161992874-target
+      source: '1752658703413'
+      sourceHandle: source
+      target: '1748161992874'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: 1749094129363-source-1752658703413-target
+      selected: false
+      source: '1749094129363'
+      sourceHandle: source
+      target: '1752658703413'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: 拆书稿
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: book_outline
+        - label: 书名
+          max_length: null
+          options: []
+          required: true
+          type: text-input
+          variable: booktitle
+        - label: 作者
+          max_length: null
+          options: []
+          required: true
+          type: text-input
+          variable: author
+      height: 161
+      id: '1748158370247'
+      position:
+        x: -31.785934013302096
+        y: 283.78593401330204
+      positionAbsolute:
+        x: -31.785934013302096
+        y: 283.78593401330204
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.9
+          mode: chat
+          name: anthropic.claude-sonnet-4-20250514-v1:0
+          provider: langgenius/bedrock/bedrock
+        prompt_template:
+        - id: 622adf44-d607-4187-885e-24bb41618928
+          role: system
+          text: '# 角色
+
+            你是一位讲书类内容创作者，你需要根据输入的拆书稿内容，分析书籍的内容性质，生成思维导图，目的是可视化书籍的知识地图。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1748158370247.booktitle#}}
+
+            作者：{{#1748158370247.author#}}
+
+
+            # 技能
+
+            熟悉不同内容性质书籍的思维导图形式
+
+            擅长分析内容之间的逻辑关系
+
+            熟悉金字塔结构的信息分类方法
+
+
+            # Audience
+
+            在此前没有阅读过该书籍，将通过听书的方式获取本书内容的人
+
+
+            # Style
+
+            循序渐进，通俗易懂，保留原书精华'
+        - id: a1e214b9-b97e-4a07-b4a8-9d8b0fc7f15c
+          role: user
+          text: '# 你的任务
+
+            根据输入的书籍拆书稿，理解书籍的主题和各章节的主要内容，对内容按照**金字塔结构**分类并排序，**建立系统化的知识体系，使一本书中的逻辑点连接起来**。
+
+            仅一次性输出markdown格式的完整思维导图。
+
+
+            # 思维导图的设计步骤
+
+            1. 先分析书籍的内容性质（工具类，知识科普类，逻辑类等）
+
+            2. 根据书籍的内容性质，分析读者阅读书籍时的目的与知识地图，基于以上信息设计思维导图
+
+            3. 仅输出最终的完整思维导图，不需要输出分析内容
+
+
+            # 注意
+
+            1. 使用原书内容组成思维导图，优先使用原书中的表述
+
+            2. 在第二层分支中标明引用的章节，避免幻觉
+
+            3. 使用简洁清晰且口语化的表述，**概括并归纳主要知识点**，避免流水账
+
+            4. 可以在分枝末梢增加用户视角表述的金句，用加粗表示
+
+            5. 不要有多余的内容，只需要输出markdown格式的完整思维导图，而不是其他的格式（比如mermaid）
+
+
+            # 拆书稿
+
+            {{#1751621954595.result#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 思维导图
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 117
+      id: '1748158513224'
+      position:
+        x: 583.9194199430947
+        y: 282
+      positionAbsolute:
+        x: 583.9194199430947
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1748158513224'
+          - text
+          variable: mind_map
+        - value_selector:
+          - '1752658703413'
+          - result
+          value_type: string
+          variable: album_outline
+        selected: false
+        title: 结束
+        type: end
+      height: 114
+      id: '1748161992874'
+      position:
+        x: 1847.0040785169913
+        y: 208.77670545461496
+      positionAbsolute:
+        x: 1847.0040785169913
+        y: 208.77670545461496
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: gemini-3-pro
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: e191c292-49e7-4657-8718-c74e554b09ac
+          role: system
+          text: '# 角色
+
+            你是一位书籍解读有声内容创作者，你需要分析书籍的内容性质，设计书籍解读的专辑目录大纲。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1748158370247.booktitle#}}
+
+            作者：{{#1748158370247.author#}}
+
+
+            # 技能
+
+            熟悉书籍解读类专辑的组稿逻辑
+
+            熟悉金字塔结构的信息分类方法
+
+
+            # Audience
+
+            在此前没有阅读过该书籍，将通过听书的方式获取本书内容的人
+
+
+            # Style
+
+            循序渐进，通俗易懂，保留原书精华
+
+            '
+        - id: 2355cd05-9629-4073-8d1c-952adfeda972
+          role: user
+          text: "# 拆书稿\n{{#1751621954595.result#}}\n\n# 你的任务\n为这本书籍设计一个书籍解读的有声专辑目录，包含每条声音的主题，主要观点，声音内容类型（解读/过渡），参考输出示例，将专辑大纲输出在文本框内。\n\
+            \n## 内容要求\n1. 基于拆书稿中的知识模块，将书籍内容按主题划分成专辑中的声音小节（30条声音以上），优先参考拆书稿的叙述顺序，每条声音交付原书中一个子主题的内容量。\n\
+            2. 专辑声音的内容顺序参考思维导图中的叙述顺序，专辑声音内容类型会存在“解读类”和“过渡类”两种类型：\n1. 对于叙事类的书籍，声音类型仅存在“解读类”；2.\
+            \ 对于非叙事类的书籍，在两个大的知识模块之间可以增加一条过渡声音，对内容做承上启下，需要标明过渡的前后两节。\n3. 需要生成的是书籍主要内容的解读部分，避免生成单独的导入或尾声声音。\n\
+            4. 每个content_index对应一条声音，避免拆分小节到多条声音内\n5. 声音标题的设计需要有趣吸睛，吸引听众点击\n\n## 格式要求\n\
+            1. 理解专辑大纲中每一集声音的内容，遵循输出格式，在\"title\"中记录声音标题，\"main_points\"中记录声音的主要观点，\"\
+            section_identifier\": 记录声音观点的来源（content_index），\"content_type\"中记录这条声音的类型是解读类还是过渡类。\n\
+            2. 参考拆书稿，在每条声音的“section_identifier”中标注声音的主要观点内容出处，**明确对应拆书稿中的完整原书内容索引（content_index）**，便于后续检索原文，过渡声音的“section_identifier”应包含需要过渡的前后两个小节的原书内容索引（content_index）用逗号分开。\n\
+            \n# 输出格式\n```text\n{\n  \"album_outline\": [\n    {\n      \"title\":\
+            \ \"声音标题\",\n      \"main_points\": \"1. 主要观点 2. 主要观点 ...\",\n      \"\
+            section_identifier\": \"content_index\",\n      \"content_type\": \"解读类/过渡类\"\
+            \n    }\n  ]\n}\n```"
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: true
+        structured_output_enabled: true
+        title: 专辑大纲
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 117
+      id: '1749094129363'
+      position:
+        x: 950.8235596823995
+        y: 275.16745567467353
+      positionAbsolute:
+        x: 950.8235596823995
+        y: 275.16745567467353
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\n\ndef main(data: str) -> dict:\n    \"\"\"\n    提取并合并拆书稿中的主要观点和事件，适配两种格式（含main_viewpoints或events）\n\
+          \    \n    Args:\n        data (str): 输入的JSON字符串数据\n\n    Returns:\n   \
+          \     str: 包含章节、子主题、观点和事件的转换后JSON字符串\n    \"\"\"\n    # 解析输入JSON\n    try:\n\
+          \        parsed_data = json.loads(data)\n    except json.JSONDecodeError:\n\
+          \        return json.dumps({\"error\": \"无效的JSON数据\"}, ensure_ascii=False)\n\
+          \n    result = {\"book_analysis\": {\"chapters\": []}}\n    \n    for chapter\
+          \ in parsed_data.get(\"book_analysis\", {}).get(\"chapters\", []):\n   \
+          \     chapter_info = {\n            \"chapter_title\": chapter[\"chapter\"\
+          ].get(\"title\", \"N/A\"),\n            \"subtopics\": []\n        }\n \
+          \       \n        for subtopic in chapter.get(\"subtopics\", []):\n    \
+          \        subtopic_info = {\n                \"content_index\": subtopic.get(\"\
+          content_index\", \"N/A\"),\n                \"subtopic_title\": subtopic.get(\"\
+          subtopic_title\", \"N/A\"),\n                \"viewpoints\": [],  # 兼容原格式的观点\n\
+          \                \"events\": []       # 新增：兼容事件格式\n            }\n     \
+          \       \n            # 处理原格式的主要观点\n            for viewpoint in subtopic.get(\"\
+          main_viewpoints\", []):\n                subtopic_info[\"viewpoints\"].append({\n\
+          \                    \"viewpoint\": viewpoint.get(\"viewpoint\", \"N/A\"\
+          ),\n                })\n            \n            # 处理新格式的事件（提取所有事件内容）\n\
+          \            for event in subtopic.get(\"events\", []):\n              \
+          \  subtopic_info[\"events\"].append({\n                    \"event_title\"\
+          : event.get(\"event_title\", \"N/A\"),\n                    \"event_process\"\
+          : event.get(\"event_process\", []),\n                })\n            \n\
+          \            chapter_info[\"subtopics\"].append(subtopic_info)\n       \
+          \ \n        result[\"book_analysis\"][\"chapters\"].append(chapter_info)\n\
+          \    \n    # 转换为JSON字符串返回\n    return {\n        \"result\": json.dumps(result,\
+          \ ensure_ascii=False, separators=(\",\", \":\"))\n    }\n\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: string
+        selected: false
+        title: 压缩拆书稿
+        type: code
+        variables:
+        - value_selector:
+          - '1748158370247'
+          - book_outline
+          value_type: string
+          variable: data
+      height: 52
+      id: '1751621954595'
+      position:
+        x: 263.0399124199688
+        y: 327.3111645265064
+      positionAbsolute:
+        x: 263.0399124199688
+        y: 327.3111645265064
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\nimport re\n\ndef main(text: str):\n    # 1. 优先匹配 ```text\
+          \ 代码块\n    pattern_text = re.compile(r'```text(.*?)```', re.DOTALL)\n  \
+          \  match = pattern_text.search(text)\n\n    # 2. 如果没找到，再匹配 ```json 代码块\n\
+          \    if not match:\n        pattern_json = re.compile(r'```json(.*?)```',\
+          \ re.DOTALL)\n        match = pattern_json.search(text)\n\n    # 3. 都没找到\
+          \ → 返回错误\n    if not match:\n        return {\"error\": \"未找到 ```text 或\
+          \ ```json 代码块\"}\n\n    # 提取内容\n    content = match.group(1).strip()\n\n\
+          \    # 删除 <think>...</think> 标签及其内容\n    content = re.sub(r'<think>.*?</think>',\
+          \ '', content, flags=re.DOTALL).strip()\n\n    try:\n        # 尝试解析为 JSON\
+          \ 并格式化\n        json_obj = json.loads(content)\n        formatted_json =\
+          \ json.dumps(json_obj, indent=2, ensure_ascii=False)\n        return {\"\
+          result\": formatted_json}\n    except json.JSONDecodeError:\n        # 不是合法\
+          \ JSON 就返回原文\n        return {\"result\": content}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 2
+        type: code
+        variables:
+        - value_selector:
+          - '1749094129363'
+          - text
+          value_type: string
+          variable: text
+      height: 52
+      id: '1752658703413'
+      position:
+        x: 1409.5609879622289
+        y: 214.13450749452124
+      positionAbsolute:
+        x: 1409.5609879622289
+        y: 214.13450749452124
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: -368.9466922399224
+      y: 235.68335645379685
+      zoom: 0.559931101906204
+  rag_pipeline_variables: []

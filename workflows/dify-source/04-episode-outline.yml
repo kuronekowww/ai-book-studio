@@ -1,0 +1,835 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】声音细纲
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - description: ''
+    id: 5a742fbc-d646-4bb0-ba9b-60a2be0e9cae
+    name: style
+    selector:
+    - env
+    - style
+    value: '1.通俗化的类口语表达
+
+      采用与观众“聊天”的语气，避免刻板学术化，让高门槛的学术内容也能够轻松融入日常语境。使用类口语化句式，用短句、问答的方式结合，听感更易消化。
+
+      2.比喻和生活化案例增强趣味性
+
+      用具体行为或形象化场景解释高深概念，让观众更好代入。
+
+      3.提问式引导，提前代替观众提问
+
+      使用自问自答或预设反问的形式，既点出疑问，又顺势解释，持续引导观众思考。“答案感”明确的表达，很容易让观众带着问题被带到下一个点。
+
+      4.幽默与反思并举
+
+      以一种自嘲幽默的方式说明观点或问题，轻松而发人深省。
+
+      同时，通过略带反人性的观点（如“可以为了存钱而存钱”“花得少才是富有”），直接挑战观众认知，引发思考。
+
+      5. 适当使用对比/夸张手法吸引注意力
+
+      6. 适量使用网络文化与流行梗
+
+      用“红茶婊”“绿茶婊”“PS”“高跟鞋”等流行文化的元素，结合普通人熟悉的调侃词汇，增加了内容的趣味性和亲切感。
+
+      7. 加强情绪共鸣
+
+      针对主要受众（男性与女性）塑造情绪共鸣点。
+
+      8. 多用短句，紧凑有力
+
+      简短清晰的表达，避免语言拖沓，增强逻辑感和可读性。
+
+      9. 观点反复强化
+
+      多次重复文稿中的核心观点/概念，以不同案例进行论证，增强记忆点。
+
+      10. “可以聊天”的叙事感
+
+      文稿像朋友间聊天一样的“娓娓道来”，让人不自觉想要多听、继续听。这种叙述方式适合科普类内容的受众，尤其是某些非高认知门槛的群体。'
+    value_type: string
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1749197837735-true-1749197857088-target
+      source: '1749197837735'
+      sourceHandle: 'true'
+      target: '1749197857088'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1749197857088-source-1749203314233-target
+      source: '1749197857088'
+      sourceHandle: source
+      target: '1749203314233'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1752133259480-false-1749197837735-target
+      source: '1752133259480'
+      sourceHandle: 'false'
+      target: '1749197837735'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: 1752133259480-true-1755660856383-target
+      source: '1752133259480'
+      sourceHandle: 'true'
+      target: '1755660856383'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1773892336312-source-1745484031612-target
+      source: '1773892336312'
+      sourceHandle: source
+      target: '1745484031612'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1749197837735-false-1773892336312-target
+      source: '1749197837735'
+      sourceHandle: 'false'
+      target: '1773892336312'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: llm
+      id: 1755660856383-source-1773901707659-target
+      source: '1755660856383'
+      sourceHandle: source
+      target: '1773901707659'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1773901707659-source-1752133759696-target
+      source: '1773901707659'
+      sourceHandle: source
+      target: '1752133759696'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: if-else
+      id: 1745484026846-source-1774342012392-target
+      source: '1745484026846'
+      sourceHandle: source
+      target: '1774342012392'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1774342012392-false-1752133259480-target
+      source: '1774342012392'
+      sourceHandle: 'false'
+      target: '1752133259480'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 17743420637930-source-1774342083902-target
+      source: '17743420637930'
+      sourceHandle: source
+      target: '1774342083902'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: 1774342012392-true-17743422958060-target
+      source: '1774342012392'
+      sourceHandle: 'true'
+      target: '17743422958060'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: llm
+      id: 17743422958060-source-17743420637930-target
+      source: '17743422958060'
+      sourceHandle: source
+      target: '17743420637930'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: 声音粗纲
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: outline
+        - label: 参考书籍拆书稿
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: reference
+        - label: 声音类型1-内容
+          max_length: 48
+          options:
+          - 解读类
+          - 过渡类
+          required: false
+          type: select
+          variable: type1
+        - label: 书名
+          max_length: null
+          options: []
+          required: true
+          type: text-input
+          variable: booktitle
+        - label: 作者
+          max_length: null
+          options: []
+          required: true
+          type: text-input
+          variable: author
+        - label: 声音类型2-风格
+          max_length: 48
+          options:
+          - 观点类
+          - 鸡汤类
+          - 故事类
+          - 多本书
+          required: true
+          type: select
+          variable: type2
+      height: 239
+      id: '1745484026846'
+      position:
+        x: -400.282063059306
+        y: 60.907870084923644
+      positionAbsolute:
+        x: -400.282063059306
+        y: 60.907870084923644
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1773892336312'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 结束
+        type: end
+      height: 88
+      id: '1745484031612'
+      position:
+        x: 1491.2673267467599
+        y: 286.6931744870509
+      positionAbsolute:
+        x: 1491.2673267467599
+        y: 286.6931744870509
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: 12a594ab-0d52-41e4-9c1b-e24b533346df
+            value: 过渡类
+            varType: string
+            variable_selector:
+            - '1745484026846'
+            - type1
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 非故事类
+        type: if-else
+      height: 124
+      id: '1749197837735'
+      position:
+        x: 380.46137957544283
+        y: 183.37631078289917
+      positionAbsolute:
+        x: 380.46137957544283
+        y: 183.37631078289917
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.8
+          mode: chat
+          name: anthropic.claude-sonnet-4-20250514-v1:0
+          provider: langgenius/bedrock/bedrock
+        prompt_template:
+        - id: 44f02fbe-7fe5-4dcb-9a7c-4122c500b0f8
+          role: system
+          text: "# 你的角色\n你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，帮用户读的懂，用得上。\n\n## 需要解读的书籍\n书名：{{#1745484026846.booktitle#}}\n\
+            作者：{{#1745484026846.author#}}\n\n## 输出格式\n# 过渡主题\n\n# 回顾上一部分的要点\n- 要点1\n\
+            - 要点2\n## 过渡核心\n - 上下章节联系\n - 补充信息\n## 引导预告\n - 预告1\n \n"
+        - id: 18ea6842-e99e-4ef3-a7d9-e7aba0af80a5
+          role: user
+          text: '# 你的任务
+
+            根据输入的声音内容框架和参考书籍内容，分析并设计声音内容大纲。
+
+
+            # 书籍内容
+
+            {{#1745484026846.reference#}}
+
+            '
+        - id: 59ff9f24-ae49-4e82-8cde-4d119fd2a713
+          role: assistant
+          text: '理解大纲框架中的元素和目的：
+
+            1. 过渡主题
+
+            简要描述本过渡声音的核心任务（衔接哪两个章节/知识点）。
+
+            2. 回顾上一部分的要点
+
+            要点1
+
+            要点2
+
+            3. 过渡核心
+
+            点明上下章节之间的内在联系（可以是主题、观点、逻辑链或作者思维方式的延伸）。
+
+            根据需要，补充背景或关联信息，帮助听众对接下来的内容做好准备。
+
+            4. 引导预告
+
+            简洁介绍下一个章节的核心议题或引发的新问题，激发兴趣。
+
+            给出期待感或思考方向，强调继续聆听的意义。
+
+
+
+            理解观点的要求：
+
+            - 新颖：打破常规思维，比如从相反的角度看问题，或者结合跨领域的知识，在初始困惑后引发认知重组；
+
+            - 反差和反转：通过设定对比强烈的场景或挑战传统观念来实现，使人同时体验到"这不可能是对的"和"这必然是对的"的矛盾感；
+
+            - 深度且有锐度：陈述现象，还要分析背后的原因、影响，甚至提出解决方案，能让人重新审视长期持有但从未质疑的基本假设，产生"我怎么从未这样想过"的顿悟体验；'
+        - id: cd00bc58-7042-4f5d-8be4-e272e5b93210
+          role: user
+          text: '## 要求
+
+            1. 结合声音主题和分析思考过程，设计书籍的解读方式，帮用户听得懂，用得上；
+
+            2. 理解大纲框架中的元素和目的，从目标人群的用户视角出发设计大纲内容，帮助用户读懂书籍并且能对知识加以运用。
+
+            4. **必须严格按照声音内容框架中提及的内容撰写大纲，禁止超出声音内容框架的范围**。原封不动地保留引用的书籍中的金句或表述，禁止编造书籍名称。
+
+            5. 大纲中的观点和论据，需要能输出新颖、有锐度且有价值的内容，确保能结合该观点和书籍内容进行有依据的阐述，逻辑流畅且合理，避免幻觉。
+
+            6. 参考输出格式，仅需要输出类播客的声音内容大纲，言简洁精准，输出在文本框中。
+
+
+            # 声音内容框架
+
+            {{#1745484026846.outline#}}
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 过渡-构思
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 118
+      id: '1749197857088'
+      position:
+        x: 668.7212886114202
+        y: 155.84176459592993
+      positionAbsolute:
+        x: 668.7212886114202
+        y: 155.84176459592993
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1749197857088'
+          - text
+          variable: text
+        selected: false
+        title: 结束 2
+        type: end
+      height: 88
+      id: '1749203314233'
+      position:
+        x: 972.7212886114202
+        y: 155.84176459592993
+      positionAbsolute:
+        x: 972.7212886114202
+        y: 155.84176459592993
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: 458b64be-8873-435f-a0ad-4ceed20947b0
+            value: 故事类
+            varType: string
+            variable_selector:
+            - '1745484026846'
+            - type2
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 故事/非故事
+        type: if-else
+      height: 124
+      id: '1752133259480'
+      position:
+        x: 168.23518957614158
+        y: 14.336408392936505
+      positionAbsolute:
+        x: 168.23518957614158
+        y: 14.336408392936505
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1773901707659'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 结束 3
+        type: end
+      height: 88
+      id: '1752133759696'
+      position:
+        x: 1065.0000135608884
+        y: -159.7511679477651
+      positionAbsolute:
+        x: 1065.0000135608884
+        y: -159.7511679477651
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\n\ndef main(text: str) -> dict:\n    # 拆分每个 JSON 对象\n \
+          \   json_objects = []\n    decoder = json.JSONDecoder()\n    idx = 0\n \
+          \   while idx < len(text):\n        try:\n            obj, idx = decoder.raw_decode(text,\
+          \ idx)\n            json_objects.append(obj)\n        except json.JSONDecodeError:\n\
+          \            break\n    \n    results = []\n    for data in json_objects:\n\
+          \        # 提取 'character_relationships' 和 '其他内容'\n        character_relationships\
+          \ = data.get(\"character_relationships\", [])\n        del data[\"character_relationships\"\
+          ]  # 删除 'character_relationships' 后其余内容即为“其他内容”\n        \n        # 将 'character_relationships'\
+          \ 转换为 JSON 字符串形式\n        character_relationships_string = json.dumps(character_relationships,\
+          \ ensure_ascii=False, indent=2)\n        \n        # 将 '其他内容' 转换为 JSON 字符串形式\n\
+          \        other_content_string = json.dumps(data, ensure_ascii=False, indent=2)\n\
+          \        \n    return {\n        \"character\": character_relationships_string,\n\
+          \        \"events\": other_content_string,\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          character:
+            children: null
+            type: string
+          events:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 3
+        type: code
+        variables:
+        - value_selector:
+          - '1745484026846'
+          - reference
+          value_type: string
+          variable: text
+      height: 52
+      id: '1755660856383'
+      position:
+        x: 474.32413892776344
+        y: -41.878037364865264
+      positionAbsolute:
+        x: 474.32413892776344
+        y: -41.878037364865264
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params: {}
+          mode: chat
+          name: qwen3-max
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: b5c1fa64-9de5-4d12-b9f2-827c620dc8a4
+          role: system
+          text: "# 你的角色\n你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，帮用户读得懂，用得上。\n\n## 需要解读的书籍\n书名：{{#1745484026846.booktitle#}}\n\
+            作者：{{#1745484026846.author#}}\n\n# 你的任务\n根据声音内容框架和书籍内容，设计一份类播客的声音内容细纲（能支撑约1500字正文）。在思考过程中完成以下分析，再输出细纲：\n\
+            1. 结合声音主题，分析如何将书籍内容做通俗化解读；\n2. 识别大纲中用户可能不了解但未展开的概念/故事/数据，补充必要的背景说明，降低理解门槛；\n\
+            3. 识别书籍中与主要观点匹配的论据和案例故事，用于佐证观点。\n\n## 大纲框架\n1. **声音主题**\n2. **开篇**：直接简要预告声音的主要内容，给用户提供清晰的认知地图\n\
+            3. **过渡句**：在每两部分之间，承接上下内容的一句话过渡\n4. **正文部分**\n   - 背景（如需）：对听众陌生的概念、名词、人物做简要背景介绍\n\
+            \   - 主要观点：核心内容维度，确保后续内容围绕其展开\n   - 论据：有锐度的观点或陈述，有效支撑主要观点\n   - 案例（如有）：书籍中能直接佐证主要观点的具体故事、事例或数据，以故事性情节点概述（≤2个）\n\
+            5. **结尾**：一两句简洁语言，引用原文金句，总结核心价值与用户需求的内在链接，升华主题\n\n## 观点要求\n- **新颖**：打破常规思维，从相反角度或跨领域知识切入，引发认知重组\n\
+            - **反差和反转**：设定对比强烈的场景或挑战传统观念，制造\"这不可能是对的\"与\"这必然是对的\"的矛盾感\n- **深度且有锐度**：不止陈述现象，还要分析原因、影响甚至解决方案，让人产生\"\
+            我怎么从未这样想过\"的顿悟\n\n## 要求\n1. **严格按照声音内容框架提及的内容撰写，禁止超出框架范围**\n2. 从目标人群的用户视角出发，对书中案例做本地化解读，帮助用户理解并运用\n\
+            3. 原封不动保留引用的书籍原文金句或表述，**禁止虚构、夸大信息或编造书籍名称**\n4. 论据和观点需有依据、逻辑流畅，避免幻觉\n5.\
+            \ 语言简洁精准，输出在文本框中\n\n## 输出格式\n```text\n# 声音主题\n## 开篇\n- 预告：\n## 过渡句\n\n\
+            ## 第一部分\n### 主要观点：\n- 背景（optional）\n- 论据1\n- 论据2\n- 论据n\n### 案例\n- 具体案例故事（optional）\n\
+            \n...\n\n## 结尾\n```\n\n# 声音内容框架\n{{#1745484026846.outline#}}\n\n# 书籍内容\n\
+            {{#1745484026846.reference#}}"
+        selected: false
+        title: 非故事声音细纲
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1773892336312'
+      position:
+        x: 1105.004992625778
+        y: 286.6931744870509
+      positionAbsolute:
+        x: 1105.004992625778
+        y: 286.6931744870509
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params: {}
+          mode: chat
+          name: doubao-seed-2.0-pro
+          provider: langgenius/volcengine_maas/volcengine_maas
+        prompt_template:
+        - id: 6b72ae1d-d141-4eaf-ac76-9d8aa121ac51
+          role: system
+          text: "# 你的角色\n你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。\n\n## 需要解读的书籍\n\
+            书名：{{#1745484026846.booktitle#}}\n作者：{{#1745484026846.author#}}\n\n##\
+            \ 人物关系\n{{#1755660856383.character#}}\n\n# 你的任务\n根据声音内容框架和书籍内容，设计一份声音内容细纲。在思考过程中完成以下分析，再输出细纲：\n\
+            1. 结合声音主题，分析如何将书籍内容做通俗化解读，把人物和剧情讲清楚；\n2. 识别大纲中用户可能不了解但未展开的概念/人物/背景，补充必要的说明，降低理解门槛；\n\
+            3. 理清书籍中的故事发展和情节，补充细节内容，避免遗漏关键情节。\n\n## 大纲框架\n1. **声音主题**\n2. **开篇**：简单引入\n\
+            3. **过渡句**：在每两部分之间，承接上下内容的一句话过渡\n4. **正文部分**\n   - 背景（如需）：对听众陌生的概念、名词、人物做简要背景介绍\n\
+            \   - 主要事件：核心情节点\n     - 事件经过情节点1\n     - 事件经过情节点2\n     - 事件影响（optional）\n\
+            \     - 人物分析（optional）\n5. **结尾**：简单一句话，引导用户继续收听下一集\n\n## 要求\n1. **正文部分的情节点仅限于\"\
+            events\"中提及的事件和人物，禁止超出事件的发展范围**\n2. 原封不动保留引用的书籍原文金句或表述，**禁止虚构、夸大信息或改动书籍内容**\n\
+            3. 从用户视角出发，对陌生人物和背景做必要说明，确保剧情连贯易懂\n4. 语言简洁精准，输出在文本框中\n5. 必须遵循声音内容框架里的要点，从书籍内容中筛选相关情节，组成大纲，不要把书籍内容中的所有东西都写入大纲。\n\
+            \n## 输出格式\n```text\n# 声音主题\n## 开篇\n## 过渡句\n\n## 第一部分\n### 主要事件1：\n- 背景（optional）\n\
+            事件经过：\n- 情节点1\n- 情节点2\n- 情节点n\n  - 事件影响（optional）：\n  - 人物分析（optional）：\n\
+            \n...\n## 结尾\n简单结尾\n\n```\n\n# 声音内容框架\n{{#1745484026846.outline#}}\n\n\
+            # 书籍内容\n{{#1755660856383.events#}}"
+        selected: false
+        title: 故事声音细纲
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1773901707659'
+      position:
+        x: 674.4093570604218
+        y: -145.0682174590873
+      positionAbsolute:
+        x: 674.4093570604218
+        y: -145.0682174590873
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: ab1d610d-7a46-4a36-b088-c00e585f2204
+            value: 多本书
+            varType: string
+            variable_selector:
+            - '1745484026846'
+            - type2
+          id: 'true'
+          logical_operator: and
+        selected: false
+        title: 条件分支 3
+        type: if-else
+      height: 124
+      id: '1774342012392'
+      position:
+        x: -79.94681205462666
+        y: -192.00531056938777
+      positionAbsolute:
+        x: -79.94681205462666
+        y: -192.00531056938777
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: qwen3-max
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 6b72ae1d-d141-4eaf-ac76-9d8aa121ac51
+          role: system
+          text: "# 你的角色\n你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。\n\n## 需要解读的书籍\n\
+            书名：{{#1745484026846.booktitle#}}\n作者：{{#1745484026846.author#}}\n\n##\
+            \ 人物关系\n{{#17743422958060.character#}}\n# 你的任务\n根据声音内容框架和书籍内容，设计一份声音内容细纲（能支撑约1500字正文）。在思考过程中完成以下分析，再输出细纲：\n\
+            1. 结合声音主题，分析如何将书籍内容做通俗化解读，把人物和剧情讲清楚；\n2. 识别大纲中用户可能不了解但未展开的概念/人物/背景，补充必要的说明，降低理解门槛；\n\
+            3. 理清书籍中的故事发展和情节，补充细节内容，避免遗漏关键情节。\n\n## 大纲框架\n1. **声音主题**\n2. **开篇**：直接简要预告声音的主要内容，给用户提供清晰的认知地图\n\
+            3. **过渡句**：在每两部分之间，承接上下内容的一句话过渡\n4. **正文部分**\n   - 背景（如需）：对听众陌生的概念、名词、人物做简要背景介绍\n\
+            \   - 主要事件：核心情节点\n     - 事件经过情节点1\n     - 事件经过情节点2\n     - 事件影响（optional）\n\
+            \     - 人物分析（optional）\n5. **结尾**：简单一句话，引导用户继续收听下一集\n\n## 要求\n1. **正文部分的情节点仅限于\"\
+            events\"中提及的事件和人物，禁止超出事件的发展范围**\n2. 原封不动保留引用的书籍原文金句或表述，**禁止虚构、夸大信息或改动书籍内容**\n\
+            3. 从用户视角出发，对陌生人物和背景做必要说明，确保剧情连贯易懂\n4. 语言简洁精准，输出在文本框中\n\n## 输出格式\n```text\n\
+            # 声音主题\n## 开篇\n- 预告：\n## 过渡句\n\n## 第一部分\n### 主要事件1：\n- 背景（optional）\n\
+            事件经过：\n- 情节点1\n- 情节点2\n- 情节点n\n  - 事件影响（optional）：\n  - 人物分析（optional）：\n\
+            \n...\n\n## 结尾\n- 简单一句话，引导用户继续收听下一集\n```\n\n# 声音内容框架\n{{#1745484026846.outline#}}\n\
+            \n# 书籍内容\n{{#17743422958060.events#}}"
+        selected: false
+        title: 多本书声音细纲 (1)
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '17743420637930'
+      position:
+        x: 609.1631791838499
+        y: -325.9123037688645
+      positionAbsolute:
+        x: 609.1631791838499
+        y: -325.9123037688645
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        outputs:
+        - value_selector:
+          - '17743420637930'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 输出 4
+        type: end
+      height: 88
+      id: '1774342083902'
+      position:
+        x: 911.1631791838499
+        y: -325.9123037688645
+      positionAbsolute:
+        x: 911.1631791838499
+        y: -325.9123037688645
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import json\n\ndef main(text: str) -> dict:\n    # 拆分每个 JSON 对象\n \
+          \   json_objects = []\n    decoder = json.JSONDecoder()\n    idx = 0\n \
+          \   while idx < len(text):\n        try:\n            obj, idx = decoder.raw_decode(text,\
+          \ idx)\n            json_objects.append(obj)\n        except json.JSONDecodeError:\n\
+          \            break\n    \n    results = []\n    for data in json_objects:\n\
+          \        # 提取 'character_relationships' 和 '其他内容'\n        character_relationships\
+          \ = data.get(\"character_relationships\", [])\n        del data[\"character_relationships\"\
+          ]  # 删除 'character_relationships' 后其余内容即为“其他内容”\n        \n        # 将 'character_relationships'\
+          \ 转换为 JSON 字符串形式\n        character_relationships_string = json.dumps(character_relationships,\
+          \ ensure_ascii=False, indent=2)\n        \n        # 将 '其他内容' 转换为 JSON 字符串形式\n\
+          \        other_content_string = json.dumps(data, ensure_ascii=False, indent=2)\n\
+          \        \n    return {\n        \"character\": character_relationships_string,\n\
+          \        \"events\": other_content_string,\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          character:
+            children: null
+            type: string
+          events:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 3 (1)
+        type: code
+        variables:
+        - value_selector:
+          - '1745484026846'
+          - reference
+          value_type: string
+          variable: text
+      height: 52
+      id: '17743422958060'
+      position:
+        x: 261.31753910293094
+        y: -325.9123037688645
+      positionAbsolute:
+        x: 261.31753910293094
+        y: -325.9123037688645
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: 110.47214269001984
+      y: 454.71875290296146
+      zoom: 0.5117212334718122
+  rag_pipeline_variables: []

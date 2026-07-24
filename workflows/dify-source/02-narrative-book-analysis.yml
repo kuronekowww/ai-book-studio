@@ -1,0 +1,1067 @@
+app:
+  description: 输入书籍ID，进行自动拆书
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】叙事类-自动拆书
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: tool
+      id: 1749540511824-source-1749548759197-target
+      selected: false
+      source: '1749540511824'
+      sourceHandle: source
+      target: '1749548759197'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1750803056116-source-1750797291373-target
+      selected: false
+      source: '1750803056116'
+      sourceHandle: source
+      target: '1750797291373'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: llm
+        targetType: code
+      id: 1749624051212-source-1751110206485-target
+      selected: false
+      source: '1749624051212'
+      sourceHandle: source
+      target: '1751110206485'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: iteration
+        targetType: code
+      id: 1749549253271-source-1751120516646-target
+      selected: false
+      source: '1749549253271'
+      sourceHandle: source
+      target: '1751120516646'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: 1751120516646-source-1750803056116-target
+      selected: false
+      source: '1751120516646'
+      sourceHandle: source
+      target: '1750803056116'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: iteration
+      id: 1749548809237-source-1749549253271-target
+      selected: false
+      source: '1749548809237'
+      sourceHandle: source
+      target: '1749549253271'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: iteration-start
+        targetType: code
+      id: 1749549253271start-source-1751986216967-target
+      selected: false
+      source: 1749549253271start
+      sourceHandle: source
+      target: '1751986216967'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: code
+        targetType: code
+      id: 1751986565391-source-1751858120426-target
+      source: '1751986565391'
+      sourceHandle: source
+      target: '1751858120426'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: code
+        targetType: llm
+      id: 1751858120426-source-1749624051212-target
+      source: '1751858120426'
+      sourceHandle: source
+      target: '1749624051212'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: 1774343104421-source-1749548809237-target
+      source: '1774343104421'
+      sourceHandle: source
+      target: '1749548809237'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: tool
+        targetType: code
+      id: 1749548759197-source-1774343926025-target
+      source: '1749548759197'
+      sourceHandle: source
+      target: '1774343926025'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: http-request
+      id: 1774343926025-source-1774343104421-target
+      source: '1774343926025'
+      sourceHandle: source
+      target: '1774343104421'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: code
+        targetType: http-request
+      id: 1751986216967-source-1774344430609-target
+      source: '1751986216967'
+      sourceHandle: source
+      target: '1774344430609'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        sourceType: http-request
+        targetType: code
+      id: 1774344430609-source-1751986565391-target
+      source: '1774344430609'
+      sourceHandle: source
+      target: '1751986565391'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: book_id
+          max_length: 48
+          options: []
+          required: true
+          type: number
+          variable: book_id
+        - allowed_file_extensions: []
+          allowed_file_types:
+          - image
+          allowed_file_upload_methods:
+          - local_file
+          - remote_url
+          label: url
+          max_length: 2000
+          options: []
+          required: false
+          type: paragraph
+          variable: url
+      height: 134
+      id: '1749540511824'
+      position:
+        x: -1586.5327878086368
+        y: -374.9208051526882
+      positionAbsolute:
+        x: -1586.5327878086368
+        y: -374.9208051526882
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        provider_id: mainstay
+        provider_name: mainstay
+        provider_type: builtin
+        selected: false
+        title: RPC接口调用工具
+        tool_configurations:
+          environment:
+            type: constant
+            value: production
+          x-client-app:
+            type: constant
+            value: wisdom-whisper-material
+          x-request-group:
+            type: constant
+            value: wisdom-whisper-material
+          x-request-method:
+            type: constant
+            value: queryBook
+          x-request-scope:
+            type: constant
+            value: default
+          x-request-service:
+            type: constant
+            value: com.ximalaya.wisdom.whisper.material.adapter.thrift.BackendBookQueryService$Iface
+          x-request-timeout:
+            type: constant
+            value: null
+        tool_label: RPC接口调用工具
+        tool_name: rpc_call
+        tool_parameters:
+          params:
+            type: mixed
+            value: "{\n  \"bookId\": {{#1749540511824.book_id#}}\n}"
+        type: tool
+        version: '2'
+      height: 243
+      id: '1749548759197'
+      position:
+        x: -1207.8023016919014
+        y: -344.117104123964
+      positionAbsolute:
+        x: -1207.8023016919014
+        y: -344.117104123964
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "def main(chapter_response) -> dict:\n    import json\n\n    if isinstance(chapter_response,\
+          \ str):\n        try:\n            chapter_response = json.loads(chapter_response)\n\
+          \        except Exception:\n            chapter_response = {}\n\n    chapters\
+          \ = chapter_response.get('chapterContents', []) if isinstance(chapter_response,\
+          \ dict) else []\n\n    return {\n        \"chapters\": chapters\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          chapters:
+            children: null
+            type: array[object]
+        selected: false
+        title: 代码执行（解析章节列表）
+        type: code
+        variables:
+        - value_selector:
+          - '1774343104421'
+          - body
+          value_type: string
+          variable: chapter_response
+      height: 51
+      id: '1749548809237'
+      position:
+        x: -300.35007132802843
+        y: -344.117104123964
+      positionAbsolute:
+        x: -300.35007132802843
+        y: -344.117104123964
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        desc: ''
+        error_handle_mode: terminated
+        height: 406
+        is_parallel: false
+        iterator_input_type: array[object]
+        iterator_selector:
+        - '1749548809237'
+        - chapters
+        output_selector:
+        - '1751110206485'
+        - book_analysis
+        output_type: array[object]
+        parallel_nums: 10
+        selected: false
+        start_node_id: 1749549253271start
+        title: 迭代
+        type: iteration
+        width: 1280
+      height: 406
+      id: '1749549253271'
+      position:
+        x: 25.913918440726206
+        y: -309.32327615734937
+      positionAbsolute:
+        x: 25.913918440726206
+        y: -309.32327615734937
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1280
+      zIndex: 1
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1749549253271start
+      parentId: '1749549253271'
+      position:
+        x: 24
+        y: 68
+      positionAbsolute:
+        x: 49.913918440726206
+        y: -241.32327615734937
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        model:
+          completion_params:
+            temperature: 0.9
+            thinking: disabled
+          mode: chat
+          name: doubao-seed-2.0-lite
+          provider: langgenius/volcengine_maas/volcengine_maas
+        prompt_template:
+        - id: b2050ce4-3ddc-4ede-8040-6e1171c81a47
+          role: system
+          text: "# 你的任务\n请你仔细阅读以下书籍原文，根据章节主题，提炼出章节中的人物关系、关键事件及相关细节，形成符合叙事逻辑的拆书稿。\n\
+            \n## Skills\n- 熟练梳理章节的叙事结构和核心内容\n- 精准识别人物之间的关系及关系变化\n- 清晰梳理事件的背景、经过和影响\n\
+            - 准确提取能体现人物特质或引发共鸣的金句\n\n## Workflows\n1. 阅读输入的书籍章节，理解并以一句话提炼本章核心主题（聚焦人物经历或状态）；\n\
+            2. 基于本章主题，对本章内容进行划分，用短句总结每个模块的子主题，优先使用原文中的表述，并且在子主题下标记该内容在原书中的索引（具体到书籍原文中的最小一级标题）；\n\
+            3. 识别本章涉及的关键人物，梳理并概括人物之间的关系（包括新增或变化的关系）；\n4. 提取本章中具有启发性的金句（人物言论或作者评述），确保保留原文表述；\n\
+            5. 梳理本章中的关键事件（每个子主题可包含多个事件），对每个事件依次提炼：\n   - 事件背景：事件发生的前提条件或时代/环境背景\n\
+            \   - 事件经过：按时间顺序列出关键情节点\n   - 事件影响：事件对人物、后续发展或相关方的作用\n6. 按指定输出形式整合上述内容\n\
+            \n## 注意\n1. 人物关系需准确反映原文描述，清晰体现人物间的关联（如亲属、合作、对立等）；\n2. 事件的背景、经过、影响需完整保留原文关键信息，情节节点不遗漏核心细节；\n\
+            3. 金句需直接引用原文，优先选择体现人物思想、精神特质或具有普适启发意义的语句；\n4. 严格按照输出形式的层级结构组织内容，子主题、人物关系、事件等模块对应清晰；\n\
+            5. 区分“事件经过”与“事件影响”：“经过”聚焦客观发生的关键动作或情节，“影响”聚焦事件带来的结果或改变。\n\n### 金句的定义（满足两条即可）\n\
+            - 体现人物核心思想或精神特质；\n- 简洁有力（短句为主）且具有启发性；\n- 能引发读者共鸣（如对人生、奋斗、选择的感悟）；\n- 脱离上下文仍有独立价值，可反映人物特质。\n\
+            \n\n# 输出形式\n# 章节完整标题（如：前言 | 第一章 创业的本质 | 导论 | 附录A等）\n**章节主题：** 章节核心主题的一句话概括\n\
+            \n## 人物关系\n- 人物1：与其他人物的关系\n- 人物2：与其他人物的关系\n\n## 子主题：子主题标题\n**内容索引：** [章节]实际章节标题\
+            \ [子主题]实际子主题标题\n\n### 金句\n- 具有启发性的金句原文1\n- 具有启发性的金句原文2\n\n### 事件1：概括本章中发生的事件1\n\
+            **事件背景：** 事件发生背景的完整概述\n**事件经过：**\n- 事件情节点1\n- 事件情节点2\n**事件影响：**\n- 事件影响1\n\
+            \n### 事件2：概括本章中发生的事件2\n**事件背景：** 事件发生背景的完整概述\n**事件经过：**\n- 事件情节点1\n\n\
+            ## 子主题：另一个子主题标题\n**内容索引：** [章节]实际章节标题 [子主题]实际子主题标题\n\n### 金句\n- 具有启发性的金句原文\n\
+            \n### 事件1：概括本章中发生的事件1\n**事件背景：** 事件发生背景的完整概述\n**事件经过：**\n- 事件情节点1\n**事件影响：**\n\
+            - 事件影响1"
+        - id: 69d2257c-8865-4363-8573-e8ee11542f36
+          role: user
+          text: '# 书籍章节原文
+
+            {{#1749549253271.item#}}
+
+            ```
+
+            #所在章节的标题 {{#1751858120426.chapterTitle#}}
+
+            # 所有的子主题标题数组 {{#1751858120426.sectionTitles#}}
+
+            ```
+
+
+
+            # 重要提示
+
+            子主题处理规则
+
+            当所有的子主题标题数组不为空时：
+
+            严格按照所有的子主题标题数组顺序输出
+
+            子主题数量必须与所有的子主题标题数组长度完全一致
+
+            子主题标题严格使用数组中的原始标题
+
+            当所有的子主题标题数组为空时：
+
+            仅输出一个子主题部分
+
+            内容索引格式为：内容索引： 章节：所在章节的标题 子主题：无
+
+
+            子主题和章节标题请严格按照输入的title为准，不要添加任何多余内容和符号，也不要优化格式。
+
+            内容索引请严格按照以下格式，使用冒号标识以确保准确解析：
+
+            **内容索引：** 章节：章节标题 子主题：子主题标题
+
+            **说明：**
+
+            - 章节标题前加"章节："标识
+
+            - 子主题标题前加"子主题："标识
+
+            - 两者之间用空格分隔
+
+            - 这样即使标题中包含空格也能通过冒号准确分割获取标题内容'
+        selected: false
+        title: LLM
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 87
+      id: '1749624051212'
+      parentId: '1749549253271'
+      position:
+        x: 732.546360494248
+        y: 102.75397231252711
+      positionAbsolute:
+        x: 758.4602789349742
+        y: -206.56930384482226
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1750803056116'
+          - result
+          variable: book_analysis
+        selected: false
+        title: 结束
+        type: end
+      height: 87
+      id: '1750797291373'
+      position:
+        x: 1865.1744394735488
+        y: 184.97404117679093
+      positionAbsolute:
+        x: 1865.1744394735488
+        y: 184.97404117679093
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "# -*- coding: utf-8 -*-\nimport json\nfrom typing import Union, Dict,\
+          \ List, Any\n\n\ndef main(input_data: Union[str, Dict[str, Any]]) -> Dict[str,\
+          \ Any]:\n    \"\"\"\n    处理JSON字符串数据，合并不同的book_analysis章节\n    支持两种数据格式：\n\
+          \    1. input_data数组包含JSON字符串\n    2. input_data数组包含已解析的JSON对象\n\n    Args:\n\
+          \        input_data: 可以是JSON字符串或已解析的字典\n\n    Returns:\n        包含合并结果的字典\n\
+          \    \"\"\"\n    # 解析输入数据\n    if isinstance(input_data, str):\n       \
+          \ data = json.loads(input_data)\n    else:\n        data = input_data\n\n\
+          \    # 验证输入数据格式\n    if not isinstance(data, dict) or \"input_data\" not\
+          \ in data:\n        raise ValueError(\"输入数据格式不正确，应包含input_data字段的字典\")\n\
+          \n    if not isinstance(data[\"input_data\"], list):\n        raise ValueError(\"\
+          input_data字段应该是一个列表\")\n\n    merged_book = {\n        \"book_analysis\"\
+          : {\n            \"chapters\": []\n        }\n    }\n\n    for item in data[\"\
+          input_data\"]:\n        # 处理两种情况：字符串格式或已解析的对象格式\n        if isinstance(item,\
+          \ str):\n            # 原有逻辑：处理JSON字符串\n            clean_item = item.strip()\n\
+          \            try:\n                parsed_data = json.loads(clean_item)\n\
+          \            except json.JSONDecodeError:\n                continue\n  \
+          \      elif isinstance(item, dict):\n            # 新逻辑：直接处理已解析的JSON对象\n\
+          \            parsed_data = item\n        else:\n            # 跳过其他类型的数据\n\
+          \            continue\n\n        # 检查是否包含所需的结构并合并\n        if (isinstance(parsed_data,\
+          \ dict) and\n                \"book_analysis\" in parsed_data and\n    \
+          \            isinstance(parsed_data[\"book_analysis\"], dict) and\n    \
+          \            \"chapters\" in parsed_data[\"book_analysis\"] and\n      \
+          \          isinstance(parsed_data[\"book_analysis\"][\"chapters\"], list)):\n\
+          \            merged_book[\"book_analysis\"][\"chapters\"].extend(\n    \
+          \            parsed_data[\"book_analysis\"][\"chapters\"]\n            )\n\
+          \n    result = {\n        \"result\": merged_book,\n    }\n\n    return\
+          \ result"
+        code_language: python3
+        desc: ''
+        outputs:
+          result:
+            children: null
+            type: object
+        selected: false
+        title: 代码执行 3
+        type: code
+        variables:
+        - value_selector:
+          - '1751120516646'
+          - input_data
+          variable: input_data
+      height: 51
+      id: '1750803056116'
+      position:
+        x: 1524.1684865763723
+        y: 358.2183429200217
+      positionAbsolute:
+        x: 1524.1684865763723
+        y: 358.2183429200217
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "# -*- coding: utf-8 -*-\n\nimport re\nimport json\nfrom typing import\
+          \ Dict, List, Any\n\n\ndef main(text: str, chapterTitle: str, sectionTitles:\
+          \ List[str]) -> Dict[str, Any]:\n    \"\"\"\n    解析人物传记书籍内容文本，转换为指定的JSON格式\n\
+          \    \"\"\"\n\n    # 初始化结果结构\n    result = {\n        \"book_analysis\"\
+          : {\n            \"book_analysis\": {\n                \"chapters\": []\n\
+          \            }\n        }\n    }\n\n    # 按章节分割文本\n    chapter_sections\
+          \ = re.split(r'\\n(?=# [^#])', text)\n    chapter_sections = [section.strip()\
+          \ for section in chapter_sections if section.strip()]\n\n    for chapter_section\
+          \ in chapter_sections:\n        if not chapter_section.startswith('#'):\n\
+          \            continue\n\n        chapter_data = parse_chapter(chapter_section,\
+          \ chapterTitle, sectionTitles)\n        if chapter_data:\n            result[\"\
+          book_analysis\"][\"book_analysis\"][\"chapters\"].append(chapter_data)\n\
+          \n    return result\n\n\ndef parse_chapter(chapter_text: str, chapter_theme:\
+          \ str, section_titles: List[str]) -> Dict[str, Any]:\n    \"\"\"解析单个章节，先提取整章人物关系再传递给子主题\"\
+          \"\"\n    lines = chapter_text.split('\\n')\n\n    # 解析章节标题\n    chapter_title\
+          \ = \"\"\n    for line in lines:\n        if line.startswith('# '):\n  \
+          \          chapter_title = line[2:].strip()\n            break\n\n    if\
+          \ not chapter_title:\n        return None\n\n    # 提取章节级完整人物关系（新增逻辑）\n \
+          \   chapter_relationships = extract_chapter_character_relationships(chapter_text)\n\
+          \n    # 提取章节序号\n    chapter_number = extract_chapter_number(chapter_title)\n\
+          \n    # 解析子主题时传入整章人物关系\n    subtopics = parse_subtopics(chapter_text, section_titles,\
+          \ chapter_theme, chapter_relationships)\n\n    return {\n        \"chapter\"\
+          : {\n            \"number\": chapter_number,\n            \"title\": chapter_title,\n\
+          \            \"theme\": chapter_theme\n        },\n        \"subtopics\"\
+          : subtopics\n    }\n\n\ndef extract_chapter_character_relationships(chapter_text:\
+          \ str) -> List[Dict[str, str]]:\n    \"\"\"提取整章的完整人物关系（章节级二级标题）\"\"\"\n\
+          \    relationships = []\n    # 匹配## 人物关系区块，终止于下一个二级标题（子主题）或章节结束\n    relationship_match\
+          \ = re.search(\n        r'## 人物关系\\n(.*?)(?=## 子主题|# |$)',  # 关键调整：匹配到子主题开始前\n\
+          \        chapter_text, \n        re.DOTALL\n    )\n    if not relationship_match:\n\
+          \        return relationships\n\n    relationship_section = relationship_match.group(1)\n\
+          \    # 提取人物及其关系描述（支持换行的关系说明）\n    relationship_pattern = r'- ([^：:]+)：([^\\\
+          n]*(?:\\n(?!- )[^\\n]*)*)'\n    relationship_matches = re.findall(relationship_pattern,\
+          \ relationship_section)\n\n    for person, relation in relationship_matches:\n\
+          \        relationships.append({\n            \"character\": person.strip(),\n\
+          \            \"relationship\": relation.strip().replace('\\n', ' ')  # 合并多行描述\n\
+          \        })\n\n    return relationships\n\n\ndef extract_chapter_number(title:\
+          \ str) -> str:\n    \"\"\"提取章节序号\"\"\"\n    patterns = [\n        r'(第[零一二三四五六七八九十百千万\\\
+          d]+章)',\n        r'(前言|导论|序言|绪论|引言|结语|后记|参考文献)',\n        r'(附录[零一二三四五六七八九十百千万\\\
+          d]*)',\n        r'(第[零一二三四五六七八九十百千万\\d]+部分)'\n    ]\n\n    for pattern in\
+          \ patterns:\n        match = re.search(pattern, title)\n        if match:\n\
+          \            return match.group(1)\n    return title\n\n\ndef parse_subtopics(\n\
+          \    chapter_text: str, \n    subtopic_titles: List[str], \n    title: str,\
+          \ \n    chapter_relationships: List[Dict[str, str]]  # 接收章节级人物关系\n) -> List[Dict[str,\
+          \ Any]]:\n    \"\"\"解析子主题，每个子主题都包含整章人物关系\"\"\"\n    subtopics = []\n\n \
+          \   if not subtopic_titles:\n        content_index = extract_content_index(chapter_text,\
+          \ title, \"无\")\n        golden_quotes = extract_golden_quotes(chapter_text)\n\
+          \        events = extract_events(chapter_text)\n\n        subtopic_data\
+          \ = {\n            \"subtopic_title\": \"无\",\n            \"content_index\"\
+          : content_index,\n            \"character_relationships\": chapter_relationships,\
+          \  # 使用章节级关系\n            \"golden_quotes\": golden_quotes,\n          \
+          \  \"events\": events\n        }\n        subtopics.append(subtopic_data)\n\
+          \        return subtopics\n\n    subtopic_pattern = r'## 子主题：([^\\n]+)'\n\
+          \    subtopic_matches = list(re.finditer(subtopic_pattern, chapter_text))\n\
+          \n    if not subtopic_matches:\n        for subtopic_title in subtopic_titles:\n\
+          \            if subtopic_title.strip():\n                content_index =\
+          \ extract_content_index(chapter_text, title, subtopic_title)\n         \
+          \       golden_quotes = extract_golden_quotes(chapter_text)\n          \
+          \      events = extract_events(chapter_text)\n\n                subtopic_data\
+          \ = {\n                    \"subtopic_title\": subtopic_title,\n       \
+          \             \"content_index\": content_index,\n                    \"\
+          character_relationships\": chapter_relationships,  # 使用章节级关系\n         \
+          \           \"golden_quotes\": golden_quotes,\n                    \"events\"\
+          : events\n                }\n                subtopics.append(subtopic_data)\n\
+          \        return subtopics\n\n    for i, match in enumerate(subtopic_matches):\n\
+          \        if i < len(subtopic_titles) and subtopic_titles[i].strip():\n \
+          \           current_subtopic_title = subtopic_titles[i]\n        else:\n\
+          \            parsed_title = match.group(1).strip()\n            current_subtopic_title\
+          \ = parsed_title if parsed_title else f\"子主题{i+1}\"\n        \n        subtopic_start\
+          \ = match.start()\n        if i + 1 < len(subtopic_matches):\n         \
+          \   subtopic_end = subtopic_matches[i + 1].start()\n        else:\n    \
+          \        subtopic_end = len(chapter_text)\n\n        subtopic_content =\
+          \ chapter_text[subtopic_start:subtopic_end]\n\n        content_index = extract_content_index(subtopic_content,\
+          \ title, current_subtopic_title)\n        golden_quotes = extract_golden_quotes(subtopic_content)\n\
+          \        events = extract_events(subtopic_content)\n\n        subtopic_data\
+          \ = {\n            \"subtopic_title\": current_subtopic_title,\n       \
+          \     \"content_index\": content_index,\n            \"character_relationships\"\
+          : chapter_relationships,  # 使用章节级关系\n            \"golden_quotes\": golden_quotes,\n\
+          \            \"events\": events\n        }\n\n        subtopics.append(subtopic_data)\n\
+          \n    return subtopics\n\n\ndef extract_content_index(text: str, title:\
+          \ str, sectionTitle: str) -> str:\n    \"\"\"提取内容索引\"\"\"\n    return f\"\
+          章节：{title} 子主题：{sectionTitle}\"\n\n\ndef extract_golden_quotes(text: str)\
+          \ -> List[str]:\n    \"\"\"提取金句\"\"\"\n    golden_quotes = []\n    quote_section_match\
+          \ = re.search(r'### 金句\\n(.*?)(?=### |## |$)', text, re.DOTALL)\n    if\
+          \ not quote_section_match:\n        return golden_quotes\n\n    quote_section\
+          \ = quote_section_match.group(1)\n    quote_pattern = r'^- (.+)$'\n    quote_matches\
+          \ = re.findall(quote_pattern, quote_section, re.MULTILINE)\n\n    for quote\
+          \ in quote_matches:\n        golden_quotes.append(quote.strip())\n\n   \
+          \ return golden_quotes\n\n\ndef extract_events(text: str) -> List[Dict[str,\
+          \ Any]]:\n    \"\"\"提取事件\"\"\"\n    events = []\n\n    # 匹配所有事件块\n    event_pattern\
+          \ = r'### 事件\\d+：([^\\n]+)\\n(.*?)(?=### 事件|### |## |$)'\n    event_matches\
+          \ = re.findall(event_pattern, text, re.DOTALL)\n\n    for event_title, event_content\
+          \ in event_matches:\n        # 提取事件背景\n        background_match = re.search(\n\
+          \            r'\\*\\*事件背景：\\*\\*\\s*(.*?)(?=\\n\\*\\*事件经过：\\*\\*|$)',\n\
+          \            event_content, \n            re.DOTALL\n        )\n       \
+          \ background = background_match.group(1).strip() if background_match else\
+          \ \"\"\n\n        # 提取事件经过\n        process_match = re.search(\n       \
+          \     r'\\*\\*事件经过：\\*\\*\\s*(.*?)(?=\\n\\*\\*事件影响：\\*\\*|$)',\n       \
+          \     event_content, \n            re.DOTALL\n        )\n        process\
+          \ = []\n        if process_match:\n            process_text = process_match.group(1).strip()\n\
+          \            process_items = re.findall(r'- (.*?)(?=\\n- |$)', process_text,\
+          \ re.DOTALL)\n            process = [item.strip() for item in process_items]\n\
+          \n        # 提取事件影响\n        impact_match = re.search(\n            r'\\\
+          *\\*事件影响：\\*\\*\\s*(.*?)(?=\\n\\n|### |## |$)',\n            event_content,\
+          \ \n            re.DOTALL\n        )\n        impact = []\n        if impact_match:\n\
+          \            impact_text = impact_match.group(1).strip()\n            if\
+          \ re.search(r'^- ', impact_text, re.MULTILINE):\n                impact_items\
+          \ = re.findall(r'- (.*?)(?=\\n- |$)', impact_text, re.DOTALL)\n        \
+          \        impact = [item.strip() for item in impact_items]\n            else:\n\
+          \                impact = [impact_text]\n\n        events.append({\n   \
+          \         \"event_title\": event_title.strip(),\n            \"event_background\"\
+          : background,\n            \"event_process\": process,\n            \"event_impact\"\
+          : impact\n        })\n\n    return events\n\n"
+        code_language: python3
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        outputs:
+          book_analysis:
+            children: null
+            type: object
+        selected: false
+        title: 代码执行 4
+        type: code
+        variables:
+        - value_selector:
+          - '1749624051212'
+          - text
+          value_type: string
+          variable: text
+        - value_selector:
+          - '1751858120426'
+          - chapterTitle
+          value_type: string
+          variable: chapterTitle
+        - value_selector:
+          - '1751858120426'
+          - sectionTitles
+          value_type: array[string]
+          variable: sectionTitles
+      height: 51
+      id: '1751110206485'
+      parentId: '1749549253271'
+      position:
+        x: 1022
+        y: 249.71707308916135
+      positionAbsolute:
+        x: 1047.9139184407263
+        y: -59.60620306818802
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        code: "\ndef main(arg1) -> dict:\n    return {\n        \"input_data\":{\"\
+          input_data\":arg1},\n    }\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          input_data:
+            children: null
+            type: object
+        selected: false
+        title: 代码执行 5
+        type: code
+        variables:
+        - value_selector:
+          - '1749549253271'
+          - output
+          variable: arg1
+      height: 51
+      id: '1751120516646'
+      position:
+        x: 1330.3097466559916
+        y: 286.7682201888904
+      positionAbsolute:
+        x: 1330.3097466559916
+        y: 286.7682201888904
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "# -*- coding: utf-8 -*-\nimport json\nimport re\nfrom typing import\
+          \ Dict, List, Any, Optional, Union\n\ndef main(json_input: Union[str, dict],\
+          \ sectionTitles: List[str] = None) -> Optional[Dict[str, Any]]:\n    if\
+          \ isinstance(json_input, str):\n        # 如果是字符串，进行 JSON 解析\n        try:\n\
+          \            data = json.loads(json_input)\n        except json.JSONDecodeError:\n\
+          \            raise ValueError(\"输入的字符串不是有效的JSON格式\")\n    elif isinstance(json_input,\
+          \ dict):\n        # 如果已经是字典，直接使用\n        data = json_input\n    else:\n\
+          \        raise ValueError(f\"不支持的输入类型: {type(json_input)}。请提供字符串或字典。\")\n\
+          \n    # 获取所有小节的title（如果存在sectionContents字段）\n    section_titles = []\n \
+          \   if 'sectionContents' in data and isinstance(data['sectionContents'],\
+          \ list):\n        for section in data['sectionContents']:\n            if\
+          \ isinstance(section, dict) and 'title' in section:\n                section_titles.append(section['title'])\n\
+          \    \n    # 如果section_titles为空那就等于传入的sectionTitles\n    if not section_titles\
+          \ and sectionTitles:\n        section_titles = sectionTitles\n\n    return\
+          \ {\n        'chapterTitle': data.get('title', ''),\n        'sectionTitles':\
+          \ section_titles\n    }\n"
+        code_language: python3
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        outputs:
+          chapterTitle:
+            children: null
+            type: string
+          sectionTitles:
+            children: null
+            type: array[string]
+        selected: false
+        title: 代码执行 6
+        type: code
+        variables:
+        - value_selector:
+          - '1749549253271'
+          - item
+          value_type: object
+          variable: json_input
+        - value_selector:
+          - '1751986565391'
+          - sectionTitles
+          value_type: array[string]
+          variable: sectionTitles
+      height: 51
+      id: '1751858120426'
+      parentId: '1749549253271'
+      position:
+        x: 408.82434300151397
+        y: 278.42473940188756
+      positionAbsolute:
+        x: 434.7382614422402
+        y: -30.898536755461805
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        code: "# -*- coding: utf-8 -*-\nimport json\nimport re\nfrom typing import\
+          \ Dict, List, Any, Optional, Union\n\n\ndef main(json_input: Union[str,\
+          \ dict]) -> Optional[Dict[str, Any]]:\n    if isinstance(json_input, str):\n\
+          \        # 如果是字符串，进行 JSON 解析\n        try:\n            data = json.loads(json_input)\n\
+          \        except json.JSONDecodeError:\n            raise ValueError(\"输入的字符串不是有效的JSON格式\"\
+          )\n    elif isinstance(json_input, dict):\n        # 如果已经是字典，直接使用\n    \
+          \    data = json_input\n    else:\n        raise ValueError(f\"不支持的输入类型:\
+          \ {type(json_input)}。请提供字符串或字典。\")\n\n    # 初始化结果字典\n    result = {\n  \
+          \      'chapterTitle': data.get('title', '')\n    }\n    return result"
+        code_language: python3
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        outputs:
+          chapterTitle:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 6
+        type: code
+        variables:
+        - value_selector:
+          - '1749549253271'
+          - item
+          value_type: object
+          variable: json_input
+      height: 51
+      id: '1751986216967'
+      parentId: '1749549253271'
+      position:
+        x: 100.13233158119891
+        y: 65.71074414006617
+      positionAbsolute:
+        x: 126.04625002192512
+        y: -243.6125320172832
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        code: "import re\n\n\ndef extract_content(content):\n    # 找到\"# 目录\"和\"#\
+          \ 正文\"的位置\n    start_marker = \"# 目录\"\n    end_marker = \"# 正文\"\n\n  \
+          \  start_index = content.find(start_marker)\n    end_index = content.find(end_marker)\n\
+          \n    if start_index == -1 or end_index == -1:\n        return \"未找到指定的标记\"\
+          \n\n    # 提取两个标记之间的内容\n    extracted_content = content[start_index:end_index].strip()\n\
+          \    return extracted_content\n\n\ndef find_section_titles(content, chapter_title):\n\
+          \    section_titles = []\n\n    # 查找章节标题所在行\n    lines = content.split('\\\
+          n')\n    chapter_pattern = re.compile(r'^#{1,6}\\s+' + re.escape(chapter_title)\
+          \ + r'$')\n\n    chapter_index = -1\n    chapter_level = 0\n\n    # 找到章节标题及其级别\n\
+          \    for i, line in enumerate(lines):\n        match = chapter_pattern.match(line.strip())\n\
+          \        if match:\n            chapter_index = i\n            chapter_level\
+          \ = len(re.match(r'^(#+)', line.strip()).group(1))\n            break\n\n\
+          \    # 如果找不到章节标题，返回空列表\n    if chapter_index == -1:\n        return section_titles\n\
+          \n    # 从章节标题后开始收集子标题，直到遇到同级或更高级的标题\n    i = chapter_index + 1\n    while\
+          \ i < len(lines):\n        line = lines[i].strip()\n        if line and\
+          \ line.startswith('#'):\n            # 获取当前行的标题级别\n            current_level\
+          \ = len(re.match(r'^(#+)', line).group(1))\n\n            # 如果遇到同级或更高级的标题，停止收集\n\
+          \            if current_level <= chapter_level:\n                break\n\
+          \n            # 提取标题文本（去掉#号和前后空格）\n            title_text = re.sub(r'^#+\\\
+          s+', '', line)\n            section_titles.append(title_text)\n\n      \
+          \  i += 1\n\n    return section_titles\n\n\ndef main(http_content, chapter_title=None):\n\
+          \    content = extract_content(http_content)\n    return {\n        'sectionTitles':\
+          \ find_section_titles(content, chapter_title)\n    }"
+        code_language: python3
+        desc: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        outputs:
+          sectionTitles:
+            children: null
+            type: array[string]
+        selected: false
+        title: 代码执行 7
+        type: code
+        variables:
+        - value_selector:
+          - '1751986216967'
+          - chapterTitle
+          value_type: string
+          variable: chapter_title
+        - value_selector:
+          - '1774344430609'
+          - body
+          value_type: string
+          variable: http_content
+      height: 51
+      id: '1751986565391'
+      parentId: '1749549253271'
+      position:
+        x: 329.2075026722333
+        y: 176.282037794666
+      positionAbsolute:
+        x: 355.1214211129595
+        y: -133.04123836268337
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data: []
+          type: none
+        headers: ''
+        method: get
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 3600
+          max_read_timeout: 3600
+          max_write_timeout: 3600
+        title: HTTP 请求（章节列表）
+        type: http-request
+        url: '{{#1774343926025.structured_book_url#}}'
+        variables: []
+      height: 123
+      id: '1774343104421'
+      position:
+        x: -600.3500713280284
+        y: -344.117104123964
+      positionAbsolute:
+        x: -600.3500713280284
+        y: -344.117104123964
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "def main(bookInfo: str) -> dict:\n    import json\n\n    book_info_dict\
+          \ = json.loads(bookInfo)\n    structured_book_url = \"\"\n\n    for material\
+          \ in book_info_dict.get('body', {}).get('materials', []):\n        if material.get('materialType')\
+          \ == 'STRUCTURED_BOOK':\n            structured_book_url = material.get('material',\
+          \ '')\n            break\n\n    return {\n      \"structured_book_url\"\
+          : structured_book_url\n    }"
+        code_language: python3
+        outputs:
+          structured_book_url:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行
+        type: code
+        variables:
+        - value_selector:
+          - '1749548759197'
+          - text
+          value_type: string
+          variable: bookInfo
+      height: 51
+      id: '1774343926025'
+      position:
+        x: -900.3500713280284
+        y: -344.117104123964
+      positionAbsolute:
+        x: -900.3500713280284
+        y: -344.117104123964
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data: []
+          type: none
+        headers: ''
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1749549253271'
+        method: get
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 3600
+          max_read_timeout: 3600
+          max_write_timeout: 3600
+        title: HTTP 请求（目录原文）
+        type: http-request
+        url: '{{#1749540511824.url#}}'
+        variables: []
+      height: 123
+      id: '1774344430609'
+      parentId: '1749549253271'
+      position:
+        x: 29.207502672233318
+        y: 176.282037794666
+      positionAbsolute:
+        x: 55.121421112959524
+        y: -133.04123836268337
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    viewport:
+      x: 871.260469843702
+      y: 504.47677039069345
+      zoom: 0.6008752935279488
+  rag_pipeline_variables: []

@@ -1,0 +1,1670 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】文本风格
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - description: ''
+    id: 8daa901d-5ef4-4fdd-a3e3-5ad3c1fef0a2
+    name: style_history
+    selector:
+    - env
+    - style_history
+    value: '一、整体定位
+
+      "聪明朋友在跟你聊天" —— 不是教授讲课，不是新闻播报，而是一个懂行的人在用日常语言把复杂的事讲透。兼具权威感与亲近感，让读者觉得"这人真懂，而且讲得我也懂"。
+
+
+      二、语言层面
+
+      1. 人称与对话感
+
+
+      全程使用"你"直接对话，制造一对一交流的错觉
+
+      常用句式："你别看……""你会发现……""你别小看……""如果你问我……""你大概已经能明白……"
+
+      偶尔用"我"表达个人判断，增加真实感："如果你问我……我会说……"
+
+      2. 句子节奏：长短交替，短句打节奏
+
+
+      大量使用单句成段，制造停顿和强调
+
+      短句密集输出时像"连击"，营造紧迫感；长句展开时像"缓坡"，用于解释和铺陈
+
+      示例节奏模式：
+
+      短 → 短 → 短 → 长（解释）→ 短（收束）
+
+      问句 → 短答 → 展开 → 再收束
+
+      3. 口语化但不随意
+
+
+      用词偏口语但不粗俗："够麻烦了""闹得厉害""一碰就炸""打得又狠又难收"
+
+      避免学术术语堆砌；如果必须出现专业概念，立即用大白话解释
+
+      不用"首先、其次、再次"这类机械连接词，用语义自然过渡
+
+      4. 否定—转折—肯定 三段式（核心句式）
+
+
+      "不是A，而是B"——最高频的句式结构
+
+      "不是没有办法，而是每一个办法都有巨大的代价"
+
+      "不是单纯为了资源，而是为了身份、历史和正统"
+
+      这个句式的作用：先破除读者的简单认知，再给出更深的理解
+
+      5. 排比与并列：制造气势和信息密度
+
+
+      三项或以上的并列铺陈，节奏整齐但内容递进
+
+      示例："它没有纽约那样的金融地位，也没有东京那样的人口规模，没有上海那样的经济活力，也不像迪拜那样靠摩天楼和资本神话吸人眼球。"
+
+      示例："宗教雷、历史雷、身份雷、现实安全雷、国际政治雷"
+
+      三、结构层面
+
+      1. 开头：用一个生动的比喻/类比"定锚"
+
+
+      不从定义、背景、时间线开始
+
+      直接抛出一个读者能秒懂的类比，把陌生问题拉进日常经验
+
+      示例：用"祖上没分干净的家产纠纷"来锚定中东问题
+
+      2. 正文：层层剥洋葱，每层都有"钩子"
+
+
+      每个大段落解决一个问题，段落之间用反问句或悬念句过渡
+
+      常见过渡方式：
+
+      "为什么？"（直接提问，然后回答）
+
+      "这就像什么？"（引出类比）
+
+      "这意味着什么？"（从事实上升到意义）
+
+      "你看，问题一下就出来了。"（标记转折点）
+
+      3. 多视角平行呈现：不替读者选立场
+
+
+      用"对A来说……对B来说……对C来说……"的结构，公平呈现各方视角
+
+      让读者自己感受到矛盾的真实张力，而不是被灌输某个结论
+
+      在呈现完各方视角后，总结矛盾的结构性本质："这才是真正的死结"
+
+      4. 结尾：收束为几条清晰洞察
+
+
+      不烂尾、不敷衍，用"第一……第二……第三……"提炼出本节核心认知
+
+      最后一两句话要有"余味"，让人觉得这个问题比自己想的更深
+
+      可预告下一节内容，但点到为止，不剧透
+
+      四、说理层面
+
+      1. 核心方法：类比降维
+
+
+      把抽象/宏大的问题，翻译成日常生活中人人有体感的场景
+
+      "祖宅"比喻耶路撒冷、"家产纠纷"比喻中东冲突、"房客"比喻三大宗教
+
+      类比的标准：读者不需要任何背景知识就能理解
+
+      2. 反常识切入
+
+
+      先说出读者可能有的简单认知，然后翻转或深化
+
+      "很多人一说中东，就会简单地来一句……这句话只说对了一半。"
+
+      "很多人容易误以为……其实不是。"
+
+      3. 讲规律而不只讲故事
+
+
+      叙述完具体事件后，要抽象出一条可迁移的"人性规律"或"历史规律"
+
+      示例："你天天拥有的东西，未必最神圣；你失去很久、却始终没忘的东西，反而会越来越神圣。"
+
+      这些规律性总结是讲书稿的"金句层"，也是读者记住并传播的核心
+
+      4. 承认复杂性，拒绝简单化
+
+
+      明确告诉读者"这个问题不能用一句话讲完"，但不是为了炫耀复杂，而是为了尊重真实
+
+      "不是不能做价值判断，而是不能偷懒。"
+
+      这种态度本身就构成一种说服力
+
+      五、情绪管理
+
+      1. 克制但不冷漠
+
+
+      不煽情、不喊口号、不站队，但允许出现"残酷""讽刺""黑色幽默"这类情绪标注词
+
+      让事实和结构本身产生情感冲击力，而不是靠形容词堆砌
+
+      2. 反问句控制节奏，不过度使用
+
+
+      反问句用于制造停顿、引发思考，但不能每段都用，否则变成质问
+
+      最佳频率：每个大段落1-2个反问，放在关键转折处
+
+      3. 幽默感低调嵌入
+
+
+      偶尔出现轻松的表述调节气氛："有点黑色幽默""够麻烦了""恭喜你，你其实已经摸到门把手了"
+
+      幽默不能抢走严肃议题的重量，只起"透气"作用
+
+      六、禁忌清单
+
+      不用"众所周知""不言而喻"等空话
+
+      不用"让我们一起来看看"等综艺式引导语
+
+      不堆砌数据和年份，除非数字本身有冲击力
+
+      不做道德审判式的总结（"所以XX是错的"）
+
+      不写只有信息没有观点的流水账
+
+      不在段落内"自问自答"超过两轮，否则变得啰嗦'
+    value_type: string
+  - description: ''
+    id: c0213ac6-a692-4276-a009-10560f8eaca8
+    name: style_story
+    selector:
+    - env
+    - style_story
+    value: '1. 唠嗑式代入感
+
+      - 用日常对话的松弛语气，自然穿插互动短语，将人物经历转化为听众可共鸣的普遍场景。
+
+      2. 连环扣式悬念
+
+      - 按时间线递进抛出未解决的矛盾，用衔接词串联，每个悬念均锚定原始素材中的具体细节。
+
+      3. 保留原文细节
+
+      - 从原始素材中提保留细节以增强可信度，避免泛化描述。
+
+      4. 体感化共情
+
+      - 用具象生理反应替代抽象情绪词汇，触发听众的体感记忆以增强共鸣。
+
+      5. 剥洋葱式解读
+
+      - 从多重身份维度（如职业角色、个人身份等）解析人物行为，每个维度均对应原始素材中的具体表现。'
+    value_type: string
+  - description: ''
+    id: 4332a36a-1e68-4288-8513-336e267b275b
+    name: style_mental
+    selector:
+    - env
+    - style_mental
+    value: "1. 通俗化的类口语表达:采用与读者“聊天”的语气，避免高冷的学术化表达，使抽象的哲学理念融入日常语境。\n\n2. 降低理解门槛，使用比喻和生活化案例增强趣味性\n\
+      \n3. 提问式引导，通过自问自答促进读者思考\n\n4. 幽默与反思并举，轻松而发人深省\n   通过生活化场景和细腻反思呈现哲理化内容，让表达更具沉浸感。\n\
+      \n5. 使用对比、层次与形象化手法强化表达\n\n6. 精准解读原文金句，尊重原意不篡改\n\n7. 构建情绪共鸣，通过真实场景引发内心连接\n  \
+      \ 用贴近现实的场景吸引读者，同时增强情绪代入。\n\n8. 使用短句为主，表达紧凑有力\n\n9. 观点反复强化，增强记忆点 \n    通过不同的例子和角度反复论证观点，帮助读者深化对这一概念的理解。每段核心都有层层递进的解读，使观点显得更扎实、更具说服力。\n\
+      \n10. 娓娓道来的叙事感，就像朋友聊天 \n    文本整体叙事风格流畅自然，像朋友间聊天般清新可亲，同时逻辑清晰、有条不紊。"
+    value_type: string
+  - description: ''
+    id: db1855d3-2bac-404b-b0de-3fa2714b3fcb
+    name: style_bilibili
+    selector:
+    - env
+    - style_bilibili
+    value: '1.通俗化的类口语表达
+
+      采用与观众“聊天”的语气，避免刻板学术化，让高门槛的学术内容也能够轻松融入日常语境。使用类口语化句式，用短句、问答的方式结合，听感更易消化。
+
+      2.提问式引导，提前代替观众提问
+
+      使用自问自答或预设反问的形式，既点出疑问，又顺势解释，持续引导观众思考。“答案感”明确的表达，很容易让观众带着问题被带到下一个点。
+
+      . 适当使用对比手法吸引注意力
+
+      3. 多用短句，紧凑有力
+
+      简短清晰的表达，避免语言拖沓，增强逻辑感和可读性。
+
+      4. 观点反复强化
+
+      多次重复文稿中的核心观点/概念，以不同案例进行论证，增强记忆点。
+
+      5. “可以聊天”的叙事感
+
+      文稿像朋友间聊天一样的“娓娓道来”，让人不自觉想要多听、继续听。'
+    value_type: string
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: if-else
+      id: 1745895827362-source-1749021659597-target
+      selected: false
+      source: '1745895827362'
+      sourceHandle: source
+      target: '1749021659597'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1749021659597-true-1752043200486-target
+      selected: false
+      source: '1749021659597'
+      sourceHandle: 'true'
+      target: '1752043200486'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1749021659597-db6a8ba3-b9ae-4e56-9d6f-376b78502981-1752043266437-target
+      selected: false
+      source: '1749021659597'
+      sourceHandle: db6a8ba3-b9ae-4e56-9d6f-376b78502981
+      target: '1752043266437'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1749021659597-false-1752043266437-target
+      selected: false
+      source: '1749021659597'
+      sourceHandle: 'false'
+      target: '1752043266437'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1749021659597-744c39a6-7d13-418e-b2e9-8839aebb0cb8-1752135335739-target
+      selected: false
+      source: '1749021659597'
+      sourceHandle: 744c39a6-7d13-418e-b2e9-8839aebb0cb8
+      target: '1752135335739'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752043266437-false-1745896803475-target
+      selected: false
+      source: '1752043266437'
+      sourceHandle: 'false'
+      target: '1745896803475'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752043266437-true-17520433630910-target
+      selected: false
+      source: '1752043266437'
+      sourceHandle: 'true'
+      target: '17520433630910'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752043200486-true-17520433198520-target
+      selected: false
+      source: '1752043200486'
+      sourceHandle: 'true'
+      target: '17520433198520'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752043200486-false-17490218263920-target
+      selected: false
+      source: '1752043200486'
+      sourceHandle: 'false'
+      target: '17490218263920'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752135335739-true-1752135638211-target
+      selected: false
+      source: '1752135335739'
+      sourceHandle: 'true'
+      target: '1752135638211'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1752135335739-false-1752135643560-target
+      selected: false
+      source: '1752135335739'
+      sourceHandle: 'false'
+      target: '1752135643560'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 17520433630910-source-1749021872802-target
+      source: '17520433630910'
+      sourceHandle: source
+      target: '1749021872802'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 1745896803475-source-1749021872802-target
+      source: '1745896803475'
+      sourceHandle: source
+      target: '1749021872802'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 17490218263920-source-1749021872802-target
+      source: '17490218263920'
+      sourceHandle: source
+      target: '1749021872802'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 17520433198520-source-1749021872802-target
+      source: '17520433198520'
+      sourceHandle: source
+      target: '1749021872802'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 1752135638211-source-1752135651173-target
+      source: '1752135638211'
+      sourceHandle: source
+      target: '1752135651173'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 1752135643560-source-1752135651173-target
+      source: '1752135643560'
+      sourceHandle: source
+      target: '1752135651173'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: variable-aggregator
+        targetType: code
+      id: 1749021872802-source-1773904413184-target
+      source: '1749021872802'
+      sourceHandle: source
+      target: '1773904413184'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1773904413184-source-1745895832369-target
+      source: '1773904413184'
+      sourceHandle: source
+      target: '1745895832369'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: variable-aggregator
+        targetType: code
+      id: 1752135651173-source-17739055563990-target
+      source: '1752135651173'
+      sourceHandle: source
+      target: '17739055563990'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 17739055563990-source-1752135665637-target
+      source: '17739055563990'
+      sourceHandle: source
+      target: '1752135665637'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: 文稿
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: text
+        - label: 文本风格
+          max_length: 48
+          options:
+          - 观点类
+          - 鸡汤类
+          - 故事类
+          required: false
+          type: select
+          variable: style
+        - label: 前序内容
+          max_length: null
+          options: []
+          required: false
+          type: paragraph
+          variable: former
+        - label: 书名
+          max_length: 48
+          options: []
+          required: true
+          type: text-input
+          variable: booktitle
+        - label: 作者
+          max_length: 48
+          options: []
+          required: true
+          type: text-input
+          variable: author
+      height: 213
+      id: '1745895827362'
+      position:
+        x: 200.01999894906646
+        y: 282
+      positionAbsolute:
+        x: 200.01999894906646
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1773904413184'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 结束
+        type: end
+      height: 88
+      id: '1745895832369'
+      position:
+        x: 2900.8209839299248
+        y: 274.27191128650514
+      positionAbsolute:
+        x: 2900.8209839299248
+        y: 274.27191128650514
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            grounding: true
+            temperature: 0.9
+          mode: chat
+          name: gemini-3-pro
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: 6e81ebcd-122c-45b8-93bf-b82cb4240e28
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使读者能够读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻或例子帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+
+            ## 文本风格
+
+            使用多样化的句式，避免拗口的表述
+
+
+
+            ## 前序内容
+
+            {{#1745895827362.former#}}
+
+            '
+        - id: a95212d3-2495-4dd9-97be-b918ed15ddc5
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，直接输出1000字左右的最终正文，不要输出标题。
+
+
+            ## 要求
+
+            1. 书籍解读内容具有连贯性，使用多样化的开场白（如结合前序抛出悬念、用生活场景类比引入、以书中有趣细节提问等），自然衔接前情，然后简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 检查“文稿”中是否存在用户不了解，但是在文中没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛。
+
+            3. 文章能输出新颖、有锐度且有价值的观点，从目标人群的用户视角出发设计内容，对书中案例内容做本地化的解读，帮助用户读懂书籍并且能对知识加以运用。避免改动书籍/新闻数据等内容。
+
+            4. 调整文稿中的信息密度，同时保证信息的完整性，每500字交付1-2个核心观点。
+
+            5. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            6. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题。
+
+            7. 检查文稿中是否存在幻觉的虚构信息或事例（例如：我有个朋友...），更正这些内容，确保正文中的信息都是真实有依据的。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 观点
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 118
+      id: '1745896803475'
+      position:
+        x: 1750.8266576530368
+        y: 391.4080720885704
+      positionAbsolute:
+        x: 1750.8266576530368
+        y: 391.4080720885704
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: d4942b26-921d-4631-8598-5dcfb132aa9f
+            value: 鸡汤类
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - style
+          id: 'true'
+          logical_operator: or
+        - case_id: db6a8ba3-b9ae-4e56-9d6f-376b78502981
+          conditions:
+          - comparison_operator: is
+            id: 303014ae-63c2-4ce8-b627-415a1815b81e
+            value: 观点类
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - style
+          id: db6a8ba3-b9ae-4e56-9d6f-376b78502981
+          logical_operator: and
+        - case_id: 744c39a6-7d13-418e-b2e9-8839aebb0cb8
+          conditions:
+          - comparison_operator: is
+            id: 1f9343bd-a7c9-47db-b675-c04db6f48cca
+            value: 故事类
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - style
+          id: 744c39a6-7d13-418e-b2e9-8839aebb0cb8
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 条件分支
+        type: if-else
+      height: 220
+      id: '1749021659597'
+      position:
+        x: 535.4211553496638
+        y: 282
+      positionAbsolute:
+        x: 535.4211553496638
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            grounding: true
+            temperature: 0.9
+          mode: chat
+          name: gemini-3-pro
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: 6e81ebcd-122c-45b8-93bf-b82cb4240e28
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使文稿符合音频场景的要求。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述
+
+
+            ## 文本风格
+
+            使用多样化的句式，避免重复性用词或拗口的表述
+
+            {{#env.style_mental#}}
+
+
+            ## 前序内容
+
+            {{#1745895827362.former#}}
+
+            '
+        - id: a95212d3-2495-4dd9-97be-b918ed15ddc5
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，仅输出1000字左右的最终正文，不要输出标题。
+
+
+            ## 要求
+
+            1. 书籍解读内容具有连贯性，使用多样化的开场白（如结合前序抛出悬念、用生活场景类比引入、以书中有趣细节提问等），自然衔接前情，然后简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 检查“文稿”中是否存在用户不了解，但是在文中没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛。
+
+            3. 文章能输出新颖、有锐度且有价值的观点，从目标人群的用户视角出发，对书中案例内容做本地化的解读，帮助用户读懂书籍并且能对知识加以运用。但避免虚构案例或改动书籍/新闻数据等内容。
+
+            4. 调整文稿中的信息密度，同时保证信息的完整性，每500字交付1-2个核心观点，以解读剧情内容为主，结尾升华部分简单带过。
+
+            5. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            6. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、序号、结构性内容或小标题。
+
+            7. 检查文稿中是否存在幻觉的虚构信息或事例（例如：我有个朋友...），更正这些内容，确保正文中的信息都是真实有依据的。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 鸡汤
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 118
+      id: '17490218263920'
+      position:
+        x: 1472.370832726066
+        y: 126.25303761430374
+      positionAbsolute:
+        x: 1472.370832726066
+        y: 126.25303761430374
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        output_type: string
+        selected: false
+        title: 非故事正文
+        type: variable-aggregator
+        variables:
+        - - '17490218263920'
+          - text
+        - - '1745896803475'
+          - text
+        - - '17520433198520'
+          - text
+        - - '17520433630910'
+          - text
+      height: 186
+      id: '1749021872802'
+      position:
+        x: 2139.364111161018
+        y: 200.9173210573647
+      positionAbsolute:
+        x: 2139.364111161018
+        y: 200.9173210573647
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: empty
+            id: 055cc2ef-88ce-42df-ae24-31d3d5bcbd41
+            value: ''
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - former
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 判断前序
+        type: if-else
+      height: 124
+      id: '1752043200486'
+      position:
+        x: 916.1557823517833
+        y: 67.14092894028738
+      positionAbsolute:
+        x: 916.1557823517833
+        y: 67.14092894028738
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: empty
+            id: 774887f3-e21b-40aa-a1b6-c30d4737c115
+            value: ''
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - former
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 判断前序
+        type: if-else
+      height: 124
+      id: '1752043266437'
+      position:
+        x: 1084.9735920583828
+        y: 258.2130124098603
+      positionAbsolute:
+        x: 1084.9735920583828
+        y: 258.2130124098603
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.9
+          mode: chat
+          name: gemini-2.5-pro-0617
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: 6e81ebcd-122c-45b8-93bf-b82cb4240e28
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使文稿符合音频场景的要求。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述
+
+
+            ## 文本风格
+
+            使用多样化的句式，避免重复性用词或拗口的表述
+
+            {{#env.style_mental#}}
+
+            '
+        - id: a95212d3-2495-4dd9-97be-b918ed15ddc5
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，仅输出1000字左右的最终正文，不要输出标题。
+
+
+            ## 要求
+
+            1. 开篇直入主题，跳过开场白，简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 检查“文稿”中是否存在用户不了解，但是在文中没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛。
+
+            3. 文章能输出新颖、有锐度且有价值的观点，从目标人群的用户视角出发，对书中案例内容做本地化的解读，帮助用户读懂书籍并且能对知识加以运用。但避免虚构案例或改动书籍/新闻数据等内容。
+
+            4. 调整文稿中的信息密度，同时保证信息的完整性，每500字交付1-2个核心观点，以解读剧情内容为主，结尾升华部分简单带过。
+
+            5. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            6. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、序号、结构性内容或小标题。
+
+            7. 检查文稿中是否存在幻觉的虚构信息或事例（例如：我有个朋友...），更正这些内容，确保正文中的信息都是真实有依据的。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 鸡汤 (无前序)
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 118
+      id: '17520433198520'
+      position:
+        x: 1484.7068427849363
+        y: -53.64094208242662
+      positionAbsolute:
+        x: 1484.7068427849363
+        y: -53.64094208242662
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            grounding: true
+            temperature: 0.9
+          mode: chat
+          name: gemini-3-pro
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: 6e81ebcd-122c-45b8-93bf-b82cb4240e28
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使读者能够读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻或例子帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+
+            ## 文本风格
+
+            **使用多样化的句式，避免拗口的表述**
+
+            {{#env.style_bilibili#}}
+
+
+            '
+        - id: a95212d3-2495-4dd9-97be-b918ed15ddc5
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，直接输出1000字左右的最终正文，不要输出标题。
+
+
+            ## 要求
+
+            1. 开篇直入主题，跳过开场白，简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 检查“文稿”中是否存在用户不了解，但是在文中没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛。
+
+            3. 文章能输出新颖、有锐度且有价值的观点，从目标人群的用户视角出发设计内容，对书中案例内容做本地化的解读，帮助用户读懂书籍并且能对知识加以运用。避免改动书籍/新闻数据等内容。
+
+            4. 调整文稿中的信息密度，同时保证信息的完整性，每500字交付1-2个核心观点。
+
+            5. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            6. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题。
+
+            7. 检查文稿中是否存在幻觉的虚构信息或事例（例如：我有个朋友...），更正这些内容，确保正文中的信息都是真实有依据的。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 观点 (无前序)
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 118
+      id: '17520433630910'
+      position:
+        x: 1786.6129015039915
+        y: 235.29245360526824
+      positionAbsolute:
+        x: 1786.6129015039915
+        y: 235.29245360526824
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: empty
+            id: 093ecc01-a40d-41de-bd61-79fe282b80db
+            value: ''
+            varType: string
+            variable_selector:
+            - '1745895827362'
+            - former
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 判断前序
+        type: if-else
+      height: 124
+      id: '1752135335739'
+      position:
+        x: 1050.3158091353312
+        y: 653.2498663794436
+      positionAbsolute:
+        x: 1050.3158091353312
+        y: 653.2498663794436
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.9
+          mode: chat
+          name: doubao-seed-2.0-pro
+          provider: langgenius/volcengine_maas/volcengine_maas
+        prompt_template:
+        - id: 9af4b586-eb14-4de4-a902-3a7e6b762980
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书内容创作者，擅长书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；重点在讲述故事，不用提及作者。
+
+            - 原封不动地保留引用的书籍中的金句或表述
+
+
+            ## 文本风格
+
+            使用多样化的句式，避免重复性用词或拗口的表述
+
+            {{#env.style_history#}}
+
+
+            '
+        - id: 9310a461-9e03-4cc8-a6be-bab3f0a5fa44
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，不要输出标题。
+
+
+            ## 要求
+
+            1. 简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 文稿能把剧情发展讲清楚，帮助用户读懂书籍。
+
+            3. 调整文稿中的信息密度，同时保证信息的完整性：每500字能够交付1-2个核心观点，以讲述剧情发展为主，结尾升华部分简单带过。
+
+            4. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            5. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、序号、结构性内容或小标题。
+
+            6. 生成后请自查是否有与原文细节冲突的地方，确保准确后再输出。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 使用多样化的词汇与句式，禁止多次使用同一句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        selected: false
+        title: 故事正文（无前序）
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 88
+      id: '1752135638211'
+      position:
+        x: 1465.6951268115697
+        y: 653.2498663794436
+      positionAbsolute:
+        x: 1465.6951268115697
+        y: 653.2498663794436
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: doubao-seed-2.0-pro
+          provider: langgenius/volcengine_maas/volcengine_maas
+        prompt_template:
+        - id: 55b7f6ff-7c1b-4a40-ba86-744f8c1d467d
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书内容创作者，擅长书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745895827362.booktitle#}}
+
+            作者：{{#1745895827362.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+
+            ## 文本风格
+
+            使用多样化的句式，避免重复性用词或拗口的表述
+
+            {{#env.style_history#}}
+
+
+            ## 前序内容
+
+            {{#1745895827362.former#}}
+
+            '
+        - id: 4ac15190-211d-4173-8295-033f75fd426f
+          role: user
+          text: '# 任务
+
+            参考输入的“文本风格”，对“文稿”内容进行风格化的调整和改写，不要输出标题。
+
+
+            ## 要求
+
+            1. 简要预告声音的主要内容；
+
+            2. 文稿能把剧情发展讲清楚，帮助用户读懂书籍。
+
+            3. 调整文稿中的信息密度，同时保证信息的完整性：每500字能够交付1-2个核心观点，以讲述剧情发展为主，结尾升华部分简单带过。
+
+            4. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。重点在讲述故事，不用提及作者。
+
+            5. 输出调整后的完整文稿内容，这些文稿内容会被逐字生成为播客声音，避免任何视觉化符号、序号、结构性内容或小标题。
+
+            6. 生成后请自查是否有与原文细节冲突的地方，确保准确后再输出。
+
+
+            ## 音频场景的文稿要求
+
+            1. 多用简单句和日常词汇
+
+            2. 适当重复文稿中的核心概念
+
+            3. 口语化表达，舍弃书面的复杂句式
+
+            4. 保留原书中定义的关键术语、所有人物关系、事件因果必须严格对应原文，不得添加原文未明确提及的表述。
+
+            5. 保留所有影响逻辑的关键人物和背景信息，不得为简化叙事省略此类信息。
+
+            6. 人物行为的动机、事件的因果，必须完全遵循原文解释，不得用 “常理推断” 替代原文明确说明的内容。
+
+
+            # 文稿
+
+            {{#1745895827362.text#}}'
+        selected: true
+        title: 故事正文
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 88
+      id: '1752135643560'
+      position:
+        x: 1484.7068427849363
+        y: 806.9218864971842
+      positionAbsolute:
+        x: 1484.7068427849363
+        y: 806.9218864971842
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        output_type: string
+        selected: false
+        title: 故事正文
+        type: variable-aggregator
+        variables:
+        - - '1752135643560'
+          - text
+        - - '1752135638211'
+          - text
+      height: 134
+      id: '1752135651173'
+      position:
+        x: 2156.946241181103
+        y: 687.4508824699476
+      positionAbsolute:
+        x: 2156.946241181103
+        y: 687.4508824699476
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '17739055563990'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 结束 2
+        type: end
+      height: 88
+      id: '1752135665637'
+      position:
+        x: 2648.54018360829
+        y: 687.4508824699476
+      positionAbsolute:
+        x: 2648.54018360829
+        y: 687.4508824699476
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import re\n\ndef main(text: str) -> dict:\n    pattern = r\"<think>.*?</think>\"\
+          \n    result = re.sub(pattern, \"\", text, flags=re.DOTALL).strip()\n  \
+          \  return {\n        \"text\": result,\n    }\n"
+        code_language: python3
+        outputs:
+          text:
+            children: null
+            type: string
+        selected: false
+        title: 非故事正文结果
+        type: code
+        variables:
+        - value_selector:
+          - '1749021872802'
+          - output
+          value_type: string
+          variable: text
+      height: 52
+      id: '1773904413184'
+      position:
+        x: 2479.1307499873155
+        y: 282
+      positionAbsolute:
+        x: 2479.1307499873155
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        code: "import re\n\ndef main(text: str) -> dict:\n    pattern = r\"<think>.*?</think>\"\
+          \n    result = re.sub(pattern, \"\", text, flags=re.DOTALL).strip()\n  \
+          \  return {\n        \"text\": result,\n    }\n"
+        code_language: python3
+        outputs:
+          text:
+            children: null
+            type: string
+        selected: false
+        title: 故事正文结果
+        type: code
+        variables:
+        - value_selector:
+          - '1752135651173'
+          - output
+          value_type: string
+          variable: text
+      height: 52
+      id: '17739055563990'
+      position:
+        x: 2408.8734045526326
+        y: 693.9130334086326
+      positionAbsolute:
+        x: 2408.8734045526326
+        y: 693.9130334086326
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: -1147.8938075234726
+      y: -358.0959310677014
+      zoom: 0.8894594929884875
+  rag_pipeline_variables: []

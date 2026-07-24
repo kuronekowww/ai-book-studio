@@ -1,0 +1,1476 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 【就书讲书】声音初稿
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - description: ''
+    id: b16a06bc-e2a3-4116-b969-34bb093faf07
+    name: style_story
+    selector:
+    - env
+    - style_story
+    value: '1. 唠嗑式代入感
+
+      - 用日常对话的松弛语气，自然穿插 “你懂的”“换作是你” 等互动短语，将人物经历转化为听众可共鸣的普遍场景。
+
+      2. 连环扣式悬念
+
+      - 按时间线递进抛出未解决的矛盾，用 “更关键的是”“事情并没结束” 等衔接词串联，每个悬念均锚定原始素材中的具体细节。
+
+      3. 保留原文细节
+
+      - 从原始素材中提保留细节以增强可信度，避免泛化描述。
+
+      4. 体感化共情
+
+      - 用具象生理反应替代抽象情绪词汇，触发听众的体感记忆以增强共鸣。
+
+      5. 剥洋葱式解读
+
+      - 从多重身份维度（如职业角色、个人身份等）解析人物行为，每个维度均对应原始素材中的具体表现。'
+    value_type: string
+  - description: ''
+    id: b7c7a847-8e38-4b9a-9338-35f3fea63d45
+    name: style_bilibili
+    selector:
+    - env
+    - style_bilibili
+    value: '1.通俗化的类口语表达
+
+      采用与观众“聊天”的语气，避免刻板学术化，让高门槛的学术内容也能够轻松融入日常语境。使用类口语化句式，用短句、问答的方式结合，听感更易消化。
+
+      2.比喻和生活化案例增强趣味性
+
+      用具体行为或形象化场景解释高深概念，让观众更好代入。
+
+      3.提问式引导，提前代替观众提问
+
+      使用自问自答或预设反问的形式，既点出疑问，又顺势解释，持续引导观众思考。“答案感”明确的表达，很容易让观众带着问题被带到下一个点。
+
+      4.幽默与反思并举
+
+      以一种自嘲幽默的方式说明观点或问题，轻松而发人深省。
+
+      同时，通过略带反人性的观点（如“可以为了存钱而存钱”“花得少才是富有”），直接挑战观众认知，引发思考。
+
+      5. 适当使用对比手法吸引注意力
+
+      6. 适量使用网络文化与流行梗
+
+      7. 加强情绪共鸣
+
+      8. 多用短句，紧凑有力
+
+      简短清晰的表达，避免语言拖沓，增强逻辑感和可读性。
+
+      9. 观点反复强化
+
+      多次重复文稿中的核心观点/概念，以不同案例进行论证，增强记忆点。
+
+      10. “可以聊天”的叙事感
+
+      文稿像朋友间聊天一样的“娓娓道来”，让人不自觉想要多听、继续听。'
+    value_type: string
+  - description: ''
+    id: b27adcd3-a681-4140-9c7e-ff97455f09b7
+    name: style_mental
+    selector:
+    - env
+    - style_mental
+    value: "1. 通俗化的类口语表达:采用与读者“聊天”的语气，避免高冷的学术化表达，使抽象的哲学理念融入日常语境。\n\n2. 降低理解门槛，使用比喻和生活化案例增强趣味性\n\
+      \n3. 提问式引导，通过自问自答促进读者思考\n\n4. 幽默与反思并举，轻松而发人深省\n   通过生活化场景和细腻反思呈现哲理化内容，让表达更具沉浸感。\n\
+      \n5. 使用对比、层次与形象化手法强化表达\n\n6. 精准解读原文金句，尊重原意不篡改\n\n7. 构建情绪共鸣，通过真实场景引发内心连接\n  \
+      \ 用贴近现实的场景吸引读者，同时增强情绪代入。\n\n8. 使用短句为主，表达紧凑有力\n\n9. 观点反复强化，增强记忆点 \n    通过不同的例子和角度反复论证观点，帮助读者深化对这一概念的理解。每段核心都有层层递进的解读，使观点显得更扎实、更具说服力。\n\
+      \n10. 娓娓道来的叙事感，就像朋友聊天 \n    文本整体叙事风格流畅自然，像朋友间聊天般清新可亲，同时逻辑清晰、有条不紊。"
+    value_type: string
+  - description: ''
+    id: 627fdb6f-260a-4e55-81b6-7e2549fc36a2
+    name: style
+    selector:
+    - env
+    - style
+    value: '1、问题驱动式构建
+
+      用提问开局并贯穿始终，通过悬疑或反思问题与听众建立互动性，让听众在过程中始终保持好奇心。例如“脆弱的反面是什么？”“为什么有些人无法摆脱贫穷？”
+
+
+      2、 鲜明对比与二元论述
+
+      通过对立内容的强烈对比（如“脆弱 vs 反脆弱”“贫穷陷阱 vs 创业思维”“快乐分子 vs 当下分子”），强化记忆点，帮助听众快速理解复杂概念。
+
+
+      3、故事化叙述
+
+      将学术性内容拆解为紧凑的故事，在案例描述中逐层铺开理论逻辑，让听众跟随故事探索知识。
+
+
+      4、 用金句提炼核心洞察
+
+      文本中嵌入适当密度的富有哲理性，传播力强的金句，增强用户在听节目过程中的获得感，创造峰值体验。
+
+
+      5、通俗化与专业性平衡
+
+      强化知识深度的同时，尽可能进行通俗化处理，避免学术性术语破坏听觉流畅感。例如用朴素平实的语言替代过于专业的词汇。
+
+
+      6、互动性与代入感
+
+      使用互动性语言，让听众沉浸在听书节目的讨论氛围中，增强用户的参与感。如“你有没有想过这个问题？”、“听到这里是不是有点出冷汗？”，
+
+
+      7、多维角度剖析
+
+      分析解释一个议题或者现象，从不同科学维度，比如生物学、心理学或者社会学，做解释，帮助用户打破学科壁垒，拓展视野提升认知。
+
+      '
+    value_type: string
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 200
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 50
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1745493428334-source-1748333714795-target
+      selected: false
+      source: '1745493428334'
+      sourceHandle: source
+      target: '1748333714795'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: if-else
+      id: 1745493426101-source-1749264111888-target
+      source: '1745493426101'
+      sourceHandle: source
+      target: '1749264111888'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1749264111888-false-1747039466792-target
+      selected: false
+      source: '1749264111888'
+      sourceHandle: 'false'
+      target: '1747039466792'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1749264111888-true-17492642631760-target
+      source: '1749264111888'
+      sourceHandle: 'true'
+      target: '17492642631760'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 17492642762740-source-1749264311644-target
+      source: '17492642762740'
+      sourceHandle: source
+      target: '1749264311644'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1747039466792-true-1747131030984-target
+      source: '1747039466792'
+      sourceHandle: 'true'
+      target: '1747131030984'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1747039466792-false-17494614839390-target
+      source: '1747039466792'
+      sourceHandle: 'false'
+      target: '17494614839390'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 17494615076300-source-17494615182420-target
+      source: '17494615076300'
+      sourceHandle: source
+      target: '17494615182420'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1747039466792-f23eaf73-6c1d-4142-a164-4ae4268da288-17494614839390-target
+      source: '1747039466792'
+      sourceHandle: f23eaf73-6c1d-4142-a164-4ae4268da288
+      target: '17494614839390'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: 1747039466792-21c0aac9-5f1d-4c18-85bf-8ddaaabcf69a-1752133880063-target
+      source: '1747039466792'
+      sourceHandle: 21c0aac9-5f1d-4c18-85bf-8ddaaabcf69a
+      target: '1752133880063'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1752133898291-source-1752133901107-target
+      source: '1752133898291'
+      sourceHandle: source
+      target: '1752133901107'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 17494614839390-source-17494615076300-target
+      source: '17494614839390'
+      sourceHandle: source
+      target: '17494615076300'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 17492642631760-source-17492642762740-target
+      source: '17492642631760'
+      sourceHandle: source
+      target: '17492642762740'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 1747131030984-source-1745493428334-target
+      source: '1747131030984'
+      sourceHandle: source
+      target: '1745493428334'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 1752133880063-source-1752133898291-target
+      source: '1752133880063'
+      sourceHandle: source
+      target: '1752133898291'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: 声音细纲
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: outline
+        - label: 书籍原文
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: book_content
+        - label: 声音类型1-内容
+          max_length: 48
+          options:
+          - 解读类
+          - 过渡类
+          required: true
+          type: select
+          variable: type1
+        - label: 声音类型2-风格
+          max_length: 48
+          options:
+          - 观点类
+          - 鸡汤类
+          - 故事类
+          required: true
+          type: select
+          variable: type2
+        - label: 书名
+          max_length: 48
+          options: []
+          required: true
+          type: text-input
+          variable: booktitle
+        - label: 作者
+          max_length: 48
+          options: []
+          required: true
+          type: text-input
+          variable: author
+      height: 238
+      id: '1745493426101'
+      position:
+        x: -67.82210784359629
+        y: -4.005174835238279
+      positionAbsolute:
+        x: -67.82210784359629
+        y: -4.005174835238279
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: gemini-2.5-flash-0617
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: f0e5cf84-1c44-4596-8066-34bd3df86858
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，帮用户读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+            - 大纲中的“预告”和“结尾”部分内容直接输出大纲中的句子即可，避免扩充；不同段落之间仅使用“过渡”中的句子连接，避免衍生其他内容；
+
+            - 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            ### 内容要求
+
+            - 对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻或例子帮助理解；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述，禁止编造书籍名称
+
+
+            # 你的思考过程
+
+            {{#1747131030984.text#}}'
+        - id: a22e71fe-6ff9-4444-b47b-7066514b974f
+          role: user
+          text: '# 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+
+            # 你的任务
+
+            1. 严格基于输入的声音大纲，创作**书籍深度解读**类型的稿件；
+
+            2. 保证文稿的信息密度且避免认知过载，每500字能够交付1~2个核心认知点，并且确保用户能够充分听懂你的观点，比如通过类比、举例等方式，为用户提供有趣的、能够带入情境的可感素材。
+
+            3. 仅输出基于声音大纲创作的文稿内容，1000字左右，不要输出标题。
+
+
+            # 要求
+
+            1. 必须严格聚焦声音大纲中观点和逻辑顺序生成文稿，避免超出大纲自由发挥；
+
+            2. 书籍解读内容具有连贯性，开篇简要预告声音的解读的书籍章节和主要内容，给用户提供清晰的认知地图；
+
+            3. 使用行文流畅的自然语言，注意语义之间的逻辑衔接要连贯，避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题；
+
+            4. 区分大纲中的"叙述性内容"和“观点论述”："叙述性内容"需要你参考相关新闻或书籍，将目标内容以播客风格完整讲述；“观点论述”需要你基于主题，输出新颖、有锐度且有价值的观点，并且结合参考书籍进行有依据的阐述；
+
+            5. 对于听众可能不了解的内容/概念/数据，先陈述事实，再使用简单生动的语言解释该内容的含义，然后展开深入解读/讨论，聚焦模块主题，避免发散；
+
+            6. 引用并解读书籍中的内容时，仅对书籍作者的亲身经历标注出处，避免标注所有引用内容；
+
+
+            ### 案例故事的叙述方法
+
+            讲案例故事时，需要把故事讲得有趣。此处有趣有四层含义,你至少要满足第四层：
+
+            A.故事本身的结构不流于俗套、有亮点与吸引力。
+
+            B.故事设定有趣，例如故事的世界观/剧情线/人物设定十分有趣。
+
+            C.讲故事的方法很有趣，例如故事里面很多包袱，且全程行云流水、让人有画面感。
+
+            D.故事里充满了生动有趣的细节，让读者读的时候眼里闪过对应的画面，让他们仿佛身临其境。
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 播客文稿-鸡汤
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '1745493428334'
+      position:
+        x: 1404.5284978467903
+        y: 95.22793167295123
+      positionAbsolute:
+        x: 1404.5284978467903
+        y: 95.22793167295123
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: 5238071a-c5b7-4072-bf41-b8f291614a7c
+            value: 鸡汤类
+            varType: string
+            variable_selector:
+            - '1745493426101'
+            - type2
+          id: 'true'
+          logical_operator: and
+        - case_id: f23eaf73-6c1d-4142-a164-4ae4268da288
+          conditions:
+          - comparison_operator: is
+            id: b74acc53-8783-4431-b00d-ce0f028dc950
+            value: 观点类
+            varType: string
+            variable_selector:
+            - '1745493426101'
+            - type2
+          id: f23eaf73-6c1d-4142-a164-4ae4268da288
+          logical_operator: and
+        - case_id: 21c0aac9-5f1d-4c18-85bf-8ddaaabcf69a
+          conditions:
+          - comparison_operator: is
+            id: 2a413428-1a40-45ab-b950-f24ad8d99afe
+            value: 故事类
+            varType: string
+            variable_selector:
+            - '1745493426101'
+            - type2
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 条件分支
+        type: if-else
+      height: 219
+      id: '1747039466792'
+      position:
+        x: 491.78362067716716
+        y: 76.34567109413956
+      positionAbsolute:
+        x: 491.78362067716716
+        y: 76.34567109413956
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: deepseek-reasoner
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 928abdcb-6c4c-4acd-9c8d-065bcb0c3893
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使读者能够读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            # 目标风格
+
+            {{#env.style_mental#}}
+
+            '
+        - id: 05ebc80c-1486-4a1c-8722-4c968b297e89
+          role: user
+          text: '# 你的任务
+
+            根据输入的声音大纲和参考书籍内容，详细解读书籍内容，帮用户读的懂，用得上，将你的分析过程详细体现在思考过程中。
+
+
+            ## 要求
+
+            1. 结合声音大纲，分析如何将书籍内容做通俗化解读，帮用户读的懂，用得上；
+
+            2. 书籍解读内容具有连贯性，识别当前解读的章节，在开篇简要预告声音的主要内容，给用户提供清晰的认知地图。
+
+            3. 检查“大纲”中是否存在用户不了解，但是在没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛，**禁止虚构、夸大信息或改动书籍/新闻数据等内容**。
+
+            4. 对于主要的观点内容，必须使用书中案例的展开解读，帮助用户更容易理解内容的含义；
+
+            5. 输出正文写作建议，避免直接输出正文。
+
+
+            ## 提出观点的建议
+
+            - 新颖：打破常规思维，比如从相反的角度看问题，或者结合跨领域的知识，在初始困惑后引发认知重组；
+
+            - 反差和反转：通过设定对比强烈的场景或挑战传统观念来实现，使人同时体验到"这不可能是对的"和"这必然是对的"的矛盾感；
+
+            - 深度且有锐度：陈述现象，还要分析背后的原因、影响，甚至提出解决方案，能让人重新审视长期持有但从未质疑的基本假设，产生"我怎么从未这样想过"的顿悟体验；
+
+
+            # 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        reasoning_format: separated
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 写作思考过程-鸡汤
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '1747131030984'
+      position:
+        x: 798.9352484226999
+        y: 95.22793167295123
+      positionAbsolute:
+        x: 798.9352484226999
+        y: 95.22793167295123
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1745493428334'
+          - text
+          variable: text
+        selected: false
+        title: 结束
+        type: end
+      height: 87
+      id: '1748333714795'
+      position:
+        x: 1687.5958667945492
+        y: 95.22793167295123
+      positionAbsolute:
+        x: 1687.5958667945492
+        y: 95.22793167295123
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: 3285ead7-a15a-46ea-8dd5-6bfbb97f0131
+            value: 过渡类
+            varType: string
+            variable_selector:
+            - '1745493426101'
+            - type1
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 条件分支 2
+        type: if-else
+      height: 123
+      id: '1749264111888'
+      position:
+        x: 218.9896841275637
+        y: -4.005174835238279
+      positionAbsolute:
+        x: 218.9896841275637
+        y: -4.005174835238279
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: deepseek-reasoner
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 928abdcb-6c4c-4acd-9c8d-065bcb0c3893
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使读者能够读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            '
+        - id: 05ebc80c-1486-4a1c-8722-4c968b297e89
+          role: user
+          text: '# 你的任务
+
+            根据输入的声音大纲和参考书籍内容，设计两个知识模块之间的过渡章节，完成前序知识内容的总结和后续知识的预告，将你的分析过程详细体现在思考过程中。
+
+
+            ## 要求
+
+            1. 结合声音大纲，分析如何总结前序知识内容，帮助听众更好地吸收并实际运用；
+
+            2. 书籍解读内容具有连贯性，结合上一部分内容的核心，设计过渡观点和论据，自然衔接到下一知识模块，并简单预告之后要解读的内容。
+
+            3. 输出正文写作建议，避免直接输出正文。
+
+
+            ## 提出观点的建议
+
+            - 新颖：打破常规思维，比如从相反的角度看问题，或者结合跨领域的知识，在初始困惑后引发认知重组；
+
+            - 反差和反转：通过设定对比强烈的场景或挑战传统观念来实现，使人同时体验到"这不可能是对的"和"这必然是对的"的矛盾感；
+
+            - 深度且有锐度：陈述现象，还要分析背后的原因、影响，甚至提出解决方案，能让人重新审视长期持有但从未质疑的基本假设，产生"我怎么从未这样想过"的顿悟体验；
+
+
+            # 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 写作思考过程-过渡
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '17492642631760'
+      position:
+        x: 767.0415667971456
+        y: -145.11162147524445
+      positionAbsolute:
+        x: 767.0415667971456
+        y: -145.11162147524445
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: gemini-2.5-flash-0617
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: f0e5cf84-1c44-4596-8066-34bd3df86858
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，帮用户读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+
+            ### 内容要求
+
+            - **对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻或例子帮助理解**；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述，禁止编造书籍名称
+
+            - 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 你的思考过程
+
+            {{#17492642631760.text#}}'
+        - id: a22e71fe-6ff9-4444-b47b-7066514b974f
+          role: user
+          text: '# 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+
+            # 你的任务
+
+            1. 严格基于输入的声音大纲和参考书籍内容，创作两个知识模块之间的过渡章节，完成前序知识内容的总结和后续知识的预告，仅输出1000字左右的最终正文，不要输出标题。
+
+
+            ## 要求
+
+            1. 结合声音大纲，分析如何总结前序知识内容，原封不动地保留引用的书籍中的金句或表述，帮助听众更好地吸收并实际运用；
+
+            2. 书籍解读内容具有连贯性，结合上一部分内容的核心，设计过渡观点和论据，自然衔接到下一知识模块，并简单预告之后要解读的内容；
+
+            3. 避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题；
+
+            3. 输出基于声音大纲创作的文稿内容，1000字左右；
+
+
+            ### 案例故事的叙述方法
+
+            讲案例故事时，需要把故事讲得有趣。此处有趣有四层含义,你至少要满足第四层：
+
+            A.故事本身的结构不流于俗套、有亮点与吸引力。
+
+            B.故事设定有趣，例如故事的世界观/剧情线/人物设定十分有趣。
+
+            C.讲故事的方法很有趣，例如故事里面很多包袱，且全程行云流水、让人有画面感。
+
+            D.故事里充满了生动有趣的细节，让读者读的时候眼里闪过对应的画面，让他们仿佛身临其境。
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 播客文稿-过渡
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '17492642762740'
+      position:
+        x: 1418.1172041338814
+        y: -145.11162147524445
+      positionAbsolute:
+        x: 1418.1172041338814
+        y: -145.11162147524445
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '17492642762740'
+          - text
+          variable: text
+        selected: false
+        title: 结束 2
+        type: end
+      height: 87
+      id: '1749264311644'
+      position:
+        x: 1730.2928891115234
+        y: -145.11162147524445
+      positionAbsolute:
+        x: 1730.2928891115234
+        y: -145.11162147524445
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: deepseek-reasoner
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 928abdcb-6c4c-4acd-9c8d-065bcb0c3893
+          role: system
+          text: '# 你的角色
+
+            你是一个讲书创作者，你正在创作一篇讲书文稿，文稿是关于书籍内容的解读，使读者能够读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            # 目标风格
+
+            {{#env.style_bilibili#}}
+
+            '
+        - id: 05ebc80c-1486-4a1c-8722-4c968b297e89
+          role: user
+          text: '# 你的任务
+
+            根据输入的声音大纲和参考书籍内容，详细解读书籍内容，帮用户读的懂，用得上，将你的分析过程详细体现在思考过程中。
+
+
+            ## 要求
+
+            1. 结合声音大纲，分析如何将书籍内容做通俗化解读，帮用户读的懂，用得上；
+
+            2. 书籍解读内容具有连贯性，识别当前解读的章节，在开篇简要预告声音的主要内容，给用户提供清晰的认知地图。
+
+            3. 检查“大纲”中是否存在用户不了解，但是在没有展开介绍的故事/新闻/数据/概念/书籍，对用户难以理解的部分进行补充说明，降低用户的理解门槛，**禁止虚构、夸大信息或改动书籍/新闻数据等内容**。
+
+            4. 对于主要的观点内容，必须使用书中案例的展开解读，帮助用户更容易理解内容的含义；
+
+            5. 输出正文写作建议，避免直接输出正文。
+
+
+            ## 提出观点的建议
+
+            - 新颖：打破常规思维，比如从相反的角度看问题，或者结合跨领域的知识，在初始困惑后引发认知重组；
+
+            - 反差和反转：通过设定对比强烈的场景或挑战传统观念来实现，使人同时体验到"这不可能是对的"和"这必然是对的"的矛盾感；
+
+            - 深度且有锐度：陈述现象，还要分析背后的原因、影响，甚至提出解决方案，能让人重新审视长期持有但从未质疑的基本假设，产生"我怎么从未这样想过"的顿悟体验；
+
+
+            # 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        reasoning_format: separated
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 写作思考过程-观点
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '17494614839390'
+      position:
+        x: 798.9352484226999
+        y: 269.6266796919237
+      positionAbsolute:
+        x: 798.9352484226999
+        y: 269.6266796919237
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: gemini-2.5-flash-0617
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: f0e5cf84-1c44-4596-8066-34bd3df86858
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书专辑制作人，擅长书籍的深度解读，帮用户读的懂，用得上。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+            - 大纲中的“预告”和“结尾”部分内容直接输出大纲中的句子即可，避免扩充；不同段落之间仅使用“过渡”中的句子连接，避免衍生其他内容；
+
+            - 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            ### 内容要求
+
+            - **对数据/事件/专有名词需要配以具体解释说明，使用生动的比喻或例子帮助理解**；
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述，禁止编造书籍名称
+
+
+            # 参考思考过程
+
+            {{#17494614839390.text#}}'
+        - id: a22e71fe-6ff9-4444-b47b-7066514b974f
+          role: user
+          text: '# 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+
+            # 你的任务
+
+            1. 严格基于输入的声音大纲，创作**书籍深度解读**类型的稿件；
+
+            2. 保证文稿的信息密度且避免认知过载，每500字能够交付1~2个核心认知点，并且确保用户能够充分听懂你的观点，比如通过类比、举例等方式，为用户提供有趣的、能够带入情境的可感素材。
+
+            3. 仅输出基于声音大纲创作的文稿内容，1000字左右，不要输出标题。
+
+
+            # 要求
+
+            1. 必须严格聚焦声音大纲中观点和逻辑顺序生成文稿，避免超出大纲自由发挥；
+
+            2. 书籍解读内容具有连贯性，开篇简要预告声音的解读的书籍章节和主要内容，给用户提供清晰的认知地图；
+
+            3. 使用行文流畅的自然语言，注意语义之间的逻辑衔接要连贯，避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题；
+
+            4. 区分大纲中的"叙述性内容"和“观点论述”："叙述性内容"需要你参考相关新闻或书籍，将目标内容以播客风格完整讲述；“观点论述”需要你基于主题，输出新颖、有锐度且有价值的观点，并且结合参考书籍进行有依据的阐述；
+
+            5. 对于听众可能不了解的内容/概念/数据，先陈述事实，再使用简单生动的语言解释该内容的含义，然后展开深入解读/讨论，聚焦模块主题，避免发散；
+
+            6. 引用并解读书籍中的内容时，仅对书籍作者的亲身经历标注出处，避免标注所有引用内容；
+
+
+            ### 案例故事的叙述方法
+
+            讲案例故事时，需要把故事讲得有趣。此处有趣有四层含义,你至少要满足第四层：
+
+            A.故事本身的结构不流于俗套、有亮点与吸引力。
+
+            B.故事设定有趣，例如故事的世界观/剧情线/人物设定十分有趣。
+
+            C.讲故事的方法很有趣，例如故事里面很多包袱，且全程行云流水、让人有画面感。
+
+            D.故事里充满了生动有趣的细节，让读者读的时候眼里闪过对应的画面，让他们仿佛身临其境。
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 播客文稿-观点
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '17494615076300'
+      position:
+        x: 1418.1172041338814
+        y: 277.7012499770238
+      positionAbsolute:
+        x: 1418.1172041338814
+        y: 277.7012499770238
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '17494615076300'
+          - text
+          variable: text
+        selected: false
+        title: 结束 (1)
+        type: end
+      height: 87
+      id: '17494615182420'
+      position:
+        x: 1687.5958667945492
+        y: 269.6266796919237
+      positionAbsolute:
+        x: 1687.5958667945492
+        y: 269.6266796919237
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: deepseek-reasoner
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 25c27cd1-a135-4179-8840-a909789b07b7
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书内容创作者，擅长结合热点完成书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            '
+        - id: 7d08dc08-ca33-4d86-a99c-ace95a65042c
+          role: user
+          text: '# 你的任务
+
+            根据输入的声音大纲和参考书籍内容，详细解读书籍内容，能把剧情内容讲清楚，将你的分析过程详细体现在思考过程中。
+
+
+            ## 要求
+
+            1. 简要且直接地预告声音的主要内容，给用户提供清晰的认知地图；
+
+            2. 文稿能把剧情发展讲清楚，帮助用户读懂书籍。
+
+            3. 保留原书中定义的关键术语、所有人物关系、事件因果必须严格对应原文，不得添加原文未明确提及的表述。
+
+            4. 保留所有影响逻辑的关键人物和背景信息，不得为简化叙事省略此类信息。
+
+            5. 人物行为的动机、事件的因果，必须完全遵循原文解释，不得用 “常理推断” 替代原文明确说明的内容。
+
+            6. 联网搜索与当前故事相关的热点新闻，关联讲解内容。
+
+            7. 输出文稿的改进建议，避免直接生产正文。
+
+
+            # 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 写作思考过程-故事
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '1752133880063'
+      position:
+        x: 798.9352484226999
+        y: 428.6266796919237
+      positionAbsolute:
+        x: 798.9352484226999
+        y: 428.6266796919237
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: gemini-2.5-flash-0617
+          provider: langgenius/gemini/gemini
+        prompt_template:
+        - id: cd74bc1d-bfa4-44ca-a872-9b0987ae56ea
+          role: system
+          text: '# 你的角色
+
+            你是一位专业的有声讲书内容创作者，擅长书籍的深度解读，能把剧情内容讲清楚，并对关键剧情作出讲解。
+
+
+            ## 需要解读的书籍
+
+            书名：{{#1745493426101.booktitle#}}
+
+            作者：{{#1745493426101.author#}}
+
+
+            ## 文稿风格
+
+            - 轻松、幽默、有趣、有料
+
+            - 文本内容连贯流畅，避免结构性的内容
+
+            - 口语化，深入浅出，使用简单、生动的词汇解释专业话题
+
+            - 避免使用带有说教感的词汇
+
+
+            ### 结构要求
+
+            - 每个主要段落需要有明确的主题转换和过渡句，引导出下文要讨论的重点内容；
+
+            - 句子与句子之间，语义和语义之间，段落与段落之间，模块与模块之间，都要有清晰的逻辑衔接和过渡性语言；
+
+            - 大纲中的“预告”和“结尾”部分内容直接输出大纲中的句子即可，避免扩充；不同段落之间仅使用“过渡”中的句子连接，避免衍生其他内容；
+
+
+            ### 内容要求
+
+            - 清晰说明因果关系；
+
+            - 重要观点需要用强调语气突出；
+
+            - 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆；
+
+            - 原封不动地保留引用的书籍中的金句或表述，禁止编造书籍名称
+
+            - 使用多样化的词汇与句式，避免多次使用相似的句式（例如“想象一下”，“这就像xxx”，“这象征着xxx”）
+
+
+            # 你的思考过程
+
+            {{#1752133880063.text#}}'
+        - id: c53cb64f-0bb6-4f53-a95a-13aa00774cc3
+          role: user
+          text: '# 参考书籍
+
+            {{#1745493426101.book_content#}}
+
+
+
+            # 你的任务
+
+            1. 严格基于输入的声音大纲，创作**书籍解读**类型的稿件；
+
+            2. 使用行文流畅的自然语言，注意语义之间的逻辑衔接要连贯，避免任何视觉化符号、加粗、序号、括号、结构性内容或小标题；
+
+            3. 仅输出基于声音大纲创作的文稿内容，不要输出标题。
+
+
+            # 要求
+
+            1. 聚焦声音大纲中内容生成文稿，避免超出大纲自由发挥；
+
+            2. 开篇简要预告声音的解读的书籍章节和主要内容，给用户提供清晰的认知地图；
+
+            3. 保留原书中定义的关键术语、所有人物关系、事件因果必须严格对应原文，不得添加原文未明确提及的表述。
+
+            4. 保留所有影响逻辑的关键人物和背景信息，不得为简化叙事省略此类信息。
+
+            5. 人物行为的动机、事件的因果，必须完全遵循原文解释，不得用 “常理推断” 替代原文明确说明的内容。
+
+            6. 全文中，对书籍原作者的称呼保持一致：使用其最常用的称呼，避免使听众产生混淆。
+
+            7. 生成后请自查是否有与原文细节冲突的地方，确保准确后直接输出正文。
+
+
+            # 声音大纲
+
+            {{#1745493426101.outline#}}
+
+
+            '
+        retry_config:
+          max_retries: 1
+          retry_enabled: true
+          retry_interval: 1000
+        selected: false
+        title: 文稿-故事
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 116
+      id: '1752133898291'
+      position:
+        x: 1404.5284978467903
+        y: 428.6266796919237
+      positionAbsolute:
+        x: 1404.5284978467903
+        y: 428.6266796919237
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1752133898291'
+          - text
+          value_type: string
+          variable: text
+        selected: false
+        title: 结束 4
+        type: end
+      height: 87
+      id: '1752133901107'
+      position:
+        x: 1710.9352484227
+        y: 428.6266796919237
+      positionAbsolute:
+        x: 1710.9352484227
+        y: 428.6266796919237
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    viewport:
+      x: -701.4700630510147
+      y: 39.644712647716176
+      zoom: 0.5540425426744238
+  rag_pipeline_variables: []
