@@ -18,6 +18,10 @@
 - 每条声音内部依次生成细纲、初稿和口语化终稿；不同声音最多并行 5 条。
 - 单条失败不阻断批次，失败项可从失败阶段重跑。
 - 人工修改终稿保存为新版本，不覆盖模型原稿。
+- 真实模型通过 DeepGate Anthropic Messages 路由调用。
+- Anthropic 系统要求和任务正文必须合并进 user 消息。
+- 公司 `.local` 路由使用 `httpx` 时必须设置 `trust_env=False`。
+- 本机 DeepGate Messages 最小真实调用成功，目标供应商与模型返回非空文本。
 
 ## Research Findings
 
@@ -51,6 +55,8 @@
 | 后端负责文件与 Vault 访问 | 浏览器不直接获得任意本地文件权限 |
 | 项目父运行 + 声音子运行 | 支持整张专辑汇总、单条失败隔离和重启恢复 |
 | `author_type` 区分模型与人工 | 终稿审校不覆盖模型产物 |
+| Anthropic 使用原生 `httpx` 适配器 | 复用现有依赖并精确控制 DeepGate 请求 |
+| 实际访问密钥只保存在 Git 忽略的 `.env` | 防止配置进入版本历史、示例文件或前端 |
 
 ## Issues Encountered
 

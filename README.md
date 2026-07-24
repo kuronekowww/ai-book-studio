@@ -50,16 +50,19 @@ npm run dev
 
 默认 `.env` 使用确定性演示模型，可完整体验工作流且不会产生模型费用。
 
-要连接 OpenAI 兼容接口：
+要连接 Anthropic Messages 接口：
 
 ```dotenv
-AI_BOOK_STUDIO_PROVIDER=openai-compatible
-AI_BOOK_STUDIO_API_BASE=https://api.openai.com/v1
+AI_BOOK_STUDIO_PROVIDER=anthropic
+AI_BOOK_STUDIO_API_BASE=http://你的网关/模型路由/api
 AI_BOOK_STUDIO_API_KEY=你的本机密钥
-AI_BOOK_STUDIO_MODEL=gpt-4.1-mini
+AI_BOOK_STUDIO_MODEL=你的模型路由名称
 ```
 
+Anthropic 供应商使用 Messages 协议，并自动在配置地址后追加 `/v1/messages`。
 密钥只从后端进程环境读取，不写入数据库、日志、Obsidian 或浏览器存储。
+
+仍可使用 `openai-compatible` 供应商连接兼容 `/chat/completions` 的接口。
 
 ## 使用《圆圈正义》验收
 

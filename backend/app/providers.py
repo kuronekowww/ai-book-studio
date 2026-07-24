@@ -93,7 +93,57 @@ class OpenAICompatibleProvider:
         return data["choices"][0]["message"]["content"]
 
 
+@dataclass
+class AnthropicProvider:
+    settings: Settings
+    name: str = "anthropic"
+
+    @property
+    def model(self) -> str:
+        return self.settings.model
+
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        if not self.settings.api_key:
+            raise RuntimeError("尚未配置 AI_BOOK_STUDIO_API_KEY")
+        url = f"{self.settings.api_base.rstrip('/')}/v1/messages"
+        user_message = (
+            f"【系统要求】\n{prompt.system.strip()}\n\n"
+            f"【任务】\n{prompt.user_template.format(source=source).strip()}"
+        )
+        payload = {
+            "model": self.settings.model,
+            "max_tokens": 8192,
+            "messages": [{"role": "user", "content": user_message}],
+        }
+        headers = {
+            "x-api-key": self.settings.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise RuntimeError(
+                f"Anthropic 网关请求失败（HTTP {error.response.status_code}）"
+            ) from error
+        except httpx.RequestError as error:
+            raise RuntimeError("Anthropic 网关连接失败") from error
+        data = response.json()
+        text_blocks = [
+            block.get("text", "")
+            for block in data.get("content", [])
+            if block.get("type") == "text" and block.get("text")
+        ]
+        if not text_blocks:
+            raise RuntimeError("Anthropic 网关未返回文本内容")
+        return "\n".join(text_blocks)
+
+
 def build_provider(settings: Settings) -> ModelProvider:
     if settings.provider == "demo":
         return DemoProvider()
+    if settings.provider == "anthropic":
+        return AnthropicProvider(settings)
     return OpenAICompatibleProvider(settings)

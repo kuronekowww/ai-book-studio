@@ -127,6 +127,28 @@
   - 完成 Git 范围、密钥、原书和运行数据检查。
   - 提交实现并保留本地前后端预览。
 
+### Phase 13: DeepGate Anthropic 接入
+
+- **Status:** complete
+- **Started:** 2026-07-24
+- Actions taken:
+  - 确认 DeepGate 使用 Anthropic Messages 协议。
+  - 确认关闭环境代理并将完整提示要求合并到 user 消息。
+  - 写入并提交不含访问密钥的接入设计规格。
+  - 写入实施计划并完成 Anthropic 供应商适配。
+  - 增加模拟请求测试，校验请求地址、鉴权头、消息结构和响应解析。
+  - 首次独立烟雾测试因 `.env` 变量未导出而回落到演示供应商；已定位为 shell 导出方式问题。
+
+### Phase 14: 本机配置与真实验证
+
+- **Status:** complete
+- Actions taken:
+  - 将实际 DeepGate 配置写入 Git 忽略的本机 `.env`。
+  - 重启统一开发服务，确认后端报告 Anthropic 供应商和目标模型已就绪。
+  - 通过显式导出环境变量完成一次最小真实调用，获得非空模型响应。
+  - 后端 9 项测试、前端 2 项测试、lint 和生产构建全部通过。
+  - 确认 `.env` 未被 Git 跟踪，提交范围不包含访问密钥。
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -148,6 +170,9 @@
 | 人工终稿版本 | 编辑第 3 条终稿 | 新版本且模型原稿保留 | human v2 + model v1 | ✓ |
 | 本次后端测试 | pytest | 全部通过 | 7 passed | ✓ |
 | 本次前端测试 | npm test | 构建和结构校验通过 | 2 passed | ✓ |
+| Anthropic 模拟请求 | pytest | URL、鉴权、消息与解析正确 | 2 项新增用例通过 | ✓ |
+| DeepGate 最小真实请求 | Anthropic Messages | 返回非空内容 | 目标模型返回 5 字符内容 | ✓ |
+| DeepGate 接入回归 | pytest / lint / test / build | 全部通过 | 后端 9、前端 2、lint 与构建通过 | ✓ |
 
 ## Error Log
 
@@ -168,8 +193,8 @@
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | 已完成本地首版交付 |
-| Where am I going? | 后续可接入真实模型，并扩展多书融合创作 |
+| Where am I? | 已完成本地首版和 DeepGate Anthropic 接入 |
+| Where am I going? | 后续可扩展更多模型供应商和多书融合创作 |
 | What's the goal? | 交付可用的本地 AI 讲书知识与文稿工作台 |
 | What have I learned? | 见 `findings.md` |
-| What have I done? | 已完成产品、真实样书闭环、测试、文档和 Git 交付 |
+| What have I done? | 已完成产品、真实样书闭环、真实模型接入、测试、文档和 Git 交付 |

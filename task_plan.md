@@ -112,6 +112,24 @@ Complete
 - [x] 保留可用的本地预览
 - **Status:** complete
 
+### Phase 13: DeepGate Anthropic 接入
+
+- [x] 确认 Messages 协议和 DeepGate 兼容策略
+- [x] 写入并提交设计规格
+- [x] 写入实施计划
+- [x] 实现 Anthropic 供应商
+- [x] 增加模拟请求测试
+- **Status:** complete
+
+### Phase 14: 本机配置与真实验证
+
+- [x] 将实际配置写入 Git 忽略的 `.env`
+- [x] 重启后端并确认设置状态
+- [x] 执行一次最小真实请求
+- [x] 完成全部回归测试和密钥边界检查
+- [x] 提交不含密钥的实现
+- **Status:** complete
+
 ## Key Questions
 
 1. 如何在无真实 API Key 的自动化环境中完成可重复验收？使用确定性演示供应商，真实供应商走同一接口。
@@ -132,6 +150,8 @@ Complete
 | Notion 式三栏审核台 | 终稿是主要审核对象，同时保留目录、证据和版本上下文 |
 | 单条串行、跨声音最多 5 条并行 | 保证阶段依赖并提高整张专辑生产效率 |
 | 人工修改保存为新版本 | 保留模型原稿和完整审校历史 |
+| 原生 httpx 调用 Anthropic Messages | 无需新增 SDK，并可显式关闭代理继承 |
+| 系统要求合并进 user 消息 | 适配 DeepGate 不稳定传递顶层 system 内容的行为 |
 
 ## Errors Encountered
 
@@ -148,6 +168,7 @@ Complete
 | pip 在沙箱中无法访问依赖索引 | 1 | 获批后在项目虚拟环境安装依赖 |
 | React lint 禁止在 effect 中同步触发状态更新 | 1 | 改为异步加载回调，并移除不必要的派生状态 effect |
 | 旧数据库缺少 `parent_run_id` 时新索引先于字段升级创建 | 1 | 将索引创建移动到幂等字段迁移之后 |
+| 独立烟雾测试只 `source .env`，变量未导出给 Python | 1 | 使用 `set -a` 自动导出后再加载配置 |
 
 ## Notes
 
