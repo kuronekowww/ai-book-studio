@@ -5,11 +5,13 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 const API_BASE = "http://127.0.0.1:8000";
 
 type View = "library" | "projects" | "runs" | "settings";
+type BookType = "narrative" | "non_narrative";
 
 type Book = {
   id: string;
   title: string;
   author: string;
+  book_type: BookType;
   filename: string;
   status: string;
   source_type: string;
@@ -58,6 +60,7 @@ type Episode = {
   title: string;
   content_type: string;
   style: string;
+  content_framework: string;
   status: string;
   source_section_ids: string[];
   versions?: ArtifactVersion[];
@@ -118,6 +121,7 @@ const statusLabels: Record<string, string> = {
   segment_review: "待确认章节",
   ready_to_analyze: "待拆书",
   analyzed: "知识已入库",
+  analysis_partial_failed: "部分拆解失败",
   outline_review: "待确认大纲",
   production: "等待生产",
   ready: "等待生产",
@@ -326,6 +330,19 @@ export default function Home() {
     runAction("拆书与知识入库", async () => {
       await request(`/api/books/${selectedBook.id}/analyze`, { method: "POST" });
       setSelectedBook(await request<Book>(`/api/books/${selectedBook.id}`));
+      await refresh();
+    });
+
+  const updateBookType = (bookType: BookType) =>
+    selectedBook &&
+    runAction("更新书籍类型", async () => {
+      setSelectedBook(
+        await request<Book>(`/api/books/${selectedBook.id}/type`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ book_type: bookType }),
+        }),
+      );
       await refresh();
     });
 
@@ -562,6 +579,7 @@ export default function Home() {
                 onBack={() => setSelectedBook(null)}
                 onConfirm={() => void confirmSections()}
                 onAnalyze={() => void analyzeBook()}
+                onUpdateType={(bookType) => void updateBookType(bookType)}
                 onSaveSections={(sections) => void saveSections(sections)}
                 onCreateProject={() => {
                   setView("projects");
@@ -666,6 +684,13 @@ function LibraryView({
             <input name="title" placeholder="书名（可自动识别）" />
             <input name="author" placeholder="作者" />
           </div>
+          <label className="book-type-field">
+            <span>书籍类型</span>
+            <select name="book_type" defaultValue="non_narrative">
+              <option value="non_narrative">非叙事类 · 观点、知识与案例</option>
+              <option value="narrative">叙事类 · 人物关系与剧情</option>
+            </select>
+          </label>
           <button className="primary-button" type="submit">导入并解析</button>
         </form>
       </section>
@@ -693,7 +718,7 @@ function LibraryView({
                 <small>{book.author || "作者未填写"}</small>
               </div>
               <h3>{book.title}</h3>
-              <p>{book.filename}</p>
+              <p>{book.book_type === "narrative" ? "叙事类" : "非叙事类"} · {book.filename}</p>
               <div className="metric-row">
                 <span><strong>{formatCount(book.article_count)}</strong> 篇文章</span>
                 <span><strong>{formatCount(book.knowledge_count)}</strong> 条知识</span>
@@ -718,6 +743,7 @@ function BookWorkspace({
   onBack,
   onConfirm,
   onAnalyze,
+  onUpdateType,
   onSaveSections,
   onCreateProject,
   busy,
@@ -726,6 +752,7 @@ function BookWorkspace({
   onBack: () => void;
   onConfirm: () => void;
   onAnalyze: () => void;
+  onUpdateType: (bookType: BookType) => void;
   onSaveSections: (sections: Section[]) => void;
   onCreateProject: () => void;
   busy: boolean;
@@ -750,6 +777,29 @@ function BookWorkspace({
           </span>
           <h2>{book.title}</h2>
           <p>{book.author || "作者未填写"} · {book.filename}</p>
+          <label className="book-type-control">
+            <span>书籍类型</span>
+            <select
+              value={book.book_type}
+              disabled={busy}
+              onChange={(event) => {
+                const nextType = event.target.value as BookType;
+                if (
+                  window.confirm(
+                    "修改书籍类型后需要重新拆书，已有知识资产会保留到重新拆书完成。是否继续？",
+                  )
+                ) {
+                  onUpdateType(nextType);
+                } else {
+                  event.currentTarget.value = book.book_type;
+                }
+              }}
+            >
+              <option value="non_narrative">非叙事类</option>
+              <option value="narrative">叙事类</option>
+            </select>
+            <small>修改类型后需要重新拆书</small>
+          </label>
         </div>
         <div className="action-stack">
           {book.status === "segment_review" && (
@@ -757,9 +807,11 @@ function BookWorkspace({
               确认章节切分
             </button>
           )}
-          {book.status === "ready_to_analyze" && (
+          {["ready_to_analyze", "analysis_partial_failed"].includes(book.status) && (
             <button className="primary-button" disabled={busy} onClick={onAnalyze}>
-              开始拆书与知识入库
+              {book.status === "analysis_partial_failed"
+                ? "重试失败的原文块"
+                : "开始拆书与知识入库"}
             </button>
           )}
           {book.status === "analyzed" && (
@@ -818,7 +870,12 @@ function BookWorkspace({
             <span>{book.knowledge?.length || 0} 条</span>
           </div>
           <div className="knowledge-metrics">
-            {["观点", "案例", "金句"].map((kind) => (
+            {[
+              "观点",
+              "案例",
+              "金句",
+              ...(book.book_type === "narrative" ? ["人物关系"] : []),
+            ].map((kind) => (
               <div key={kind}><strong>{counts[kind] || 0}</strong><span>{kind}</span></div>
             ))}
           </div>
@@ -1089,6 +1146,7 @@ function ProjectWorkspace({
     latestByStage.final?.content || "",
   );
   const [dirty, setDirty] = useState(false);
+  const [outlineDirty, setOutlineDirty] = useState(false);
   const batchActive = Boolean(
     batch && ["pending", "running"].includes(batch.status),
   );
@@ -1141,8 +1199,12 @@ function ProjectWorkspace({
           <p>来源书籍 {project.book_ids.length} 本 · {project.episodes?.length || 0} 条声音</p>
         </div>
         {project.status === "outline_review" && (
-          <button className="primary-button" disabled={busy} onClick={onConfirm}>
-            确认专辑大纲并进入生产
+          <button
+            className="primary-button"
+            disabled={busy || outlineDirty}
+            onClick={onConfirm}
+          >
+            {outlineDirty ? "请先保存大纲修改" : "确认专辑大纲并进入生产"}
           </button>
         )}
       </div>
@@ -1157,6 +1219,7 @@ function ProjectWorkspace({
             <OutlineEditor
               episodes={project.episodes || []}
               onSave={onSaveOutline}
+              onDirtyChange={setOutlineDirty}
               disabled={busy}
             />
           ) : (
@@ -1229,6 +1292,7 @@ function ProjectWorkspace({
                   <p className="eyebrow">声音 {String(episode.position).padStart(2, "0")}</p>
                   <h3>{episode.title}</h3>
                   <span>{episode.content_type} · {episode.style} · 引用 {episode.sources?.length || 0} 个原文小节</span>
+                  <p className="episode-framework">{episode.content_framework}</p>
                 </div>
                 <div className="editor-actions">
                   {retryStage && (
@@ -1384,27 +1448,61 @@ function ProjectWorkspace({
 function OutlineEditor({
   episodes,
   onSave,
+  onDirtyChange,
   disabled,
 }: {
   episodes: Episode[];
   onSave: (episodes: Episode[]) => void;
+  onDirtyChange: (dirty: boolean) => void;
   disabled: boolean;
 }) {
   const [draft, setDraft] = useState(episodes);
-  const update = (id: string, patch: Partial<Episode>) =>
+  const [validationError, setValidationError] = useState("");
+  const update = (id: string, patch: Partial<Episode>) => {
+    onDirtyChange(true);
     setDraft((current) =>
       current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     );
+  };
   const move = (index: number, direction: -1 | 1) => {
     const target = index + direction;
     if (target < 0 || target >= draft.length) return;
     const next = [...draft];
     [next[index], next[target]] = [next[target], next[index]];
+    onDirtyChange(true);
     setDraft(next.map((item, itemIndex) => ({ ...item, position: itemIndex + 1 })));
+  };
+  const remove = (id: string) => {
+    onDirtyChange(true);
+    setDraft((current) =>
+      current
+        .filter((entry) => entry.id !== id)
+        .map((entry, index) => ({ ...entry, position: index + 1 })),
+    );
+  };
+  const save = () => {
+    const invalid = draft.find(
+      (item) =>
+        !item.title.trim() ||
+        !item.content_framework.trim() ||
+        !item.source_section_ids.length,
+    );
+    if (invalid) {
+      setValidationError(
+        `第 ${invalid.position} 条声音需要填写标题、内容框架并关联原文块。`,
+      );
+      return;
+    }
+    setValidationError("");
+    onSave(draft);
+    onDirtyChange(false);
   };
   return (
     <div className="outline-editor">
-      <div className="editor-help">确认前可改标题、类型、风格和顺序，也可删除声音。</div>
+      <div className="editor-help">
+        确认前请审核标题、类型、风格和声音内容框架。生产时三个阶段都会重新带入关联原文。
+      </div>
+      {validationError && <div className="outline-validation">{validationError}</div>}
       {draft.map((item, index) => (
         <div className="outline-edit-card" key={item.id}>
           <div className="outline-edit-top">
@@ -1412,10 +1510,19 @@ function OutlineEditor({
             <div>
               <button disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
               <button disabled={index === draft.length - 1} onClick={() => move(index, 1)}>↓</button>
-              <button onClick={() => setDraft((current) => current.filter((entry) => entry.id !== item.id))}>删除</button>
+              <button onClick={() => remove(item.id)}>删除</button>
             </div>
           </div>
           <input value={item.title} onChange={(event) => update(item.id, { title: event.target.value })} />
+          <textarea
+            className="framework-editor"
+            aria-label={`第 ${index + 1} 条声音内容框架`}
+            value={item.content_framework}
+            placeholder="填写本集的主要内容、事件范围和讲述顺序"
+            onChange={(event) =>
+              update(item.id, { content_framework: event.target.value })
+            }
+          />
           <div className="form-row">
             <select value={item.content_type} onChange={(event) => update(item.id, { content_type: event.target.value })}>
               <option>解读</option><option>过渡</option><option>故事</option>
@@ -1426,7 +1533,7 @@ function OutlineEditor({
           </div>
         </div>
       ))}
-      <button className="save-outline-button" disabled={disabled || !draft.length} onClick={() => onSave(draft)}>
+      <button className="save-outline-button" disabled={disabled || !draft.length} onClick={save}>
         保存大纲调整
       </button>
     </div>

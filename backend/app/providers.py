@@ -25,7 +25,13 @@ class DemoProvider:
     async def generate(self, prompt: PromptDefinition, source: str) -> str:
         cleaned = re.sub(r"\s+", " ", source).strip()
         excerpt = cleaned[:520]
-        if prompt.id == "episode_outline":
+        if prompt.id == "character_relationships":
+            return (
+                '{"relationships":[{"characters":["人物甲","人物乙"],'
+                '"relationship":"人物甲与人物乙在当前事件中相互影响",'
+                '"evidence":"当前原文块中的人物互动"}]}'
+            )
+        if prompt.id in {"episode_outline_narrative", "episode_outline_non_narrative"}:
             return (
                 "# 声音细纲\n\n"
                 "## 开篇\n以一个具体问题进入主题，让听众先看到它与自身经验的关系。\n\n"

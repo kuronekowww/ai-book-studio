@@ -99,6 +99,8 @@ h1, h2, h3, h4, .brand strong, .book-cover span, .book-monogram { font-family: i
 .file-drop small { color: var(--muted); }
 .upload-glyph { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: 22px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.book-type-field { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
+.book-type-field select { min-width: 0; }
 input, select { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); outline: none; }
 input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(36,86,66,.1); }
 .primary-button { border: 0; border-radius: 8px; padding: 10px 16px; background: var(--green); color: white; font-weight: 600; cursor: pointer; }
@@ -139,6 +141,9 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .book-hero-main, .project-head > div:first-child { flex: 1; }
 .book-hero h2, .project-head h2 { margin: 8px 0 4px; font-family: "Songti SC", SimSun, serif; font-size: 30px; }
 .book-hero p, .project-head p { margin: 0; color: var(--muted); }
+.book-type-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 10px; }
+.book-type-control select { width: auto; padding: 6px 26px 6px 8px; font-size: 10px; }
+.book-type-control small { color: var(--muted-2); }
 .action-stack { display: flex; gap: 10px; }
 
 .stage-strip { margin: 18px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -217,6 +222,10 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .outline-edit-card { margin-bottom: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
 .outline-edit-card input, .outline-edit-card select { padding: 7px 8px; font-size: 10px; }
 .outline-edit-card .form-row { margin-top: 6px; }
+.framework-editor { width: 100%; min-height: 112px; margin-top: 7px; padding: 9px 10px; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; line-height: 1.65; }
+.framework-editor:focus { outline: 2px solid color-mix(in srgb, var(--green) 18%, transparent); border-color: var(--green); }
+.outline-validation { margin-bottom: 9px; padding: 9px 10px; border: 1px solid #e9b9b1; border-radius: 8px; background: #fff3f0; color: #a23d31; font-size: 10px; line-height: 1.5; }
+.episode-framework { max-width: 760px; margin-top: 8px !important; padding: 8px 10px; border-left: 2px solid var(--green); background: var(--surface-soft); color: var(--muted) !important; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .outline-edit-top { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
 .outline-edit-top > span { color: var(--muted); font: 600 10px ui-monospace, monospace; }
 .outline-edit-top > div { display: flex; gap: 3px; }

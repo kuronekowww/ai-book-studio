@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS books (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   author TEXT NOT NULL DEFAULT '',
+  book_type TEXT NOT NULL DEFAULT 'non_narrative',
   filename TEXT NOT NULL,
   status TEXT NOT NULL,
   source_type TEXT NOT NULL,
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS episodes (
   title TEXT NOT NULL,
   content_type TEXT NOT NULL,
   style TEXT NOT NULL,
+  content_framework TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   source_section_ids TEXT NOT NULL
 );
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   author_type TEXT NOT NULL DEFAULT 'model',
+  input_snapshot TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   UNIQUE(episode_id, stage, version)
 );
@@ -112,8 +115,15 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 
 
 MIGRATION_COLUMNS = {
+    "books": {
+        "book_type": "TEXT NOT NULL DEFAULT 'non_narrative'",
+    },
+    "episodes": {
+        "content_framework": "TEXT NOT NULL DEFAULT ''",
+    },
     "artifact_versions": {
         "author_type": "TEXT NOT NULL DEFAULT 'model'",
+        "input_snapshot": "TEXT NOT NULL DEFAULT ''",
     },
     "workflow_runs": {
         "parent_run_id": "TEXT",
@@ -160,6 +170,15 @@ class Database:
                         connection.execute(
                             f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
                         )
+            connection.execute(
+                """
+                UPDATE episodes
+                SET content_framework =
+                  '围绕“' || title || '”展开：先说明本集要解决的问题，'
+                  || '再梳理关联原文中的核心观点、事件或案例，最后总结其意义。'
+                WHERE TRIM(content_framework) = ''
+                """
+            )
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent

@@ -4,7 +4,7 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,11 +63,16 @@ class EpisodeUpdate(BaseModel):
     title: str
     content_type: str
     style: str
+    content_framework: str
     source_section_ids: list[str]
 
 
 class EpisodesPayload(BaseModel):
     episodes: list[EpisodeUpdate]
+
+
+class BookTypePayload(BaseModel):
+    book_type: Literal["narrative", "non_narrative"]
 
 
 class GeneratePayload(BaseModel):
@@ -199,6 +204,7 @@ async def import_book(
     file: UploadFile = File(...),
     title: str = Form(""),
     author: str = Form(""),
+    book_type: Literal["narrative", "non_narrative"] = Form("non_narrative"),
 ) -> dict[str, Any]:
     filename = file.filename or "未命名.md"
     content = await file.read()
@@ -212,10 +218,20 @@ async def import_book(
     database.execute(
         """
         INSERT INTO books
-          (id, title, author, filename, status, source_type, parse_version, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'segment_review', ?, 1, ?, ?)
+          (id, title, author, book_type, filename, status, source_type,
+           parse_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'segment_review', ?, 1, ?, ?)
         """,
-        (book_id, final_title, author.strip(), filename, parsed.source_type, now, now),
+        (
+            book_id,
+            final_title,
+            author.strip(),
+            book_type,
+            filename,
+            parsed.source_type,
+            now,
+            now,
+        ),
     )
     rows = [
         (
@@ -295,6 +311,37 @@ def update_sections(book_id: str, payload: SectionsPayload) -> dict[str, Any]:
     return book_detail(book_id)
 
 
+@app.put("/api/books/{book_id}/type")
+def update_book_type(book_id: str, payload: BookTypePayload) -> dict[str, Any]:
+    book = database.row("SELECT * FROM books WHERE id = ?", (book_id,))
+    if not book:
+        raise not_found("书籍")
+    if book["book_type"] == payload.book_type:
+        return book_detail(book_id)
+    database.execute(
+        """
+        DELETE FROM workflow_runs
+        WHERE scope_type = 'book_section_analysis'
+          AND scope_id IN (SELECT id FROM sections WHERE book_id = ?)
+        """,
+        (book_id,),
+    )
+    next_status = (
+        "segment_review"
+        if book["status"] == "segment_review"
+        else "ready_to_analyze"
+    )
+    database.execute(
+        """
+        UPDATE books
+        SET book_type = ?, status = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (payload.book_type, next_status, now_iso(), book_id),
+    )
+    return book_detail(book_id)
+
+
 @app.post("/api/books/{book_id}/confirm")
 def confirm_sections(book_id: str) -> dict[str, Any]:
     if not database.row("SELECT id FROM books WHERE id = ?", (book_id,)):
@@ -310,9 +357,9 @@ def confirm_sections(book_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/books/{book_id}/analyze")
-def analyze_book(book_id: str) -> dict[str, Any]:
+async def analyze_book(book_id: str) -> dict[str, Any]:
     try:
-        return workflows.analyze_book(book_id)
+        return await workflows.analyze_book(book_id)
     except KeyError as error:
         raise not_found("书籍") from error
 
@@ -363,8 +410,9 @@ def update_project_episodes(
     database.executemany(
         """
         INSERT INTO episodes
-          (id, project_id, position, title, content_type, style, status, source_section_ids)
-        VALUES (?, ?, ?, ?, ?, ?, 'outline_review', ?)
+          (id, project_id, position, title, content_type, style,
+           content_framework, status, source_section_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
         """,
         [
             (
@@ -374,6 +422,7 @@ def update_project_episodes(
                 episode.title,
                 episode.content_type,
                 episode.style,
+                episode.content_framework.strip(),
                 json.dumps(episode.source_section_ids, ensure_ascii=False),
             )
             for index, episode in enumerate(payload.episodes, start=1)
@@ -391,6 +440,8 @@ def confirm_project(project_id: str) -> dict[str, Any]:
         return workflows.confirm_project(project_id)
     except KeyError as error:
         raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/api/projects/{project_id}/generate-all")

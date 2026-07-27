@@ -114,11 +114,30 @@ def test_batch_skips_existing_final(tmp_path) -> None:
     assert batch["children"][0]["scope_id"] == episode_ids[1]
 
 
-def test_database_adds_batch_columns_to_existing_tables(tmp_path) -> None:
+def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
     path = tmp_path / "studio.sqlite3"
     with sqlite3.connect(path) as connection:
         connection.executescript(
             """
+            CREATE TABLE books (
+              id TEXT PRIMARY KEY, title TEXT, author TEXT, filename TEXT,
+              status TEXT, source_type TEXT, parse_version INTEGER,
+              created_at TEXT, updated_at TEXT
+            );
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY, title TEXT, book_ids TEXT, status TEXT,
+              created_at TEXT, updated_at TEXT
+            );
+            CREATE TABLE episodes (
+              id TEXT PRIMARY KEY, project_id TEXT, position INTEGER, title TEXT,
+              content_type TEXT, style TEXT, status TEXT, source_section_ids TEXT
+            );
+            INSERT INTO episodes
+              (id, project_id, position, title, content_type, style, status,
+               source_section_ids)
+            VALUES
+              ('legacy-episode', 'legacy-project', 1, '旧声音', '解读', '观点',
+               'review', '[]');
             CREATE TABLE artifact_versions (
               id TEXT PRIMARY KEY, episode_id TEXT, stage TEXT, version INTEGER,
               content TEXT, prompt_version TEXT, provider TEXT, model TEXT,
@@ -133,11 +152,26 @@ def test_database_adds_batch_columns_to_existing_tables(tmp_path) -> None:
     database = Database(path)
     database.init()
     with sqlite3.connect(path) as connection:
+        book_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(books)")
+        }
+        episode_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(episodes)")
+        }
         artifact_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(artifact_versions)")
         }
         run_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(workflow_runs)")
         }
-    assert "author_type" in artifact_columns
+        legacy_framework = connection.execute(
+            """
+            SELECT content_framework FROM episodes
+            WHERE id = 'legacy-episode'
+            """
+        ).fetchone()[0]
+    assert "book_type" in book_columns
+    assert "content_framework" in episode_columns
+    assert "旧声音" in legacy_framework
+    assert {"author_type", "input_snapshot"} <= artifact_columns
     assert {"parent_run_id", "error_stage", "position", "metadata_json"} <= run_columns

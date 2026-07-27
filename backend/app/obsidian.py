@@ -183,6 +183,10 @@ class ObsidianSyncService:
             outline_lines.append(
                 f"- {episode['position']:02d} {episode['title']}（{episode['content_type']} / {episode['style']}）"
             )
+            framework = (
+                episode["content_framework"].strip() or "未填写"
+            ).replace("\n", "\n    ")
+            outline_lines.append(f"  - 内容框架：{framework}")
         homepage = frontmatter(
             {"id": project_id, "type": "project", "status": project["status"]}
         ) + f"\n\n# {project['title']}\n\n声音数量：{len(episodes)}\n"

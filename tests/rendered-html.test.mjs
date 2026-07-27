@@ -31,6 +31,9 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /保存修改 · 新建版本/);
   assert.match(page, /supporting-artifacts/);
   assert.match(page, /review-inspector/);
+  assert.match(page, /name="book_type"/);
+  assert.match(page, /framework-editor/);
+  assert.match(page, /声音内容框架/);
   assert.match(styles, /--green: #5645d4/);
   assert.match(styles, /grid-template-columns: minmax\(280px, 300px\).*minmax\(250px, 280px\)/);
   assert.match(styles, /\.final-editor \{/);
