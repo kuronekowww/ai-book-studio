@@ -55,6 +55,9 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     assert analysis["knowledge_count"] >= 1
 
     project = service.create_project("测试专辑", book_id)
+    project = asyncio.run(
+        service.generate_project_knowledge_outputs(project["id"])
+    )["project"]
     service.confirm_project(project["id"])
     episode_id = project["episodes"][0]["id"]
 
@@ -192,7 +195,11 @@ def test_project_confirmation_requires_framework_and_valid_source(tmp_path) -> N
     database.init()
     service = WorkflowService(database, DemoProvider())
     book_id = seed_book(database)
+    asyncio.run(service.analyze_book(book_id))
     project = service.create_project("测试专辑", book_id)
+    project = asyncio.run(
+        service.generate_project_knowledge_outputs(project["id"])
+    )["project"]
     episode_id = project["episodes"][0]["id"]
     database.execute(
         "UPDATE episodes SET content_framework = '' WHERE id = ?", (episode_id,)

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -22,6 +22,7 @@ type Book = {
   sections?: Section[];
   knowledge?: KnowledgeItem[];
   mind_map?: { content: string } | null;
+  chapter_analyses?: ChapterAnalysis[];
 };
 
 type Section = {
@@ -33,6 +34,21 @@ type Section = {
   content: string;
   kind: string;
   status: string;
+  analysis_enabled: boolean;
+  analysis_exclusion_reason: string;
+};
+
+type ChapterAnalysis = {
+  id: string;
+  root_section_id: string;
+  version: number;
+  status: string;
+  chapter_title: string;
+  rendered_markdown: string;
+  compressed_markdown: string;
+  provider: string;
+  model: string;
+  created_at: string;
 };
 
 type KnowledgeItem = {
@@ -51,6 +67,9 @@ type Project = {
   episode_count?: number;
   completed_count?: number;
   episodes?: Episode[];
+  album_special_requirements?: string;
+  desired_episode_count?: number | null;
+  episode_count_notice?: string;
 };
 
 type Episode = {
@@ -121,6 +140,7 @@ const statusLabels: Record<string, string> = {
   segment_review: "待确认章节",
   ready_to_analyze: "待拆书",
   analyzed: "知识已入库",
+  analysis_partial: "部分章节已完成",
   analysis_partial_failed: "部分拆解失败",
   outline_review: "待确认大纲",
   production: "等待生产",
@@ -333,6 +353,17 @@ export default function Home() {
       await refresh();
     });
 
+  const retryChapter = (sectionId: string) =>
+    selectedBook &&
+    runAction("重跑章节拆书", async () => {
+      await request(
+        `/api/books/${selectedBook.id}/chapters/${sectionId}/analyze`,
+        { method: "POST" },
+      );
+      setSelectedBook(await request<Book>(`/api/books/${selectedBook.id}`));
+      await refresh();
+    });
+
   const updateBookType = (bookType: BookType) =>
     selectedBook &&
     runAction("更新书籍类型", async () => {
@@ -389,6 +420,39 @@ export default function Home() {
       );
       setSelectedProject(project);
       setBatch(null);
+      await refresh();
+    });
+
+  const generateProjectOutline = (
+    specialRequirements: string,
+    desiredEpisodeCount: number | null,
+  ) =>
+    selectedProject &&
+    runAction("生成思维导图与专辑大纲", async () => {
+      const result = await request<{
+        project: Project;
+        mind_map: { status: string; error?: string };
+        album_outline: { status: string; error?: string };
+      }>(`/api/projects/${selectedProject.id}/generate-outline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          album_special_requirements: specialRequirements,
+          desired_episode_count: desiredEpisodeCount,
+        }),
+      });
+      setSelectedProject(result.project);
+      setSelectedEpisode(null);
+      if (
+        result.mind_map.status !== "succeeded" ||
+        result.album_outline.status !== "succeeded"
+      ) {
+        throw new Error(
+          result.album_outline.error ||
+            result.mind_map.error ||
+            "部分内容生成失败，可再次重试",
+        );
+      }
       await refresh();
     });
 
@@ -579,6 +643,7 @@ export default function Home() {
                 onBack={() => setSelectedBook(null)}
                 onConfirm={() => void confirmSections()}
                 onAnalyze={() => void analyzeBook()}
+                onRetryChapter={(id) => void retryChapter(id)}
                 onUpdateType={(bookType) => void updateBookType(bookType)}
                 onSaveSections={(sections) => void saveSections(sections)}
                 onCreateProject={() => {
@@ -604,6 +669,9 @@ export default function Home() {
                 onOpenEpisode={openEpisode}
                 onGenerate={generateEpisode}
                 onGenerateAll={() => void generateAll()}
+                onGenerateOutline={(requirements, count) =>
+                  void generateProjectOutline(requirements, count)
+                }
                 onSaveFinal={saveFinalVersion}
                 busy={Boolean(busy)}
               />
@@ -662,6 +730,13 @@ function LibraryView({
   onOpen: (id: string) => Promise<void>;
   onUpload: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const fileSize = selectedFile
+    ? selectedFile.size >= 1024 * 1024
+      ? `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(selectedFile.size / 1024))} KB`
+    : "";
   return (
     <>
       <section className="hero-grid">
@@ -674,12 +749,40 @@ function LibraryView({
           </p>
         </div>
         <form className="upload-card" onSubmit={onUpload}>
-          <label className="file-drop">
-            <input name="file" type="file" accept=".epub,.txt,.md,.markdown" />
-            <span className="upload-glyph">＋</span>
-            <strong>选择 EPUB、TXT 或 Markdown</strong>
-            <small>原书只保存在本机，不进入 Git</small>
+          <label className={selectedFile ? "file-drop selected" : "file-drop"}>
+            <input
+              ref={fileInput}
+              name="file"
+              type="file"
+              accept=".epub,.txt,.md,.markdown"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+            />
+            <span className="upload-glyph">{selectedFile ? "✓" : "＋"}</span>
+            <strong>
+              {selectedFile?.name || "选择 EPUB、TXT 或 Markdown"}
+            </strong>
+            <small>
+              {selectedFile
+                ? `${selectedFile.name.split(".").pop()?.toUpperCase()} · ${fileSize} · 已选择`
+                : "原书只保存在本机，不进入 Git"}
+            </small>
           </label>
+          {selectedFile && (
+            <div className="file-actions">
+              <button type="button" onClick={() => fileInput.current?.click()}>
+                重新选择
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (fileInput.current) fileInput.current.value = "";
+                  setSelectedFile(null);
+                }}
+              >
+                移除
+              </button>
+            </div>
+          )}
           <div className="form-row">
             <input name="title" placeholder="书名（可自动识别）" />
             <input name="author" placeholder="作者" />
@@ -691,7 +794,9 @@ function LibraryView({
               <option value="narrative">叙事类 · 人物关系与剧情</option>
             </select>
           </label>
-          <button className="primary-button" type="submit">导入并解析</button>
+          <button className="primary-button" type="submit" disabled={!selectedFile}>
+            导入并解析
+          </button>
         </form>
       </section>
 
@@ -743,6 +848,7 @@ function BookWorkspace({
   onBack,
   onConfirm,
   onAnalyze,
+  onRetryChapter,
   onUpdateType,
   onSaveSections,
   onCreateProject,
@@ -752,14 +858,25 @@ function BookWorkspace({
   onBack: () => void;
   onConfirm: () => void;
   onAnalyze: () => void;
+  onRetryChapter: (sectionId: string) => void;
   onUpdateType: (bookType: BookType) => void;
   onSaveSections: (sections: Section[]) => void;
   onCreateProject: () => void;
   busy: boolean;
 }) {
-  const structuralSections = (book.sections || []).filter((section) =>
-    [3, 4].includes(section.level),
+  const structuralSections = (book.sections || []).filter(
+    (section) => section.level <= 4,
   );
+  const rootSections = structuralSections.filter((section) => !section.parent_id);
+  const latestChapterByRoot = useMemo(() => {
+    const map = new Map<string, ChapterAnalysis>();
+    for (const analysis of book.chapter_analyses || []) {
+      if (!map.has(analysis.root_section_id)) {
+        map.set(analysis.root_section_id, analysis);
+      }
+    }
+    return map;
+  }, [book.chapter_analyses]);
   const counts = useMemo(() => {
     const result: Record<string, number> = {};
     for (const item of book.knowledge || []) result[item.kind] = (result[item.kind] || 0) + 1;
@@ -807,10 +924,10 @@ function BookWorkspace({
               确认章节切分
             </button>
           )}
-          {["ready_to_analyze", "analysis_partial_failed"].includes(book.status) && (
+          {["ready_to_analyze", "analysis_partial", "analysis_partial_failed"].includes(book.status) && (
             <button className="primary-button" disabled={busy} onClick={onAnalyze}>
-              {book.status === "analysis_partial_failed"
-                ? "重试失败的原文块"
+              {["analysis_partial", "analysis_partial_failed"].includes(book.status)
+                ? "继续或重试章节拆书"
                 : "开始拆书与知识入库"}
             </button>
           )}
@@ -840,7 +957,7 @@ function BookWorkspace({
         <section className="panel">
           <div className="panel-heading">
             <div><p className="eyebrow">STRUCTURE</p><h3>目录与文章</h3></div>
-            <span>{structuralSections.filter((item) => item.level === 4).length} 篇</span>
+            <span>{rootSections.filter((item) => item.analysis_enabled).length} 章纳入拆书</span>
           </div>
           {book.status === "segment_review" ? (
             <ChapterEditor
@@ -852,12 +969,25 @@ function BookWorkspace({
             <div className="section-list">
               {structuralSections.map((section) => (
                 <div className={`section-row level-${section.level}`} key={section.id}>
-                  <span>{section.level === 3 ? "主题" : String(section.position).padStart(2, "0")}</span>
+                  <span>H{section.level}</span>
                   <div>
                     <strong>{section.title}</strong>
-                    {section.level === 4 && <small>{section.content.slice(0, 72)}…</small>}
+                    {section.content && <small>{section.content.slice(0, 72)}…</small>}
+                    {!section.parent_id && !section.analysis_enabled && (
+                      <small>{section.analysis_exclusion_reason || "已人工排除"}</small>
+                    )}
                   </div>
-                  <em>{section.status === "confirmed" ? "已确认" : "待确认"}</em>
+                  <em>
+                    {!section.parent_id
+                      ? section.analysis_enabled
+                        ? latestChapterByRoot.has(section.id)
+                          ? "拆书成功"
+                          : "等待拆书"
+                        : "不纳入"
+                      : section.status === "confirmed"
+                        ? "已确认"
+                        : "待确认"}
+                  </em>
                 </div>
               ))}
             </div>
@@ -871,7 +1001,9 @@ function BookWorkspace({
           </div>
           <div className="knowledge-metrics">
             {[
+              "概念",
               "观点",
+              "论据",
               "案例",
               "金句",
               ...(book.book_type === "narrative" ? ["人物关系"] : []),
@@ -879,6 +1011,42 @@ function BookWorkspace({
               <div key={kind}><strong>{counts[kind] || 0}</strong><span>{kind}</span></div>
             ))}
           </div>
+          {book.chapter_analyses?.length ? (
+            <div className="chapter-analysis-list">
+              {rootSections
+                .filter((section) => section.analysis_enabled)
+                .map((section) => {
+                  const analysis = latestChapterByRoot.get(section.id);
+                  return (
+                    <details key={section.id} className="chapter-analysis-card">
+                      <summary>
+                        <div>
+                          <strong>{section.title}</strong>
+                          <small>
+                            {analysis
+                              ? `v${analysis.version} · ${analysis.model}`
+                              : "尚未成功"}
+                          </small>
+                        </div>
+                        {!analysis && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              onRetryChapter(section.id);
+                            }}
+                          >
+                            单章重跑
+                          </button>
+                        )}
+                      </summary>
+                      <pre>{analysis?.rendered_markdown || "该章尚无成功拆书稿。"}</pre>
+                    </details>
+                  );
+                })}
+            </div>
+          ) : null}
           <div className="knowledge-list">
             {(book.knowledge || []).slice(0, 12).map((item) => (
               <article key={item.id}>
@@ -915,7 +1083,7 @@ function ChapterEditor({
   disabled: boolean;
 }) {
   const [draft, setDraft] = useState(sections);
-  const structural = draft.filter((section) => [3, 4].includes(section.level));
+  const structural = draft.filter((section) => section.level <= 4);
 
   const update = (id: string, patch: Partial<Section>) =>
     setDraft((current) =>
@@ -991,7 +1159,9 @@ function ChapterEditor({
 
   return (
     <div className="chapter-editor">
-      <div className="editor-help">可改标题和层级，也可调整顺序、合并或拆分长文章。</div>
+      <div className="editor-help">
+        审核完整一至三级目录。一级章节可选择是否纳入拆书，也可调整标题和层级。
+      </div>
       {structural.map((section, index) => (
         <div className={`chapter-edit-row level-${section.level}`} key={section.id}>
           <div className="chapter-order">
@@ -1002,14 +1172,33 @@ function ChapterEditor({
             value={section.level}
             onChange={(event) => update(section.id, { level: Number(event.target.value) })}
           >
-            <option value={3}>主题</option>
-            <option value={4}>文章</option>
+            <option value={1}>一级</option>
+            <option value={2}>二级</option>
+            <option value={3}>三级</option>
+            <option value={4}>四级</option>
           </select>
           <input
             value={section.title}
             onChange={(event) => update(section.id, { title: event.target.value })}
           />
           <div className="chapter-tools">
+            {!section.parent_id && (
+              <label className="analysis-toggle">
+                <input
+                  type="checkbox"
+                  checked={section.analysis_enabled}
+                  onChange={(event) =>
+                    update(section.id, {
+                      analysis_enabled: event.target.checked,
+                      analysis_exclusion_reason: event.target.checked
+                        ? ""
+                        : "已人工排除",
+                    })
+                  }
+                />
+                纳入逐章拆书
+              </label>
+            )}
             <button onClick={() => mergePrevious(section.id)}>并入上条</button>
             {section.level === 4 && <button onClick={() => splitSection(section.id)}>拆分</button>}
           </div>
@@ -1060,7 +1249,7 @@ function ProjectsView({
               <option value={book.id} key={book.id}>{book.title}</option>
             ))}
           </select>
-          <button className="primary-button" type="submit">生成专辑大纲</button>
+          <button className="primary-button" type="submit">创建内容项目</button>
         </form>
       </section>
 
@@ -1106,6 +1295,7 @@ function ProjectWorkspace({
   onOpenEpisode,
   onGenerate,
   onGenerateAll,
+  onGenerateOutline,
   onSaveFinal,
   busy,
 }: {
@@ -1118,6 +1308,10 @@ function ProjectWorkspace({
   onOpenEpisode: (id: string) => Promise<void>;
   onGenerate: (stage: "outline" | "draft" | "final") => void;
   onGenerateAll: () => void;
+  onGenerateOutline: (
+    specialRequirements: string,
+    desiredEpisodeCount: number | null,
+  ) => void;
   onSaveFinal: (content: string) => Promise<boolean>;
   busy: boolean;
 }) {
@@ -1147,6 +1341,12 @@ function ProjectWorkspace({
   );
   const [dirty, setDirty] = useState(false);
   const [outlineDirty, setOutlineDirty] = useState(false);
+  const [specialRequirements, setSpecialRequirements] = useState(
+    project.album_special_requirements || "",
+  );
+  const [desiredEpisodeCount, setDesiredEpisodeCount] = useState(
+    project.desired_episode_count?.toString() || "",
+  );
   const batchActive = Boolean(
     batch && ["pending", "running"].includes(batch.status),
   );
@@ -1208,6 +1408,49 @@ function ProjectWorkspace({
           </button>
         )}
       </div>
+
+      {project.status === "outline_review" && (
+        <section className="album-generation-card">
+          <div>
+            <p className="eyebrow">模型编排</p>
+            <h3>生成思维导图与专辑大纲</h3>
+            <p>留空时，模型根据完整拆书稿的内容量自行决定专辑结构和集数。</p>
+          </div>
+          <textarea
+            value={specialRequirements}
+            onChange={(event) => setSpecialRequirements(event.target.value)}
+            placeholder="专辑特殊要求（可选），例如受众、侧重点、内容顺序或不希望涉及的内容"
+          />
+          <div className="album-generation-actions">
+            <label>
+              期望集数（可选）
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={desiredEpisodeCount}
+                onChange={(event) => setDesiredEpisodeCount(event.target.value)}
+                placeholder="由模型自行决定"
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={busy}
+              onClick={() =>
+                onGenerateOutline(
+                  specialRequirements,
+                  desiredEpisodeCount ? Number(desiredEpisodeCount) : null,
+                )
+              }
+            >
+              生成思维导图与专辑大纲
+            </button>
+          </div>
+          {project.episode_count_notice && (
+            <div className="episode-count-notice">{project.episode_count_notice}</div>
+          )}
+        </section>
+      )}
 
       <div className={project.status === "outline_review" ? "studio-grid outline-mode" : "studio-grid"}>
         <section className="episode-rail">

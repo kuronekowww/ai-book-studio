@@ -7,6 +7,14 @@ import uuid
 from collections import Counter
 from typing import Any
 
+from .chapter_analysis import (
+    build_chapter_source,
+    content_index,
+    derive_knowledge_cards,
+    parse_json_object,
+    render_chapter_markdown,
+    validate_chapter_analysis,
+)
 from .contexts import EpisodeContextBuilder
 from .db import Database, now_iso
 from .prompts import PROMPTS
@@ -40,6 +48,8 @@ class WorkflowService:
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
         if not book:
             raise KeyError(book_id)
+        if book["book_type"] == "non_narrative":
+            return await self._analyze_non_narrative(book)
         sections = self.database.rows(
             """
             SELECT * FROM sections
@@ -151,6 +161,318 @@ class WorkflowService:
             "mind_map": mind_map,
             **relationship_result,
         }
+
+    def _chapter_roots(self, book_id: str) -> list[dict[str, Any]]:
+        return self.database.rows(
+            """
+            SELECT * FROM sections
+            WHERE book_id = ? AND parent_id IS NULL
+              AND status = 'confirmed' AND analysis_enabled = 1
+            ORDER BY position
+            """,
+            (book_id,),
+        )
+
+    async def _analyze_non_narrative(
+        self, book: dict[str, Any], only_root_id: str | None = None
+    ) -> dict[str, Any]:
+        book_id = book["id"]
+        roots = self._chapter_roots(book_id)
+        if only_root_id:
+            roots = [root for root in roots if root["id"] == only_root_id]
+        else:
+            roots = [
+                root
+                for root in roots
+                if not self.database.row(
+                    """
+                    SELECT id FROM chapter_analyses
+                    WHERE root_section_id = ? AND status = 'succeeded'
+                    ORDER BY version DESC LIMIT 1
+                    """,
+                    (root["id"],),
+                )
+            ]
+        if not roots:
+            if not only_root_id and self._all_chapters_ready(book_id):
+                self.database.execute(
+                    "UPDATE books SET status = 'analyzed', updated_at = ? WHERE id = ?",
+                    (now_iso(), book_id),
+                )
+                count = self.database.row(
+                    "SELECT COUNT(*) AS count FROM knowledge_items WHERE book_id = ?",
+                    (book_id,),
+                )
+                return {
+                    "knowledge_count": int(count["count"]) if count else 0,
+                    "chapter_count": 0,
+                    "succeeded_count": 0,
+                    "failed_chapters": [],
+                    "parent_run_id": None,
+                }
+            raise ValueError("没有可拆书的已确认一级章节，请先检查章节范围")
+        all_sections = self.database.rows(
+            "SELECT * FROM sections WHERE book_id = ? ORDER BY position", (book_id,)
+        )
+        parent_run_id = uuid.uuid4().hex
+        started = now_iso()
+        self.database.execute(
+            """
+            INSERT INTO workflow_runs
+              (id, scope_type, scope_id, stage, status, message,
+               metadata_json, created_at, updated_at)
+            VALUES (?, 'book_analysis_batch', ?, 'book_analysis', 'running', '',
+                    ?, ?, ?)
+            """,
+            (
+                parent_run_id,
+                book_id,
+                json.dumps({"chapter_count": len(roots)}, ensure_ascii=False),
+                started,
+                started,
+            ),
+        )
+        semaphore = asyncio.Semaphore(5)
+
+        async def analyze_root(
+            root: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
+            child_run_id = uuid.uuid4().hex
+            now = now_iso()
+            self.database.execute(
+                """
+                INSERT INTO workflow_runs
+                  (id, scope_type, scope_id, stage, status, message,
+                   parent_run_id, position, metadata_json, created_at, updated_at)
+                VALUES (?, 'chapter_analysis', ?, 'book_analysis', 'pending', '',
+                        ?, ?, ?, ?, ?)
+                """,
+                (
+                    child_run_id,
+                    root["id"],
+                    parent_run_id,
+                    root["position"],
+                    json.dumps(
+                        {"book_id": book_id, "chapter_title": root["title"]},
+                        ensure_ascii=False,
+                    ),
+                    now,
+                    now,
+                ),
+            )
+            try:
+                chapter_source = build_chapter_source(root, all_sections)
+                async with semaphore:
+                    self.database.execute(
+                        "UPDATE workflow_runs SET status = 'running', updated_at = ? WHERE id = ?",
+                        (now_iso(), child_run_id),
+                    )
+                    raw = await self.provider.generate(
+                        PROMPTS["book_analysis"], chapter_source.source
+                    )
+                try:
+                    parsed = parse_json_object(raw)
+                except json.JSONDecodeError:
+                    async with semaphore:
+                        repaired = await self.provider.generate(
+                            PROMPTS["json_repair"], raw
+                        )
+                    parsed = parse_json_object(repaired)
+                data = validate_chapter_analysis(
+                    parsed, set(chapter_source.index_to_section_id)
+                )
+                rendered = render_chapter_markdown(data)
+                cards = derive_knowledge_cards(
+                    data, chapter_source.index_to_section_id
+                )
+                analysis_id = self._save_chapter_analysis(
+                    book_id,
+                    root,
+                    data,
+                    rendered,
+                    chapter_source.source,
+                    cards,
+                )
+                self.database.execute(
+                    """
+                    UPDATE workflow_runs
+                    SET status = 'succeeded', message = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (f"已生成 {len(cards)} 条知识资产", now_iso(), child_run_id),
+                )
+                return root, {"analysis_id": analysis_id, "card_count": len(cards)}, ""
+            except Exception as error:
+                self.database.execute(
+                    """
+                    UPDATE workflow_runs
+                    SET status = 'failed', message = ?, error_stage = 'book_analysis',
+                        updated_at = ? WHERE id = ?
+                    """,
+                    (str(error)[:500], now_iso(), child_run_id),
+                )
+                return root, None, str(error)
+
+        results = await asyncio.gather(*(analyze_root(root) for root in roots))
+        failed = [
+            {"section_id": root["id"], "title": root["title"], "error": error}
+            for root, result, error in results
+            if result is None
+        ]
+        succeeded = [result for _, result, _ in results if result is not None]
+        if only_root_id:
+            all_ready = self._all_chapters_ready(book_id)
+        else:
+            all_ready = not failed and len(succeeded) == len(roots)
+        status = (
+            "analyzed"
+            if all_ready
+            else "analysis_partial_failed"
+            if failed
+            else "analysis_partial"
+        )
+        if not all_ready:
+            self.database.execute(
+                "DELETE FROM mind_maps WHERE book_id = ?", (book_id,)
+            )
+        self.database.execute(
+            "UPDATE books SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now_iso(), book_id),
+        )
+        self.database.execute(
+            """
+            UPDATE workflow_runs
+            SET status = ?, message = ?, updated_at = ? WHERE id = ?
+            """,
+            (
+                "succeeded" if not failed else "failed",
+                f"成功 {len(succeeded)} 章，失败 {len(failed)} 章",
+                now_iso(),
+                parent_run_id,
+            ),
+        )
+        count = self.database.row(
+            "SELECT COUNT(*) AS count FROM knowledge_items WHERE book_id = ?",
+            (book_id,),
+        )
+        return {
+            "knowledge_count": int(count["count"]) if count else 0,
+            "chapter_count": len(roots),
+            "succeeded_count": len(succeeded),
+            "failed_chapters": failed,
+            "parent_run_id": parent_run_id,
+        }
+
+    def _save_chapter_analysis(
+        self,
+        book_id: str,
+        root: dict[str, Any],
+        data: dict[str, Any],
+        rendered: str,
+        input_snapshot: str,
+        cards: list[dict[str, Any]],
+    ) -> str:
+        current = self.database.row(
+            """
+            SELECT COALESCE(MAX(version), 0) AS version
+            FROM chapter_analyses WHERE root_section_id = ?
+            """,
+            (root["id"],),
+        )
+        version = int(current["version"]) + 1 if current else 1
+        analysis_id = uuid.uuid4().hex
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO chapter_analyses
+                  (id, book_id, root_section_id, version, status,
+                   structured_json, rendered_markdown, prompt_version,
+                   provider, model, input_snapshot, created_at)
+                VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    book_id,
+                    root["id"],
+                    version,
+                    json.dumps(data, ensure_ascii=False),
+                    rendered,
+                    PROMPTS["book_analysis"].version,
+                    self.provider.name,
+                    self.provider.model,
+                    input_snapshot,
+                    now_iso(),
+                ),
+            )
+            connection.execute(
+                """
+                DELETE FROM knowledge_items
+                WHERE origin = 'chapter_model'
+                  AND chapter_analysis_id IN (
+                    SELECT id FROM chapter_analyses
+                    WHERE root_section_id = ? AND id != ?
+                  )
+                """,
+                (root["id"], analysis_id),
+            )
+            connection.executemany(
+                """
+                INSERT INTO knowledge_items
+                  (id, book_id, kind, title, body, source_section_ids,
+                   chapter_analysis_id, origin, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'chapter_model', ?)
+                """,
+                [
+                    (
+                        uuid.uuid4().hex,
+                        book_id,
+                        card["kind"],
+                        card["title"],
+                        card["body"],
+                        json.dumps(card["source_section_ids"], ensure_ascii=False),
+                        analysis_id,
+                        now_iso(),
+                    )
+                    for card in cards
+                ],
+            )
+        return analysis_id
+
+    def _all_chapters_ready(self, book_id: str) -> bool:
+        roots = self._chapter_roots(book_id)
+        if not roots:
+            return False
+        return all(
+            self.database.row(
+                """
+                SELECT id FROM chapter_analyses
+                WHERE root_section_id = ? AND status = 'succeeded'
+                ORDER BY version DESC LIMIT 1
+                """,
+                (root["id"],),
+            )
+            for root in roots
+        )
+
+    async def retry_chapter(
+        self, book_id: str, root_section_id: str
+    ) -> dict[str, Any]:
+        book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
+        if not book:
+            raise KeyError(book_id)
+        if book["book_type"] != "non_narrative":
+            raise ValueError("单章模型拆书仅适用于非叙事类书籍")
+        root = self.database.row(
+            """
+            SELECT * FROM sections
+            WHERE id = ? AND book_id = ? AND parent_id IS NULL
+              AND analysis_enabled = 1 AND status = 'confirmed'
+            """,
+            (root_section_id, book_id),
+        )
+        if not root:
+            raise ValueError("章节不存在、未确认或未纳入拆书")
+        return await self._analyze_non_narrative(book, root_section_id)
 
     async def _extract_character_relationships(
         self, book_id: str, sections: list[dict[str, Any]]
@@ -340,6 +662,249 @@ class WorkflowService:
                 lines.append(f"  - {article['title']}")
         return "\n".join(lines)
 
+    def _latest_chapter_analyses(self, book_id: str) -> list[dict[str, Any]]:
+        roots = self._chapter_roots(book_id)
+        if not roots:
+            raise ValueError("没有纳入拆书的一级章节")
+        latest: list[dict[str, Any]] = []
+        for root in roots:
+            analysis = self.database.row(
+                """
+                SELECT * FROM chapter_analyses
+                WHERE root_section_id = ? AND status = 'succeeded'
+                ORDER BY version DESC LIMIT 1
+                """,
+                (root["id"],),
+            )
+            if not analysis:
+                raise ValueError(f"章节“{root['title']}”尚未拆书成功")
+            analysis["chapter_title"] = root["title"]
+            analysis["position"] = root["position"]
+            latest.append(analysis)
+        return latest
+
+    async def _book_analysis_input(self, book_id: str) -> tuple[str, bool]:
+        analyses = self._latest_chapter_analyses(book_id)
+        complete = "\n\n".join(
+            item["rendered_markdown"] for item in analyses
+        )
+        if len(complete) <= 90_000:
+            return complete, False
+        compressed: list[str] = []
+        for item in analyses:
+            content = item["compressed_markdown"].strip()
+            if not content:
+                source = item["rendered_markdown"]
+                expected = set(re.findall(r"content_[0-9a-f]{8,40}", source))
+                content = await self.provider.generate(
+                    PROMPTS["chapter_compression"], source
+                )
+                actual = set(re.findall(r"content_[0-9a-f]{8,40}", content))
+                if actual != expected:
+                    raise ValueError(
+                        f"章节“{item['chapter_title']}”压缩后 content_index 不完整"
+                    )
+                self.database.execute(
+                    "UPDATE chapter_analyses SET compressed_markdown = ? WHERE id = ?",
+                    (content, item["id"]),
+                )
+            compressed.append(content)
+        return "\n\n".join(compressed), True
+
+    async def generate_project_knowledge_outputs(
+        self,
+        project_id: str,
+        special_requirements: str = "",
+        desired_episode_count: int | None = None,
+    ) -> dict[str, Any]:
+        project = self.database.row(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        )
+        if not project:
+            raise KeyError(project_id)
+        if not project["book_ids"]:
+            raise ValueError("项目没有关联书籍")
+        book = self.database.row(
+            "SELECT * FROM books WHERE id = ?", (project["book_ids"][0],)
+        )
+        if not book:
+            raise ValueError("项目关联书籍不存在")
+        facts, compressed = await self._book_analysis_input(book["id"])
+        requirements = special_requirements.strip()
+        count_text = (
+            str(desired_episode_count)
+            if desired_episode_count is not None
+            else "未指定，由模型根据内容自行决定"
+        )
+        album_source = (
+            f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}\n"
+            f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
+            f"# 专辑特殊要求\n{requirements or '无'}\n\n"
+            f"# 期望集数\n{count_text}\n\n# 拆书稿\n{facts}"
+        )
+        mind_source = (
+            f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}"
+            f"\n\n# 拆书稿\n{facts}"
+        )
+        mind_result, album_result = await asyncio.gather(
+            self.provider.generate(PROMPTS["mind_map"], mind_source),
+            self.provider.generate(PROMPTS["album_outline"], album_source),
+            return_exceptions=True,
+        )
+        response: dict[str, Any] = {
+            "compressed": compressed,
+            "mind_map": {"status": "failed"},
+            "album_outline": {"status": "failed"},
+        }
+        if isinstance(mind_result, Exception):
+            response["mind_map"]["error"] = str(mind_result)
+        else:
+            current = self.database.row(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM mind_maps WHERE book_id = ?",
+                (book["id"],),
+            )
+            version = int(current["version"]) + 1 if current else 1
+            self.database.execute(
+                """
+                INSERT INTO mind_maps (id, book_id, version, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, book["id"], version, mind_result.strip(), now_iso()),
+            )
+            response["mind_map"] = {"status": "succeeded", "version": version}
+        if isinstance(album_result, Exception):
+            response["album_outline"]["error"] = str(album_result)
+        else:
+            try:
+                try:
+                    album_data = parse_json_object(album_result)
+                except json.JSONDecodeError:
+                    repaired_album = await self.provider.generate(
+                        PROMPTS["json_repair"], album_result
+                    )
+                    album_data = parse_json_object(repaired_album)
+                episodes, notice = self._validate_album_outline(
+                    album_data, book, desired_episode_count
+                )
+                self._save_generated_album(project_id, episodes)
+                self.database.execute(
+                    """
+                    UPDATE projects
+                    SET album_special_requirements = ?, desired_episode_count = ?,
+                        episode_count_notice = ?, status = 'outline_review',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        requirements,
+                        desired_episode_count,
+                        notice,
+                        now_iso(),
+                        project_id,
+                    ),
+                )
+                response["album_outline"] = {
+                    "status": "succeeded",
+                    "episode_count": len(episodes),
+                    "notice": notice,
+                }
+            except Exception as error:
+                response["album_outline"]["error"] = str(error)
+        response["project"] = self.project_detail(project_id)
+        return response
+
+    def _validate_album_outline(
+        self,
+        data: dict[str, Any],
+        book: dict[str, Any],
+        desired_episode_count: int | None,
+    ) -> tuple[list[dict[str, Any]], str]:
+        raw_episodes = data.get("album_outline")
+        if not isinstance(raw_episodes, list) or not raw_episodes:
+            raise ValueError("专辑大纲输出缺少 album_outline")
+        sections = self.database.rows(
+            "SELECT id FROM sections WHERE book_id = ?", (book["id"],)
+        )
+        index_map = {content_index(section["id"]): section["id"] for section in sections}
+        seen_regular: set[str] = set()
+        episodes: list[dict[str, Any]] = []
+        for position, item in enumerate(raw_episodes, start=1):
+            if not isinstance(item, dict):
+                raise ValueError("专辑大纲条目结构无效")
+            title = item.get("title")
+            main_points = item.get("main_points")
+            content_type = item.get("content_type")
+            identifier = item.get("section_identifier")
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (title, main_points, content_type, identifier)
+            ):
+                raise ValueError(f"专辑第 {position} 条字段不完整")
+            normalized_type = content_type.strip().replace("类", "")
+            if normalized_type not in {"解读", "过渡"}:
+                raise ValueError(f"专辑第 {position} 条内容类型无效")
+            if book["book_type"] == "narrative" and normalized_type != "解读":
+                raise ValueError("叙事类书籍不能生成过渡声音")
+            indexes = [
+                part.strip()
+                for part in re.split(r"[,，]", identifier)
+                if part.strip()
+            ]
+            expected_count = 2 if normalized_type == "过渡" else 1
+            if len(indexes) != expected_count:
+                raise ValueError(f"专辑第 {position} 条来源索引数量无效")
+            unknown = [index for index in indexes if index not in index_map]
+            if unknown:
+                raise ValueError(f"专辑第 {position} 条引用了不存在的 content_index")
+            if normalized_type == "解读":
+                if indexes[0] in seen_regular:
+                    raise ValueError("同一 content_index 被拆分到多条普通声音")
+                seen_regular.add(indexes[0])
+            episodes.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "position": position,
+                    "title": title.strip(),
+                    "content_type": normalized_type,
+                    "style": "观点",
+                    "content_framework": main_points.strip(),
+                    "source_section_ids": [index_map[index] for index in indexes],
+                }
+            )
+        notice = ""
+        if desired_episode_count is not None and desired_episode_count != len(episodes):
+            notice = (
+                f"期望 {desired_episode_count} 集，模型在保持来源完整的前提下生成"
+                f" {len(episodes)} 集。"
+            )
+        return episodes, notice
+
+    def _save_generated_album(
+        self, project_id: str, episodes: list[dict[str, Any]]
+    ) -> None:
+        self.database.execute("DELETE FROM episodes WHERE project_id = ?", (project_id,))
+        self.database.executemany(
+            """
+            INSERT INTO episodes
+              (id, project_id, position, title, content_type, style,
+               content_framework, status, source_section_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
+            """,
+            [
+                (
+                    item["id"],
+                    project_id,
+                    item["position"],
+                    item["title"],
+                    item["content_type"],
+                    item["style"],
+                    item["content_framework"],
+                    json.dumps(item["source_section_ids"], ensure_ascii=False),
+                )
+                for item in episodes
+            ],
+        )
+
     def create_project(self, title: str, book_id: str) -> dict[str, Any]:
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
         if not book:
@@ -353,14 +918,22 @@ class WorkflowService:
             """,
             (project_id, title, json.dumps([book_id]), now, now),
         )
-        source_sections = self.database.rows(
-            """
-            SELECT * FROM sections
-            WHERE book_id = ? AND level = 4
-            ORDER BY position
-            LIMIT 12
-            """,
+        has_chapter_analyses = self.database.row(
+            "SELECT id FROM chapter_analyses WHERE book_id = ? LIMIT 1",
             (book_id,),
+        )
+        source_sections = (
+            []
+            if has_chapter_analyses
+            else self.database.rows(
+                """
+                SELECT * FROM sections
+                WHERE book_id = ? AND level = 4
+                ORDER BY position
+                LIMIT 12
+                """,
+                (book_id,),
+            )
         )
         episodes: list[tuple[Any, ...]] = []
         for index, section in enumerate(source_sections, start=1):

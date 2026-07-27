@@ -34,6 +34,13 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /name="book_type"/);
   assert.match(page, /framework-editor/);
   assert.match(page, /声音内容框架/);
+  assert.match(page, /selectedFile/);
+  assert.match(page, /重新选择/);
+  assert.match(page, /analysis_enabled/);
+  assert.match(page, /生成思维导图与专辑大纲/);
+  assert.match(page, /期望集数（可选）/);
+  assert.match(styles, /\.file-drop\.selected/);
+  assert.match(styles, /\.album-generation-card/);
   assert.match(styles, /--green: #5645d4/);
   assert.match(styles, /grid-template-columns: minmax\(280px, 300px\).*minmax\(250px, 280px\)/);
   assert.match(styles, /\.final-editor \{/);

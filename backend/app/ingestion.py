@@ -13,6 +13,14 @@ from xml.etree import ElementTree
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 FOOTNOTE_RE = re.compile(r"\[(\d+)\]")
+ANALYSIS_INCLUDE_RE = re.compile(
+    r"^(序言|序|前言|前记|导言|导论|引言|绪论|"
+    r"第[一二三四五六七八九十百千万零〇\d]+[章节篇部卷]|附录|后记|结语)"
+)
+ANALYSIS_EXCLUDE_RE = re.compile(
+    r"(目录|版权|出版说明|版权页|数据来源|资料来源|表下注|表格说明|"
+    r"各栏|注[:：]|ISBN|CIP)"
+)
 
 
 @dataclass
@@ -34,6 +42,43 @@ class ParsedBook:
     normalized_text: str
     source_type: str
     diagnostics: dict[str, int | str]
+
+
+def analysis_candidate_map(
+    sections: list[SectionDraft],
+) -> dict[str, tuple[bool, str]]:
+    """Classify root chapters without changing the parsed heading hierarchy."""
+    by_parent: dict[str | None, list[SectionDraft]] = {}
+    for section in sections:
+        by_parent.setdefault(section.parent_id, []).append(section)
+
+    roots = sorted(by_parent.get(None, []), key=lambda item: item.position)
+    candidates: dict[str, tuple[bool, str]] = {}
+
+    def aggregate_size(root: SectionDraft) -> int:
+        total = len(root.content.strip())
+        stack = list(by_parent.get(root.id, []))
+        while stack:
+            current = stack.pop()
+            total += len(current.title) + len(current.content.strip())
+            stack.extend(by_parent.get(current.id, []))
+        return total
+
+    for root in roots:
+        title = re.sub(r"\s+", " ", root.title).strip()
+        size = aggregate_size(root)
+        if ANALYSIS_EXCLUDE_RE.search(title):
+            candidates[root.id] = (False, "疑似目录、版权或表格注释")
+        elif not ANALYSIS_INCLUDE_RE.search(title) and (
+            len(title) > 36 or title.endswith(("。", "；", ";"))
+        ):
+            candidates[root.id] = (False, "疑似正文注释或误识别标题")
+        elif size < 500 and not ANALYSIS_INCLUDE_RE.search(title):
+            candidates[root.id] = (False, "正文过短，疑似异常一级标题")
+        else:
+            candidates[root.id] = (True, "")
+
+    return candidates
 
 
 def stable_id(namespace: str, *parts: str) -> str:

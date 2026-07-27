@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from .batches import BatchService
 from .config import get_settings
 from .db import Database, now_iso
-from .ingestion import parse_book
+from .ingestion import analysis_candidate_map, parse_book
 from .obsidian import ObsidianSyncService
 from .providers import build_provider
 from .workflows import StageGenerationError, WorkflowService
@@ -46,6 +46,8 @@ class SectionUpdate(BaseModel):
     title: str
     content: str
     kind: str = "section"
+    analysis_enabled: bool = True
+    analysis_exclusion_reason: str = ""
 
 
 class SectionsPayload(BaseModel):
@@ -55,6 +57,11 @@ class SectionsPayload(BaseModel):
 class ProjectCreate(BaseModel):
     title: str
     book_id: str
+
+
+class ProjectGenerationPayload(BaseModel):
+    album_special_requirements: str = ""
+    desired_episode_count: int | None = Field(default=None, ge=1, le=500)
 
 
 class EpisodeUpdate(BaseModel):
@@ -233,6 +240,7 @@ async def import_book(
             now,
         ),
     )
+    candidate_flags = analysis_candidate_map(parsed.sections)
     rows = [
         (
             section.id,
@@ -244,14 +252,17 @@ async def import_book(
             section.content,
             section.kind,
             "draft",
+            int(candidate_flags.get(section.id, (False, ""))[0]),
+            candidate_flags.get(section.id, (False, ""))[1],
         )
         for section in parsed.sections
     ]
     database.executemany(
         """
         INSERT INTO sections
-          (id, book_id, parent_id, level, position, title, content, kind, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, book_id, parent_id, level, position, title, content, kind, status,
+           analysis_enabled, analysis_exclusion_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -280,6 +291,18 @@ def book_detail(book_id: str) -> dict[str, Any]:
         "SELECT * FROM mind_maps WHERE book_id = ? ORDER BY version DESC LIMIT 1",
         (book_id,),
     )
+    book["chapter_analyses"] = database.rows(
+        """
+        SELECT ca.id, ca.book_id, ca.root_section_id, ca.version, ca.status,
+               ca.rendered_markdown, ca.compressed_markdown, ca.prompt_version,
+               ca.provider, ca.model, ca.created_at, s.title AS chapter_title
+        FROM chapter_analyses ca
+        JOIN sections s ON s.id = ca.root_section_id
+        WHERE ca.book_id = ?
+        ORDER BY s.position, ca.version DESC
+        """,
+        (book_id,),
+    )
     return book
 
 
@@ -291,8 +314,9 @@ def update_sections(book_id: str, payload: SectionsPayload) -> dict[str, Any]:
     database.executemany(
         """
         INSERT INTO sections
-          (id, book_id, parent_id, level, position, title, content, kind, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+          (id, book_id, parent_id, level, position, title, content, kind, status,
+           analysis_enabled, analysis_exclusion_reason, analysis_selection_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, 'manual')
         """,
         [
             (
@@ -304,6 +328,8 @@ def update_sections(book_id: str, payload: SectionsPayload) -> dict[str, Any]:
                 section.title,
                 section.content,
                 section.kind,
+                int(section.analysis_enabled),
+                section.analysis_exclusion_reason,
             )
             for section in payload.sections
         ],
@@ -362,6 +388,18 @@ async def analyze_book(book_id: str) -> dict[str, Any]:
         return await workflows.analyze_book(book_id)
     except KeyError as error:
         raise not_found("书籍") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/books/{book_id}/chapters/{section_id}/analyze")
+async def retry_chapter(book_id: str, section_id: str) -> dict[str, Any]:
+    try:
+        return await workflows.retry_chapter(book_id, section_id)
+    except KeyError as error:
+        raise not_found("书籍") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/projects")
@@ -397,6 +435,22 @@ def project_detail(project_id: str) -> dict[str, Any]:
         return workflows.project_detail(project_id)
     except KeyError as error:
         raise not_found("项目") from error
+
+
+@app.post("/api/projects/{project_id}/generate-outline")
+async def generate_project_outline(
+    project_id: str, payload: ProjectGenerationPayload
+) -> dict[str, Any]:
+    try:
+        return await workflows.generate_project_knowledge_outputs(
+            project_id,
+            payload.album_special_requirements,
+            payload.desired_episode_count,
+        )
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.put("/api/projects/{project_id}/episodes")

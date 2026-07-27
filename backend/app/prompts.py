@@ -14,11 +14,54 @@ class PromptDefinition:
 PROMPTS = {
     "book_analysis": PromptDefinition(
         id="book_analysis",
-        version="2026-07-24.1",
-        system="你是严谨的拆书编辑。只使用给定原文，不补充无法从原文确认的事实。",
+        version="2026-07-27.2",
+        system=(
+            "你是严谨的书籍拆解编辑。只使用给定章节原文，禁止补充无法从原文"
+            "确认的事实。完整保留主要观点、论据、金句和定义的原文表述。"
+        ),
         user_template=(
-            "请把以下书籍小节结构化为子主题、主要观点、论据、案例与金句。"
-            "每项必须保留来源小节 ID。\n\n{source}"
+            "# 你的任务\n"
+            "仔细阅读书籍章节，根据章节主题提炼作者的主要观点和论据。\n"
+            "1. 一句话提炼章节主题；\n"
+            "2. 按内容划分子主题，优先使用原文表述；\n"
+            "3. 识别全部主要观点，以及相关论据、金句、概念定义和案例；\n"
+            "4. 案例使用问题引导法完成分析后，只输出整合后的概述和关联。\n\n"
+            "# 约束\n"
+            "主要观点、论据和金句必须完整保留原文表述。"
+            "每个子主题的 content_index 必须原样选择输入中提供的一个索引，"
+            "禁止编造、改写或合并索引。没有的可选内容使用空数组或 null。"
+            "JSON 字符串内部出现英文双引号时必须使用反斜杠转义，或改用中文引号。\n\n"
+            "# 输出\n"
+            "只输出合法 JSON，不要代码围栏或解释：\n"
+            '{{"chapter_title":"完整章节标题","chapter_theme":"一句话主题",'
+            '"subtopics":[{{"title":"子主题标题",'
+            '"content_index":"输入中的 content_index",'
+            '"definitions":[{{"name":"概念","definition":"完整定义原文"}}],'
+            '"quotes":["金句原文"],'
+            '"viewpoints":[{{"text":"主要观点完整原文",'
+            '"arguments":["论据原文"],'
+            '"case":{{"summary":"案例完整概述","relation":"与观点的关联"}}}}]}}]}}\n\n'
+            "# 章节原文\n{source}"
+        ),
+    ),
+    "json_repair": PromptDefinition(
+        id="json_repair",
+        version="2026-07-27.1",
+        system="你只负责修复 JSON 语法，不得删减、概括、改写或新增任何内容。",
+        user_template=(
+            "把以下模型输出修复成合法 JSON。修正字符串引号转义、逗号和括号，"
+            "保持字段、文本、数组顺序和 content_index 完全不变。"
+            "只输出合法 JSON，不要代码围栏或解释。\n\n{source}"
+        ),
+    ),
+    "chapter_compression": PromptDefinition(
+        id="chapter_compression",
+        version="2026-07-27.1",
+        system="你负责无损压缩章节拆书稿，来源索引是不可修改的事实键。",
+        user_template=(
+            "压缩以下章节拆书稿，保留章节标题、全部 content_index、概念定义、"
+            "主要观点、关键论据、案例和金句。不得新增、删除或修改任何 "
+            "content_index。只输出 Markdown 压缩稿。\n\n{source}"
         ),
     ),
     "character_relationships": PromptDefinition(
@@ -38,17 +81,30 @@ PROMPTS = {
     ),
     "mind_map": PromptDefinition(
         id="mind_map",
-        version="2026-07-24.1",
-        system="你负责整理一本书的知识结构，不改变作者观点。",
-        user_template="根据以下拆书资产生成 Markdown 思维导图：\n\n{source}",
+        version="2026-07-27.2",
+        system="你是讲书类内容创作者，擅长金字塔结构和书籍知识地图。",
+        user_template=(
+            "根据完整拆书稿判断书籍内容性质，建立循序渐进、通俗易懂的系统化"
+            "知识体系。第二层分支标明引用章节，优先使用原书表述，末梢可增加"
+            "加粗的用户视角金句。只输出完整 Markdown 思维导图，不要分析过程，"
+            "不要 Mermaid。\n\n# 拆书稿\n{source}"
+        ),
     ),
     "album_outline": PromptDefinition(
         id="album_outline",
-        version="2026-07-24.1",
-        system="你是讲书专辑策划。每条声音必须明确引用来源。",
+        version="2026-07-27.2",
+        system="你是书籍解读有声内容创作者。每条声音必须明确引用有效来源。",
         user_template=(
-            "根据知识资产设计专辑大纲。每条声音包含标题、3-6 条主要内容、"
-            "内容类型、风格类型和来源 ID。\n\n{source}"
+            "根据输入的完整拆书稿、书籍信息和可选创作要求设计有声专辑目录。"
+            "优先遵循拆书稿叙述顺序，每条普通声音选择一个 content_index，"
+            "同一索引不得拆成多条声音。标题要有趣吸睛，不生成单独导入或尾声。"
+            "叙事类只使用“解读类”；非叙事类仅在确有承上启下需要时增加“过渡类”，"
+            "不得用过渡声音凑集数。期望集数是目标，不能通过虚构来源满足。\n\n"
+            "只输出合法 JSON，不要代码围栏或解释：\n"
+            '{{"album_outline":[{{"title":"声音标题",'
+            '"main_points":"主要观点与内容框架",'
+            '"section_identifier":"content_index；过渡类为前后两个索引用逗号分隔",'
+            '"content_type":"解读类/过渡类"}}]}}\n\n{source}'
         ),
     ),
     "episode_outline_narrative": PromptDefinition(

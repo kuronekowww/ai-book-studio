@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS sections (
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'section',
-  status TEXT NOT NULL DEFAULT 'draft'
+  status TEXT NOT NULL DEFAULT 'draft',
+  analysis_enabled INTEGER NOT NULL DEFAULT 1,
+  analysis_exclusion_reason TEXT NOT NULL DEFAULT '',
+  analysis_selection_source TEXT NOT NULL DEFAULT 'auto'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sections_book_position
@@ -46,8 +49,30 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   source_section_ids TEXT NOT NULL,
+  chapter_analysis_id TEXT,
+  origin TEXT NOT NULL DEFAULT 'legacy',
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS chapter_analyses (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  root_section_id TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  structured_json TEXT NOT NULL,
+  rendered_markdown TEXT NOT NULL,
+  compressed_markdown TEXT NOT NULL DEFAULT '',
+  prompt_version TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_snapshot TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE(root_section_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_analyses_book_root
+  ON chapter_analyses(book_id, root_section_id, version);
 
 CREATE TABLE IF NOT EXISTS mind_maps (
   id TEXT PRIMARY KEY,
@@ -62,6 +87,9 @@ CREATE TABLE IF NOT EXISTS projects (
   title TEXT NOT NULL,
   book_ids TEXT NOT NULL,
   status TEXT NOT NULL,
+  album_special_requirements TEXT NOT NULL DEFAULT '',
+  desired_episode_count INTEGER,
+  episode_count_notice TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -121,6 +149,20 @@ MIGRATION_COLUMNS = {
     "episodes": {
         "content_framework": "TEXT NOT NULL DEFAULT ''",
     },
+    "sections": {
+        "analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
+        "analysis_exclusion_reason": "TEXT NOT NULL DEFAULT ''",
+        "analysis_selection_source": "TEXT NOT NULL DEFAULT 'auto'",
+    },
+    "knowledge_items": {
+        "chapter_analysis_id": "TEXT",
+        "origin": "TEXT NOT NULL DEFAULT 'legacy'",
+    },
+    "projects": {
+        "album_special_requirements": "TEXT NOT NULL DEFAULT ''",
+        "desired_episode_count": "INTEGER",
+        "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
+    },
     "artifact_versions": {
         "author_type": "TEXT NOT NULL DEFAULT 'model'",
         "input_snapshot": "TEXT NOT NULL DEFAULT ''",
@@ -170,6 +212,7 @@ class Database:
                         connection.execute(
                             f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
                         )
+            self._initialize_analysis_candidates(connection)
             connection.execute(
                 """
                 UPDATE episodes
@@ -181,9 +224,89 @@ class Database:
             )
             connection.execute(
                 """
+                UPDATE books
+                SET status = 'ready_to_analyze', updated_at = ?
+                WHERE book_type = 'non_narrative' AND status = 'analyzed'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM knowledge_items
+                    WHERE knowledge_items.book_id = books.id
+                  )
+                """,
+                (now_iso(),),
+            )
+            connection.execute(
+                """
+                DELETE FROM mind_maps
+                WHERE book_id IN (
+                  SELECT id FROM books
+                  WHERE book_type = 'non_narrative'
+                    AND status IN (
+                      'ready_to_analyze', 'analysis_partial', 'analysis_partial_failed'
+                    )
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
                 ON workflow_runs(parent_run_id, position)
                 """
+            )
+
+    @staticmethod
+    def _initialize_analysis_candidates(connection: sqlite3.Connection) -> None:
+        from .ingestion import ANALYSIS_EXCLUDE_RE, ANALYSIS_INCLUDE_RE
+
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT id, parent_id, title, content, analysis_selection_source
+                FROM sections ORDER BY position
+                """
+            ).fetchall()
+        ]
+        by_parent: dict[str | None, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_parent.setdefault(row["parent_id"], []).append(row)
+
+        def total_size(root: dict[str, Any]) -> int:
+            total = len(root["content"].strip())
+            stack = list(by_parent.get(root["id"], []))
+            while stack:
+                current = stack.pop()
+                total += len(current["title"]) + len(current["content"].strip())
+                stack.extend(by_parent.get(current["id"], []))
+            return total
+
+        connection.execute(
+            """
+            UPDATE sections
+            SET analysis_enabled = 0, analysis_exclusion_reason = ''
+            WHERE analysis_selection_source = 'auto' AND parent_id IS NOT NULL
+            """
+        )
+        for root in by_parent.get(None, []):
+            if root["analysis_selection_source"] != "auto":
+                continue
+            title = root["title"].strip()
+            if ANALYSIS_EXCLUDE_RE.search(title):
+                enabled, reason = 0, "疑似目录、版权或表格注释"
+            elif not ANALYSIS_INCLUDE_RE.search(title) and (
+                len(title) > 36 or title.endswith(("。", "；", ";"))
+            ):
+                enabled, reason = 0, "疑似正文注释或误识别标题"
+            elif total_size(root) < 500 and not ANALYSIS_INCLUDE_RE.search(title):
+                enabled, reason = 0, "正文过短，疑似异常一级标题"
+            else:
+                enabled, reason = 1, ""
+            connection.execute(
+                """
+                UPDATE sections
+                SET analysis_enabled = ?, analysis_exclusion_reason = ?
+                WHERE id = ?
+                """,
+                (enabled, reason, root["id"]),
             )
 
     def rows(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -209,6 +332,7 @@ JSON_COLUMNS = {
     "book_ids",
     "metadata_json",
     "source_section_ids",
+    "structured_json",
 }
 
 

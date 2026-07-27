@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -25,6 +26,57 @@ class DemoProvider:
     async def generate(self, prompt: PromptDefinition, source: str) -> str:
         cleaned = re.sub(r"\s+", " ", source).strip()
         excerpt = cleaned[:520]
+        indexes = re.findall(r"content_[0-9a-f]{8,40}", source)
+        unique_indexes = list(dict.fromkeys(indexes))
+        if prompt.id == "book_analysis":
+            index = unique_indexes[-1] if unique_indexes else "content_demo"
+            return json.dumps(
+                {
+                    "chapter_title": "测试章节",
+                    "chapter_theme": "本章围绕核心概念及其现实影响展开。",
+                    "subtopics": [
+                        {
+                            "title": "核心问题",
+                            "content_index": index,
+                            "definitions": [
+                                {
+                                    "name": "核心概念",
+                                    "definition": "这是原文用于解释核心问题的概念定义。",
+                                }
+                            ],
+                            "quotes": ["理解问题的前提，是先看清它的结构。"],
+                            "viewpoints": [
+                                {
+                                    "text": "作者认为，判断社会现象需要同时考察结构与过程。",
+                                    "arguments": ["原文从概念、事实与结果三个层面展开论证。"],
+                                    "case": {
+                                        "summary": "原文案例展示了结构变化如何影响个人选择。",
+                                        "relation": "该案例直接说明了作者的主要观点。",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        if prompt.id == "chapter_compression":
+            return source
+        if prompt.id == "json_repair":
+            return source
+        if prompt.id == "mind_map":
+            return "# 测试书\n- 核心知识\n  - 主要观点\n  - 关键案例"
+        if prompt.id == "album_outline":
+            outline = [
+                {
+                    "title": f"声音 {position}",
+                    "main_points": "围绕该内容索引梳理核心观点、论据与现实意义。",
+                    "section_identifier": index,
+                    "content_type": "解读类",
+                }
+                for position, index in enumerate(unique_indexes[:12], start=1)
+            ]
+            return json.dumps({"album_outline": outline}, ensure_ascii=False)
         if prompt.id == "character_relationships":
             return (
                 '{"relationships":[{"characters":["人物甲","人物乙"],'
@@ -92,7 +144,7 @@ class OpenAICompatibleProvider:
             "temperature": 0.7,
         }
         headers = {"Authorization": f"Bearer {self.settings.api_key}"}
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -118,7 +170,7 @@ class AnthropicProvider:
         )
         payload = {
             "model": self.settings.model,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "messages": [{"role": "user", "content": user_message}],
         }
         headers = {
@@ -127,7 +179,7 @@ class AnthropicProvider:
             "content-type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPStatusError as error:

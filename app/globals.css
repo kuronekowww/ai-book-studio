@@ -95,8 +95,11 @@ h1, h2, h3, h4, .brand strong, .book-cover span, .book-monogram { font-family: i
 .upload-card, .create-project-card { padding: 18px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 12px; }
 .file-drop { min-height: 145px; padding: 20px; border: 1px dashed #a9aa9f; border-radius: 12px; background: #f7f5ef; display: grid; place-items: center; align-content: center; gap: 6px; cursor: pointer; text-align: center; }
 .file-drop:hover { border-color: var(--green); background: #f1f5f0; }
+.file-drop.selected { border-style: solid; border-color: var(--green); background: var(--green-soft); }
 .file-drop input { position: absolute; opacity: 0; pointer-events: none; }
 .file-drop small { color: var(--muted); }
+.file-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: -6px; }
+.file-actions button { border: 0; background: transparent; color: var(--green); font-size: 11px; cursor: pointer; }
 .upload-glyph { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: 22px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .book-type-field { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
@@ -168,11 +171,22 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .editor-help { margin-bottom: 9px; padding: 10px; border-radius: 8px; background: #f0eee7; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .chapter-edit-row { padding: 8px 0; border-bottom: 1px solid #e8e4da; display: grid; grid-template-columns: 48px 70px 1fr; gap: 6px; align-items: center; }
 .chapter-edit-row.level-3 { margin-top: 8px; padding: 8px; border: 0; border-radius: 8px; background: var(--green-soft); }
+.chapter-edit-row.level-1 { margin-top: 12px; padding: 10px; border: 1px solid #d8d3c7; border-radius: 8px; background: #f3f0e8; }
+.chapter-edit-row.level-2 { padding-left: 14px; background: #faf9f5; }
 .chapter-edit-row input, .chapter-edit-row select { padding: 7px 8px; font-size: 11px; }
 .chapter-order { display: flex; gap: 2px; }
 .chapter-order button, .chapter-tools button, .outline-edit-top button { border: 0; border-radius: 5px; padding: 5px 6px; background: #e5e1d7; color: var(--muted); font-size: 9px; cursor: pointer; }
 .chapter-order button:disabled, .outline-edit-top button:disabled { opacity: .28; }
 .chapter-tools { grid-column: 2 / -1; display: flex; gap: 5px; justify-content: flex-end; }
+.analysis-toggle { margin-right: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 10px; }
+.analysis-toggle input { width: auto; }
+.chapter-analysis-list { display: grid; gap: 7px; margin: 12px 0; }
+.chapter-analysis-card { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.chapter-analysis-card summary { padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.chapter-analysis-card summary div { display: grid; gap: 2px; }
+.chapter-analysis-card summary small { color: var(--muted); }
+.chapter-analysis-card summary button { border: 0; background: transparent; color: var(--green); cursor: pointer; }
+.chapter-analysis-card pre { max-height: 360px; overflow: auto; margin: 0; padding: 12px; border-top: 1px solid var(--line); white-space: pre-wrap; font: 11px/1.7 var(--font-sans); }
 .save-outline-button { width: 100%; margin-top: 10px; padding: 9px; border: 1px solid var(--green); border-radius: 8px; background: transparent; color: var(--green); font-weight: 750; cursor: pointer; }
 .save-outline-button:hover { background: var(--green); color: white; }
 .save-outline-button:disabled { opacity: .4; cursor: not-allowed; }
@@ -202,6 +216,13 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .project-head { justify-content: space-between; margin-bottom: 14px; box-shadow: none; }
 .studio-grid { display: grid; grid-template-columns: minmax(280px, 300px) minmax(520px, 1fr) minmax(250px, 280px); gap: 0; align-items: stretch; min-height: calc(100vh - 230px); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: white; }
 .studio-grid.outline-mode { grid-template-columns: minmax(340px, 440px) 1fr; }
+.album-generation-card { margin-bottom: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: grid; grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.4fr) minmax(210px, .7fr); gap: 12px; align-items: end; }
+.album-generation-card h3 { margin: 3px 0 4px; }
+.album-generation-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.album-generation-card textarea { min-height: 86px; resize: vertical; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.album-generation-actions { display: grid; gap: 8px; }
+.album-generation-actions label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.episode-count-notice { grid-column: 1 / -1; padding: 8px 10px; border-radius: 7px; background: var(--ochre-soft); color: #8a551f; font-size: 11px; }
 .episode-rail, .editor-panel, .review-inspector { min-width: 0; background: white; }
 .episode-rail { padding: 16px 12px; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: none; }
 .editor-panel { min-height: 650px; padding: 24px 28px; border: 0; border-radius: 0; box-shadow: none; }
@@ -332,7 +353,8 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
   .topbar { position: static; padding: 18px 20px; }
   .content { padding: 24px 20px 40px; }
   .notice { margin: 12px 20px 0; }
-  .hero-grid, .project-intro, .book-columns, .studio-grid, .runs-layout, .settings-grid { grid-template-columns: 1fr; }
+  .hero-grid, .project-intro, .book-columns, .studio-grid, .runs-layout, .settings-grid, .album-generation-card { grid-template-columns: 1fr; }
+  .episode-count-notice { grid-column: auto; }
   .map-panel, .settings-card.full { grid-column: auto; }
   .card-grid, .project-grid { grid-template-columns: 1fr; }
   .book-hero, .project-head { align-items: flex-start; flex-wrap: wrap; }
