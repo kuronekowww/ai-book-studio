@@ -4,6 +4,7 @@ import uuid
 
 from app.batches import BatchService
 from app.db import Database, now_iso
+from app.providers import DemoProvider
 from app.workflows import StageGenerationError
 
 
@@ -49,7 +50,9 @@ class TrackingWorkflows:
             (episode_id, stage),
         )
 
-    async def generate_episode(self, episode_id: str, from_stage: str):
+    async def generate_episode(
+        self, episode_id: str, from_stage: str, provider=None
+    ):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
@@ -114,6 +117,33 @@ def test_batch_skips_existing_final(tmp_path) -> None:
     assert batch["children"][0]["scope_id"] == episode_ids[1]
 
 
+def test_batch_restores_the_model_snapshot_from_run_metadata(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    project_id, _ = seed_project(database, count=1)
+    workflows = TrackingWorkflows(database, failing_id="")
+    captured_model_ids: list[str | None] = []
+    locked_provider = DemoProvider(name="anthropic", model="locked-model")
+
+    def resolve(model_id: str | None):
+        captured_model_ids.append(model_id)
+        return locked_provider
+
+    batches = BatchService(
+        database,
+        workflows,  # type: ignore[arg-type]
+        concurrency=5,
+        provider_resolver=resolve,
+    )
+    batch = batches.create_batch(project_id, "kimi-k3")
+
+    asyncio.run(batches.run_batch(batch["id"]))
+    finished = batches.batch_detail(batch["id"])
+
+    assert captured_model_ids == ["kimi-k3"]
+    assert finished["metadata_json"]["model_id"] == "kimi-k3"
+
+
 def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
     path = tmp_path / "studio.sqlite3"
     with sqlite3.connect(path) as connection:
@@ -164,6 +194,9 @@ def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
         run_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(workflow_runs)")
         }
+        mind_map_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(mind_maps)")
+        }
         legacy_framework = connection.execute(
             """
             SELECT content_framework FROM episodes
@@ -175,3 +208,4 @@ def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
     assert "旧声音" in legacy_framework
     assert {"author_type", "input_snapshot"} <= artifact_columns
     assert {"parent_run_id", "error_stage", "position", "metadata_json"} <= run_columns
+    assert {"provider", "model"} <= mind_map_columns

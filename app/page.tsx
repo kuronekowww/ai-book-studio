@@ -101,8 +101,18 @@ type ArtifactVersion = {
 type SettingsStatus = {
   provider: string;
   model: string;
+  current_model_id: string | null;
+  selection_source: "local" | "environment";
   api_key_configured: boolean;
   data_dir: string;
+  available_models: ModelOption[];
+};
+
+type ModelOption = {
+  id: string;
+  label: string;
+  model: string;
+  provider: string;
 };
 
 type WorkflowRun = {
@@ -562,6 +572,20 @@ export default function Home() {
       setNotice(`已写入 ${result.changed_count} 个文件：${result.root}`);
     });
 
+  const selectGlobalModel = async (modelId: string): Promise<boolean> => {
+    let saved = false;
+    await runAction("切换全局模型", async () => {
+      const result = await request<SettingsStatus>("/api/settings/model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+      });
+      setSettings(result);
+      saved = true;
+    });
+    return saved;
+  };
+
   const navItems: { key: View; label: string; hint: string }[] = [
     { key: "library", label: "书籍知识库", hint: `${books.length} 本` },
     { key: "projects", label: "内容项目", hint: `${projects.length} 个` },
@@ -696,6 +720,7 @@ export default function Home() {
 
           {view === "settings" && (
             <SettingsView
+              key={settings?.current_model_id || settings?.model || "loading"}
               status={settings}
               vaultPath={vaultPath}
               setVaultPath={setVaultPath}
@@ -712,6 +737,7 @@ export default function Home() {
                 setSelectedProject(project);
               }}
               onSync={() => void syncObsidian()}
+              onSelectModel={selectGlobalModel}
               busy={Boolean(busy)}
             />
           )}
@@ -1840,6 +1866,7 @@ function SettingsView({
   onSelectBook,
   onSelectProject,
   onSync,
+  onSelectModel,
   busy,
 }: {
   status: SettingsStatus | null;
@@ -1852,16 +1879,56 @@ function SettingsView({
   onSelectBook: (id: string) => void;
   onSelectProject: (id: string) => void;
   onSync: () => void;
+  onSelectModel: (modelId: string) => Promise<boolean>;
   busy: boolean;
 }) {
+  const [modelId, setModelId] = useState(status?.current_model_id || "");
+  const currentLabel =
+    status?.available_models.find(
+      (option) => option.id === status.current_model_id,
+    )?.label || status?.model || "—";
+
+  const saveModel = async () => {
+    const saved = await onSelectModel(modelId);
+    if (!saved) setModelId(status?.current_model_id || "");
+  };
+
   return (
     <div className="settings-grid">
-      <section className="settings-card">
+      <section className="settings-card model-settings-card">
         <p className="eyebrow">MODEL</p>
-        <h2>模型调用</h2>
+        <h2>全局模型</h2>
         <div className="setting-row"><span>当前供应商</span><strong>{status?.provider || "未连接"}</strong></div>
-        <div className="setting-row"><span>模型</span><strong>{status?.model || "—"}</strong></div>
-        <div className="setting-row"><span>API Key</span><strong>{status?.api_key_configured ? "已通过环境变量配置" : "演示模式无需密钥"}</strong></div>
+        <div className="setting-row"><span>当前模型</span><strong>{currentLabel}</strong></div>
+        <label className="model-selector">
+          <span>选择后续任务使用的模型</span>
+          <select
+            value={modelId}
+            onChange={(event) => setModelId(event.target.value)}
+          >
+            {!status?.current_model_id && <option value="">选择模型</option>}
+            {status?.available_models.map((option) => (
+              <option value={option.id} key={option.id}>
+                {option.label} · {option.model}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="primary-button model-save-button"
+          disabled={
+            busy ||
+            !modelId ||
+            modelId === status?.current_model_id
+          }
+          onClick={() => void saveModel()}
+        >
+          设为全局模型
+        </button>
+        <p className="setting-note model-scope-note">
+          切换后立即生效：新任务使用新模型，正在运行的任务继续使用启动时的模型。
+        </p>
+        <div className="setting-row"><span>API Key</span><strong>{status?.api_key_configured ? "已通过环境变量配置" : "未配置"}</strong></div>
         <p className="setting-note">密钥只从本机环境变量读取，不写入数据库、日志或浏览器存储。</p>
       </section>
       <section className="settings-card obsidian-card">

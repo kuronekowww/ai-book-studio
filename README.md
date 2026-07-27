@@ -25,6 +25,7 @@
 - 持久任务记录和重启恢复；
 - 增量同步到 Obsidian，保留个人批注区块；
 - 演示模型无需 API Key，真实模型支持 Anthropic Messages 和 OpenAI 兼容接口。
+- 设置页支持 7 个 DeepGate 模型全局即时切换；新任务使用新模型，运行中任务保持原模型。
 
 ## 本地安装
 
@@ -71,6 +72,18 @@ Anthropic 供应商使用 Messages 协议，并自动在配置地址后追加 `/
 密钥只从后端进程环境读取，不写入数据库、日志、Obsidian 或浏览器存储。
 
 仍可使用 `openai-compatible` 供应商连接兼容 `/chat/completions` 的接口。
+
+启动应用后，可在“设置与同步 → 全局模型”中选择：
+
+- Claude Sonnet 4.6
+- Kimi K3
+- Claude Sonnet 5
+- GLM 5.2
+- Kimi K2.6
+- DeepSeek V4 Pro
+- HY3
+
+模型切换无需重启。切换只影响随后启动的新任务；已经运行的章节拆书、专辑生成或声音生产会继续使用任务启动时锁定的模型。全局选择保存在本地 `data` 目录，API Key 仍只从 `.env` 读取。
 
 ## 使用《圆圈正义》验收
 

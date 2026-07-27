@@ -39,8 +39,12 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /analysis_enabled/);
   assert.match(page, /生成思维导图与专辑大纲/);
   assert.match(page, /期望集数（可选）/);
+  assert.match(page, /设为全局模型/);
+  assert.match(page, /新任务使用新模型，正在运行的任务继续使用启动时的模型/);
+  assert.match(page, /available_models/);
   assert.match(styles, /\.file-drop\.selected/);
   assert.match(styles, /\.album-generation-card/);
+  assert.match(styles, /\.model-selector/);
   assert.match(styles, /--green: #5645d4/);
   assert.match(styles, /grid-template-columns: minmax\(280px, 300px\).*minmax\(250px, 280px\)/);
   assert.match(styles, /\.final-editor \{/);

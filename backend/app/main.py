@@ -14,17 +14,26 @@ from .batches import BatchService
 from .config import get_settings
 from .db import Database, now_iso
 from .ingestion import analysis_candidate_map, parse_book
+from .model_catalog import ModelManager
 from .obsidian import ObsidianSyncService
-from .providers import build_provider
+from .providers import ModelProvider
 from .workflows import StageGenerationError, WorkflowService
 
 
 settings = get_settings()
 database = Database(settings.database_path)
 database.init()
-provider = build_provider(settings)
-workflows = WorkflowService(database, provider)
-batches = BatchService(database, workflows, concurrency=5)
+model_manager = ModelManager(settings)
+initial_provider = model_manager.snapshot().provider
+workflows = WorkflowService(database, initial_provider)
+batches = BatchService(
+    database,
+    workflows,
+    concurrency=5,
+    provider_resolver=lambda model_id: (
+        model_manager.snapshot_for_run(model_id).provider
+    ),
+)
 obsidian = ObsidianSyncService(database)
 
 app = FastAPI(title="AI Book Studio API", version="0.1.0")
@@ -96,6 +105,10 @@ class SyncPayload(BaseModel):
     project_id: str | None = None
 
 
+class ModelSelectionPayload(BaseModel):
+    model_id: str
+
+
 def not_found(label: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{label}不存在")
 
@@ -107,11 +120,17 @@ def create_task(coroutine: Any) -> None:
 
 
 async def execute_episode_run(
-    run_id: str, episode_id: str, from_stage: str
+    run_id: str,
+    episode_id: str,
+    from_stage: str,
+    provider: ModelProvider | None = None,
 ) -> None:
     current = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
     if not current or current["status"] == "cancelled":
         return
+    task_provider = provider or model_manager.snapshot_for_run(
+        current["metadata_json"].get("model_id")
+    ).provider
     database.execute(
         """
         UPDATE workflow_runs
@@ -121,7 +140,9 @@ async def execute_episode_run(
         (now_iso(), run_id),
     )
     try:
-        await workflows.generate_episode(episode_id, from_stage)
+        await workflows.generate_episode(
+            episode_id, from_stage, provider=task_provider
+        )
         batches.reconcile_episode_success(episode_id)
         current = database.row("SELECT status FROM workflow_runs WHERE id = ?", (run_id,))
         status = "cancelled" if current and current["status"] == "cancelled" else "succeeded"
@@ -180,7 +201,12 @@ async def resume_incomplete_runs() -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "provider": provider.name, "model": provider.model}
+    snapshot = model_manager.snapshot()
+    return {
+        "status": "ok",
+        "provider": snapshot.provider.name,
+        "model": snapshot.provider.model,
+    }
 
 
 @app.get("/api/books")
@@ -384,8 +410,9 @@ def confirm_sections(book_id: str) -> dict[str, Any]:
 
 @app.post("/api/books/{book_id}/analyze")
 async def analyze_book(book_id: str) -> dict[str, Any]:
+    snapshot = model_manager.snapshot()
     try:
-        return await workflows.analyze_book(book_id)
+        return await workflows.analyze_book(book_id, snapshot.provider)
     except KeyError as error:
         raise not_found("书籍") from error
     except ValueError as error:
@@ -394,8 +421,11 @@ async def analyze_book(book_id: str) -> dict[str, Any]:
 
 @app.post("/api/books/{book_id}/chapters/{section_id}/analyze")
 async def retry_chapter(book_id: str, section_id: str) -> dict[str, Any]:
+    snapshot = model_manager.snapshot()
     try:
-        return await workflows.retry_chapter(book_id, section_id)
+        return await workflows.retry_chapter(
+            book_id, section_id, snapshot.provider
+        )
     except KeyError as error:
         raise not_found("书籍") from error
     except ValueError as error:
@@ -441,11 +471,13 @@ def project_detail(project_id: str) -> dict[str, Any]:
 async def generate_project_outline(
     project_id: str, payload: ProjectGenerationPayload
 ) -> dict[str, Any]:
+    snapshot = model_manager.snapshot()
     try:
         return await workflows.generate_project_knowledge_outputs(
             project_id,
             payload.album_special_requirements,
             payload.desired_episode_count,
+            snapshot.provider,
         )
     except KeyError as error:
         raise not_found("项目") from error
@@ -500,8 +532,9 @@ def confirm_project(project_id: str) -> dict[str, Any]:
 
 @app.post("/api/projects/{project_id}/generate-all")
 async def generate_all(project_id: str) -> dict[str, Any]:
+    snapshot = model_manager.snapshot()
     try:
-        batch = batches.create_batch(project_id)
+        batch = batches.create_batch(project_id, snapshot.run_model_id)
     except KeyError as error:
         raise not_found("项目") from error
     except ValueError as error:
@@ -548,15 +581,31 @@ async def generate_episode(
         raise not_found("声音")
     run_id = uuid.uuid4().hex
     now = now_iso()
+    snapshot = model_manager.snapshot()
     database.execute(
         """
         INSERT INTO workflow_runs
-          (id, scope_type, scope_id, stage, status, message, created_at, updated_at)
-        VALUES (?, 'episode', ?, ?, 'pending', '', ?, ?)
+          (id, scope_type, scope_id, stage, status, message, metadata_json,
+           created_at, updated_at)
+        VALUES (?, 'episode', ?, ?, 'pending', '', ?, ?, ?)
         """,
-        (run_id, episode_id, payload.from_stage, now, now),
+        (
+            run_id,
+            episode_id,
+            payload.from_stage,
+            json.dumps({"model_id": snapshot.run_model_id}, ensure_ascii=False),
+            now,
+            now,
+        ),
     )
-    create_task(execute_episode_run(run_id, episode_id, payload.from_stage))
+    create_task(
+        execute_episode_run(
+            run_id,
+            episode_id,
+            payload.from_stage,
+            snapshot.provider,
+        )
+    )
     return database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
 
 
@@ -611,9 +660,15 @@ def sync_obsidian(payload: SyncPayload) -> dict[str, Any]:
 
 @app.get("/api/settings/status")
 def settings_status() -> dict[str, Any]:
-    return {
-        "provider": provider.name,
-        "model": provider.model,
-        "api_key_configured": bool(settings.api_key),
-        "data_dir": str(settings.data_dir),
-    }
+    return model_manager.status()
+
+
+@app.put("/api/settings/model")
+def select_model(payload: ModelSelectionPayload) -> dict[str, Any]:
+    try:
+        model_manager.switch(payload.model_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=500, detail="无法保存本地模型设置") from error
+    return model_manager.status()

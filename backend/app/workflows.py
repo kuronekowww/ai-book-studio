@@ -44,12 +44,17 @@ class WorkflowService:
         self.provider = provider
         self.contexts = EpisodeContextBuilder(database)
 
-    async def analyze_book(self, book_id: str) -> dict[str, Any]:
+    async def analyze_book(
+        self, book_id: str, provider: ModelProvider | None = None
+    ) -> dict[str, Any]:
+        task_provider = provider or self.provider
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
         if not book:
             raise KeyError(book_id)
         if book["book_type"] == "non_narrative":
-            return await self._analyze_non_narrative(book)
+            return await self._analyze_non_narrative(
+                book, provider=task_provider
+            )
         sections = self.database.rows(
             """
             SELECT * FROM sections
@@ -137,7 +142,7 @@ class WorkflowService:
         relationship_result = {"failed_section_ids": [], "relationship_count": 0}
         if book["book_type"] == "narrative":
             relationship_result = await self._extract_character_relationships(
-                book_id, sections
+                book_id, sections, task_provider
             )
         else:
             self.database.execute(
@@ -174,8 +179,12 @@ class WorkflowService:
         )
 
     async def _analyze_non_narrative(
-        self, book: dict[str, Any], only_root_id: str | None = None
+        self,
+        book: dict[str, Any],
+        only_root_id: str | None = None,
+        provider: ModelProvider | None = None,
     ) -> dict[str, Any]:
+        task_provider = provider or self.provider
         book_id = book["id"]
         roots = self._chapter_roots(book_id)
         if only_root_id:
@@ -267,14 +276,14 @@ class WorkflowService:
                         "UPDATE workflow_runs SET status = 'running', updated_at = ? WHERE id = ?",
                         (now_iso(), child_run_id),
                     )
-                    raw = await self.provider.generate(
+                    raw = await task_provider.generate(
                         PROMPTS["book_analysis"], chapter_source.source
                     )
                 try:
                     parsed = parse_json_object(raw)
                 except json.JSONDecodeError:
                     async with semaphore:
-                        repaired = await self.provider.generate(
+                        repaired = await task_provider.generate(
                             PROMPTS["json_repair"], raw
                         )
                     parsed = parse_json_object(repaired)
@@ -292,6 +301,7 @@ class WorkflowService:
                     rendered,
                     chapter_source.source,
                     cards,
+                    task_provider,
                 )
                 self.database.execute(
                     """
@@ -371,6 +381,7 @@ class WorkflowService:
         rendered: str,
         input_snapshot: str,
         cards: list[dict[str, Any]],
+        provider: ModelProvider,
     ) -> str:
         current = self.database.row(
             """
@@ -398,8 +409,8 @@ class WorkflowService:
                     json.dumps(data, ensure_ascii=False),
                     rendered,
                     PROMPTS["book_analysis"].version,
-                    self.provider.name,
-                    self.provider.model,
+                    provider.name,
+                    provider.model,
                     input_snapshot,
                     now_iso(),
                 ),
@@ -455,7 +466,10 @@ class WorkflowService:
         )
 
     async def retry_chapter(
-        self, book_id: str, root_section_id: str
+        self,
+        book_id: str,
+        root_section_id: str,
+        provider: ModelProvider | None = None,
     ) -> dict[str, Any]:
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
         if not book:
@@ -472,10 +486,15 @@ class WorkflowService:
         )
         if not root:
             raise ValueError("章节不存在、未确认或未纳入拆书")
-        return await self._analyze_non_narrative(book, root_section_id)
+        return await self._analyze_non_narrative(
+            book, root_section_id, provider or self.provider
+        )
 
     async def _extract_character_relationships(
-        self, book_id: str, sections: list[dict[str, Any]]
+        self,
+        book_id: str,
+        sections: list[dict[str, Any]],
+        provider: ModelProvider,
     ) -> dict[str, Any]:
         succeeded = {
             row["scope_id"]
@@ -528,7 +547,7 @@ class WorkflowService:
                         f"原文块 ID：{section['id']}\n"
                         f"标题：{section['title']}\n\n{section['content']}"
                     )
-                    raw = await self.provider.generate(
+                    raw = await provider.generate(
                         PROMPTS["character_relationships"], source
                     )
                 relationships = self._parse_character_relationships(raw)
@@ -683,7 +702,9 @@ class WorkflowService:
             latest.append(analysis)
         return latest
 
-    async def _book_analysis_input(self, book_id: str) -> tuple[str, bool]:
+    async def _book_analysis_input(
+        self, book_id: str, provider: ModelProvider
+    ) -> tuple[str, bool]:
         analyses = self._latest_chapter_analyses(book_id)
         complete = "\n\n".join(
             item["rendered_markdown"] for item in analyses
@@ -696,7 +717,7 @@ class WorkflowService:
             if not content:
                 source = item["rendered_markdown"]
                 expected = set(re.findall(r"content_[0-9a-f]{8,40}", source))
-                content = await self.provider.generate(
+                content = await provider.generate(
                     PROMPTS["chapter_compression"], source
                 )
                 actual = set(re.findall(r"content_[0-9a-f]{8,40}", content))
@@ -716,7 +737,9 @@ class WorkflowService:
         project_id: str,
         special_requirements: str = "",
         desired_episode_count: int | None = None,
+        provider: ModelProvider | None = None,
     ) -> dict[str, Any]:
+        task_provider = provider or self.provider
         project = self.database.row(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         )
@@ -729,7 +752,9 @@ class WorkflowService:
         )
         if not book:
             raise ValueError("项目关联书籍不存在")
-        facts, compressed = await self._book_analysis_input(book["id"])
+        facts, compressed = await self._book_analysis_input(
+            book["id"], task_provider
+        )
         requirements = special_requirements.strip()
         count_text = (
             str(desired_episode_count)
@@ -747,8 +772,8 @@ class WorkflowService:
             f"\n\n# 拆书稿\n{facts}"
         )
         mind_result, album_result = await asyncio.gather(
-            self.provider.generate(PROMPTS["mind_map"], mind_source),
-            self.provider.generate(PROMPTS["album_outline"], album_source),
+            task_provider.generate(PROMPTS["mind_map"], mind_source),
+            task_provider.generate(PROMPTS["album_outline"], album_source),
             return_exceptions=True,
         )
         response: dict[str, Any] = {
@@ -766,10 +791,19 @@ class WorkflowService:
             version = int(current["version"]) + 1 if current else 1
             self.database.execute(
                 """
-                INSERT INTO mind_maps (id, book_id, version, content, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO mind_maps
+                  (id, book_id, version, content, provider, model, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (uuid.uuid4().hex, book["id"], version, mind_result.strip(), now_iso()),
+                (
+                    uuid.uuid4().hex,
+                    book["id"],
+                    version,
+                    mind_result.strip(),
+                    task_provider.name,
+                    task_provider.model,
+                    now_iso(),
+                ),
             )
             response["mind_map"] = {"status": "succeeded", "version": version}
         if isinstance(album_result, Exception):
@@ -779,7 +813,7 @@ class WorkflowService:
                 try:
                     album_data = parse_json_object(album_result)
                 except json.JSONDecodeError:
-                    repaired_album = await self.provider.generate(
+                    repaired_album = await task_provider.generate(
                         PROMPTS["json_repair"], album_result
                     )
                     album_data = parse_json_object(repaired_album)
@@ -1003,8 +1037,12 @@ class WorkflowService:
         return self.project_detail(project_id)
 
     async def generate_episode(
-        self, episode_id: str, from_stage: str = "outline"
+        self,
+        episode_id: str,
+        from_stage: str = "outline",
+        provider: ModelProvider | None = None,
     ) -> dict[str, Any]:
+        task_provider = provider or self.provider
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:
             raise KeyError(episode_id)
@@ -1018,7 +1056,7 @@ class WorkflowService:
             try:
                 context = self.contexts.build(episode_id, stage)
                 prompt = PROMPTS[context.prompt_id]
-                content = await self.provider.generate(prompt, context.source)
+                content = await task_provider.generate(prompt, context.source)
             except Exception as error:
                 self.database.execute(
                     "UPDATE episodes SET status = 'failed' WHERE id = ?",
@@ -1030,6 +1068,8 @@ class WorkflowService:
                 stage,
                 content,
                 prompt.version,
+                provider=task_provider.name,
+                model=task_provider.model,
                 input_snapshot=context.source,
             )
         self.database.execute(

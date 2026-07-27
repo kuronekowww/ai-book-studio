@@ -4,7 +4,7 @@ from typing import Any
 
 from app.config import Settings
 from app.prompts import PromptDefinition
-from app.providers import AnthropicProvider, build_provider
+from app.providers import AnthropicProvider, anthropic_messages_url, build_provider
 
 
 def anthropic_settings() -> Settings:
@@ -85,3 +85,14 @@ def test_build_provider_selects_anthropic() -> None:
     assert isinstance(provider, AnthropicProvider)
     assert provider.name == "anthropic"
     assert provider.model == "test-claude"
+
+
+def test_anthropic_messages_url_accepts_api_and_api_v1_bases() -> None:
+    assert (
+        anthropic_messages_url("http://gateway.local/model/api")
+        == "http://gateway.local/model/api/v1/messages"
+    )
+    assert (
+        anthropic_messages_url("http://gateway.local/model/api/v1/")
+        == "http://gateway.local/model/api/v1/messages"
+    )

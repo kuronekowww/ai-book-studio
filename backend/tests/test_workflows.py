@@ -61,7 +61,14 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     service.confirm_project(project["id"])
     episode_id = project["episodes"][0]["id"]
 
-    asyncio.run(service.generate_episode(episode_id, "outline"))
+    locked_provider = DemoProvider(name="anthropic", model="locked-model")
+    asyncio.run(
+        service.generate_episode(
+            episode_id, "outline", provider=locked_provider
+        )
+    )
+    first_versions = service.episode_detail(episode_id)["versions"]
+    assert {item["model"] for item in first_versions} == {"locked-model"}
     asyncio.run(service.generate_episode(episode_id, "draft"))
     versions = service.episode_detail(episode_id)["versions"]
     assert sum(item["stage"] == "outline" for item in versions) == 1

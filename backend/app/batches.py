@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from .db import Database, now_iso
+from .providers import ModelProvider
 from .workflows import StageGenerationError, WorkflowService
 
 
@@ -18,12 +19,16 @@ class BatchService:
         database: Database,
         workflows: WorkflowService,
         concurrency: int = 5,
+        provider_resolver: Callable[[str | None], ModelProvider] | None = None,
     ):
         self.database = database
         self.workflows = workflows
         self.concurrency = concurrency
+        self.provider_resolver = provider_resolver
 
-    def create_batch(self, project_id: str) -> dict[str, Any]:
+    def create_batch(
+        self, project_id: str, model_id: str | None = None
+    ) -> dict[str, Any]:
         project = self.database.row(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         )
@@ -75,6 +80,7 @@ class BatchService:
             "completed": 0,
             "failed": 0,
             "concurrency": self.concurrency,
+            "model_id": model_id,
         }
         self.database.execute(
             """
@@ -131,7 +137,9 @@ class BatchService:
                 return stage
         return "final"
 
-    async def run_batch(self, batch_id: str) -> None:
+    async def run_batch(
+        self, batch_id: str, provider: ModelProvider | None = None
+    ) -> None:
         batch = self.database.row(
             "SELECT * FROM workflow_runs WHERE id = ?", (batch_id,)
         )
@@ -139,6 +147,11 @@ class BatchService:
             return
         if batch["status"] == "cancelled":
             return
+        task_provider = provider
+        if task_provider is None and self.provider_resolver:
+            task_provider = self.provider_resolver(
+                batch["metadata_json"].get("model_id")
+            )
 
         self.database.execute(
             """
@@ -189,9 +202,16 @@ class BatchService:
                     (now_iso(), child["id"]),
                 )
                 try:
-                    await self.workflows.generate_episode(
-                        child["scope_id"], child["stage"]
-                    )
+                    if task_provider is None:
+                        await self.workflows.generate_episode(
+                            child["scope_id"], child["stage"]
+                        )
+                    else:
+                        await self.workflows.generate_episode(
+                            child["scope_id"],
+                            child["stage"],
+                            provider=task_provider,
+                        )
                     self.database.execute(
                         """
                         UPDATE workflow_runs
@@ -236,6 +256,9 @@ class BatchService:
         )
 
     def _finish_batch(self, batch_id: str, project_id: str) -> None:
+        batch = self.database.row(
+            "SELECT metadata_json FROM workflow_runs WHERE id = ?", (batch_id,)
+        )
         counts = self.database.row(
             """
             SELECT COUNT(*) AS total,
@@ -249,6 +272,7 @@ class BatchService:
         metadata = {
             **counts,
             "concurrency": self.concurrency,
+            "model_id": (batch or {}).get("metadata_json", {}).get("model_id"),
         }
         if counts["failed"]:
             batch_status = "partial_failed"

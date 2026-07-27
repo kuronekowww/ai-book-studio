@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS mind_maps (
   book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
   version INTEGER NOT NULL,
   content TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'unknown',
+  model TEXT NOT NULL DEFAULT 'unknown',
   created_at TEXT NOT NULL
 );
 
@@ -162,6 +164,10 @@ MIGRATION_COLUMNS = {
         "album_special_requirements": "TEXT NOT NULL DEFAULT ''",
         "desired_episode_count": "INTEGER",
         "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
+    },
+    "mind_maps": {
+        "provider": "TEXT NOT NULL DEFAULT 'unknown'",
+        "model": "TEXT NOT NULL DEFAULT 'unknown'",
     },
     "artifact_versions": {
         "author_type": "TEXT NOT NULL DEFAULT 'model'",

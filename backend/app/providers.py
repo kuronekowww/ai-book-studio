@@ -163,7 +163,7 @@ class AnthropicProvider:
     async def generate(self, prompt: PromptDefinition, source: str) -> str:
         if not self.settings.api_key:
             raise RuntimeError("尚未配置 AI_BOOK_STUDIO_API_KEY")
-        url = f"{self.settings.api_base.rstrip('/')}/v1/messages"
+        url = anthropic_messages_url(self.settings.api_base)
         user_message = (
             f"【系统要求】\n{prompt.system.strip()}\n\n"
             f"【任务】\n{prompt.user_template.format(source=source).strip()}"
@@ -197,6 +197,13 @@ class AnthropicProvider:
         if not text_blocks:
             raise RuntimeError("Anthropic 网关未返回文本内容")
         return "\n".join(text_blocks)
+
+
+def anthropic_messages_url(api_base: str) -> str:
+    normalized = api_base.rstrip("/")
+    if normalized.endswith("/v1"):
+        return f"{normalized}/messages"
+    return f"{normalized}/v1/messages"
 
 
 def build_provider(settings: Settings) -> ModelProvider:

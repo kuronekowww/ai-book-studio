@@ -325,6 +325,9 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .setting-row span { color: var(--muted); }
 .setting-row strong { text-align: right; }
 .setting-note { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.model-selector { margin-top: 18px; display: grid; gap: 7px; color: var(--muted); font-size: 11px; }
+.model-save-button { width: 100%; margin-top: 10px; }
+.model-scope-note { margin: 12px 0 18px; padding: 10px 12px; border-radius: 8px; background: var(--green-soft); color: #514674; }
 .obsidian-card label { display: grid; gap: 7px; color: var(--muted); font-size: 11px; }
 .obsidian-card .form-row, .obsidian-card .primary-button { margin-top: 12px; }
 .boundary-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
