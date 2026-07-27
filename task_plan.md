@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Phase 20: 段落级证据溯源实施（完成）
+Phase 21: Doubao Seed 2.0 Pro 模型预设（完成）
 
 ## Phases
 
@@ -192,6 +192,16 @@ Phase 20: 段落级证据溯源实施（完成）
 - [x] 升级专辑按知识资产编排与声音证据上下文
 - [x] 升级页面、证据 API 和 Obsidian 双向链接
 - [x] 完成回归、本地迁移和页面连接验证
+- **Status:** complete
+
+### Phase 21: Doubao Seed 2.0 Pro 模型预设
+
+- [x] 确认完整 DeepGate 地址和 OpenAI 兼容协议
+- [x] 写入、复核并提交设计规格
+- [x] 写入实施计划
+- [x] 增加模型预设和地址契约测试
+- [x] 更新设置接口断言与使用说明
+- [x] 完成全量验证并提交
 - **Status:** complete
 
 ## Key Questions

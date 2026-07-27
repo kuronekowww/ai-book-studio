@@ -310,6 +310,23 @@
   - 本地 SQLite 完成幂等迁移；当前数据库为空，未触发真实模型调用或整书重跑。
   - 页面确认前后端连接成功。
   - 最终验证：后端 36 项、前端 2 项、lint、生产构建和差异检查全部通过。
+
+## Session: 2026-07-27 — Doubao Seed 2.0 Pro
+
+### Phase 21: 模型预设实施
+
+- **Status:** complete
+- Actions taken:
+  - 确认完整地址为 `http://deepgate.ximalaya.local/doubao-seed-2.0-pro/api/v1/chat/completions`。
+  - 确认采用 OpenAI 兼容协议，并由现有 provider 统一追加 `/chat/completions`。
+  - 写入、复核并提交模型预设设计规格。
+  - 写入精简实施计划，覆盖模型目录、请求契约、设置接口、文档和验证。
+  - 新增第 8 个全局预设 `doubao-seed-2.0-pro`，使用 `openai-compatible` provider。
+  - 基础地址保存为 `/api/v1`，模拟请求确认最终调用 `/api/v1/chat/completions`。
+  - 设置接口确认公开 8 个模型且不泄露 API Key。
+  - README 与 `.env.example` 已增加豆包模型说明。
+  - 定向测试 12 项通过；最终后端 38 项、前端 2 项、lint、生产构建和差异检查全部通过。
+  - 未自动切换用户当前全局模型。
 | 本次后端测试 | pytest | 全部通过 | 7 passed | ✓ |
 | 本次前端测试 | npm test | 构建和结构校验通过 | 2 passed | ✓ |
 | Anthropic 模拟请求 | pytest | URL、鉴权、消息与解析正确 | 2 项新增用例通过 | ✓ |

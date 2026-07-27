@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
-from app.model_catalog import MODEL_PRESETS, ModelManager
+from app.model_catalog import MODEL_PRESETS, MODEL_PRESETS_BY_ID, ModelManager
 
 
 def settings(data_dir: Path, *, model: str = "demo-model") -> Settings:
@@ -18,9 +18,9 @@ def settings(data_dir: Path, *, model: str = "demo-model") -> Settings:
     )
 
 
-def test_catalog_has_seven_unique_models() -> None:
-    assert len(MODEL_PRESETS) == 7
-    assert len({preset.id for preset in MODEL_PRESETS}) == 7
+def test_catalog_has_eight_unique_models() -> None:
+    assert len(MODEL_PRESETS) == 8
+    assert len({preset.id for preset in MODEL_PRESETS}) == 8
     assert {preset.id for preset in MODEL_PRESETS} >= {
         "kimi-k3",
         "claude-sonnet-5",
@@ -28,7 +28,19 @@ def test_catalog_has_seven_unique_models() -> None:
         "kimi-k2.6",
         "deepseek-v4-pro",
         "hy3",
+        "doubao-seed-2.0-pro",
     }
+
+
+def test_doubao_uses_openai_compatible_chat_completions_base() -> None:
+    preset = MODEL_PRESETS_BY_ID["doubao-seed-2.0-pro"]
+
+    assert preset.provider == "openai-compatible"
+    assert preset.model == "doubao-seed-2.0-pro"
+    assert preset.api_base == (
+        "http://deepgate.ximalaya.local/"
+        "doubao-seed-2.0-pro/api/v1"
+    )
 
 
 def test_manager_persists_selection_without_credentials(tmp_path) -> None:

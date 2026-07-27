@@ -80,6 +80,16 @@ MODEL_PRESETS = (
         model="hy3",
         api_base="http://deepgate.ximalaya.local/hy3-universal/api/v1",
     ),
+    ModelPreset(
+        id="doubao-seed-2.0-pro",
+        label="Doubao Seed 2.0 Pro",
+        model="doubao-seed-2.0-pro",
+        api_base=(
+            "http://deepgate.ximalaya.local/"
+            "doubao-seed-2.0-pro/api/v1"
+        ),
+        provider="openai-compatible",
+    ),
 )
 MODEL_PRESETS_BY_ID = {preset.id: preset for preset in MODEL_PRESETS}
 ENVIRONMENT_MODEL_ID = "__environment__"

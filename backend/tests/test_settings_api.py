@@ -18,7 +18,12 @@ def test_settings_api_lists_and_switches_models_without_exposing_key(
     initial = client.get("/api/settings/status")
     assert initial.status_code == 200
     initial_data = initial.json()
-    assert len(initial_data["available_models"]) == 7
+    assert len(initial_data["available_models"]) == 8
+    assert any(
+        item["id"] == "doubao-seed-2.0-pro"
+        and item["provider"] == "openai-compatible"
+        for item in initial_data["available_models"]
+    )
     assert "secret-test-key" not in initial.text
 
     switched = client.put(

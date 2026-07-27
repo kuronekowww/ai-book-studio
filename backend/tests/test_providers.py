@@ -4,7 +4,12 @@ from typing import Any
 
 from app.config import Settings
 from app.prompts import PromptDefinition
-from app.providers import AnthropicProvider, anthropic_messages_url, build_provider
+from app.providers import (
+    AnthropicProvider,
+    OpenAICompatibleProvider,
+    anthropic_messages_url,
+    build_provider,
+)
 
 
 def anthropic_settings() -> Settings:
@@ -53,6 +58,19 @@ class FakeClient:
         return FakeResponse()
 
 
+class OpenAIFakeResponse(FakeResponse):
+    def json(self) -> dict[str, Any]:
+        return {"choices": [{"message": {"content": "豆包响应"}}]}
+
+
+class OpenAIFakeClient(FakeClient):
+    async def post(
+        self, url: str, *, json: dict[str, Any], headers: dict[str, str]
+    ) -> OpenAIFakeResponse:
+        self.capture.update({"url": url, "json": json, "headers": headers})
+        return OpenAIFakeResponse()
+
+
 def test_anthropic_provider_uses_messages_contract(monkeypatch) -> None:
     capture: dict[str, Any] = {}
     monkeypatch.setattr(
@@ -96,3 +114,43 @@ def test_anthropic_messages_url_accepts_api_and_api_v1_bases() -> None:
         anthropic_messages_url("http://gateway.local/model/api/v1/")
         == "http://gateway.local/model/api/v1/messages"
     )
+
+
+def test_doubao_openai_compatible_request_uses_confirmed_endpoint(
+    monkeypatch,
+) -> None:
+    capture: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "app.providers.httpx.AsyncClient",
+        lambda **kwargs: OpenAIFakeClient(capture, **kwargs),
+    )
+    data_dir = Path("/tmp/ai-book-studio-doubao-test")
+    provider = OpenAICompatibleProvider(
+        Settings(
+            data_dir=data_dir,
+            database_path=data_dir / "studio.sqlite3",
+            provider="openai-compatible",
+            api_base=(
+                "http://deepgate.ximalaya.local/"
+                "doubao-seed-2.0-pro/api/v1"
+            ),
+            api_key="test-key",
+            model="doubao-seed-2.0-pro",
+        )
+    )
+    prompt = PromptDefinition(
+        id="test",
+        version="v1",
+        system="只输出中文。",
+        user_template="处理：{source}",
+    )
+
+    result = asyncio.run(provider.generate(prompt, "原始文本"))
+
+    assert result == "豆包响应"
+    assert capture["url"] == (
+        "http://deepgate.ximalaya.local/"
+        "doubao-seed-2.0-pro/api/v1/chat/completions"
+    )
+    assert capture["json"]["model"] == "doubao-seed-2.0-pro"
+    assert capture["headers"]["Authorization"] == "Bearer test-key"
