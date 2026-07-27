@@ -6,6 +6,7 @@ from app.config import Settings
 from app.prompts import PromptDefinition
 from app.providers import (
     AnthropicProvider,
+    ModelOutputTruncatedError,
     OpenAICompatibleProvider,
     anthropic_messages_url,
     build_provider,
@@ -59,8 +60,13 @@ class FakeClient:
 
 
 class OpenAIFakeResponse(FakeResponse):
+    finish_reason = None
+
     def json(self) -> dict[str, Any]:
-        return {"choices": [{"message": {"content": "豆包响应"}}]}
+        choice: dict[str, Any] = {"message": {"content": "豆包响应"}}
+        if self.finish_reason is not None:
+            choice["finish_reason"] = self.finish_reason
+        return {"choices": [choice]}
 
 
 class OpenAIFakeClient(FakeClient):
@@ -154,3 +160,122 @@ def test_doubao_openai_compatible_request_uses_confirmed_endpoint(
     )
     assert capture["json"]["model"] == "doubao-seed-2.0-pro"
     assert capture["headers"]["Authorization"] == "Bearer test-key"
+
+
+def test_structured_openai_request_uses_json_mode_and_output_limit(
+    monkeypatch,
+) -> None:
+    capture: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "app.providers.httpx.AsyncClient",
+        lambda **kwargs: OpenAIFakeClient(capture, **kwargs),
+    )
+    base = anthropic_settings()
+    settings = Settings(
+        data_dir=base.data_dir,
+        database_path=base.database_path,
+        provider="openai-compatible",
+        api_base=base.api_base,
+        api_key=base.api_key,
+        model=base.model,
+    )
+    provider = OpenAICompatibleProvider(settings)
+    prompt = PromptDefinition(
+        id="book_analysis",
+        version="v1",
+        system="输出 JSON。",
+        user_template="{source}",
+    )
+
+    asyncio.run(provider.generate(prompt, "原文"))
+
+    assert capture["client_kwargs"]["trust_env"] is False
+    assert capture["json"]["temperature"] == 0.1
+    assert capture["json"]["max_tokens"] == 16384
+    assert capture["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_openai_length_finish_reason_raises_explicit_truncation(
+    monkeypatch,
+) -> None:
+    class LengthResponse(OpenAIFakeResponse):
+        finish_reason = "length"
+
+    class LengthClient(OpenAIFakeClient):
+        async def post(self, url, *, json, headers):
+            return LengthResponse()
+
+    monkeypatch.setattr(
+        "app.providers.httpx.AsyncClient",
+        lambda **kwargs: LengthClient({}, **kwargs),
+    )
+    base = anthropic_settings()
+    settings = Settings(
+        data_dir=base.data_dir,
+        database_path=base.database_path,
+        provider="openai-compatible",
+        api_base=base.api_base,
+        api_key=base.api_key,
+        model=base.model,
+    )
+    provider = OpenAICompatibleProvider(settings)
+    prompt = PromptDefinition(
+        id="book_analysis",
+        version="v1",
+        system="输出 JSON。",
+        user_template="{source}",
+    )
+
+    try:
+        asyncio.run(provider.generate(prompt, "原文"))
+        raise AssertionError("length 应被识别为输出截断")
+    except ModelOutputTruncatedError as error:
+        assert error.category == "output_truncated"
+        assert error.diagnostics["finish_reason"] == "length"
+
+
+def test_structured_openai_request_falls_back_when_json_mode_is_rejected(
+    monkeypatch,
+) -> None:
+    class RejectedJsonModeResponse(FakeResponse):
+        status_code = 400
+
+        def json(self) -> dict[str, Any]:
+            return {"error": {"message": "response_format json_object unsupported"}}
+
+    class FallbackClient(OpenAIFakeClient):
+        async def post(self, url, *, json, headers):
+            self.capture.setdefault("payloads", []).append(dict(json))
+            if len(self.capture["payloads"]) == 1:
+                return RejectedJsonModeResponse()
+            return OpenAIFakeResponse()
+
+    capture: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "app.providers.httpx.AsyncClient",
+        lambda **kwargs: FallbackClient(capture, **kwargs),
+    )
+    base = anthropic_settings()
+    provider = OpenAICompatibleProvider(
+        Settings(
+            data_dir=base.data_dir,
+            database_path=base.database_path,
+            provider="openai-compatible",
+            api_base=base.api_base,
+            api_key=base.api_key,
+            model=base.model,
+        )
+    )
+    prompt = PromptDefinition(
+        id="book_analysis",
+        version="v1",
+        system="输出 JSON。",
+        user_template="{source}",
+    )
+
+    result = asyncio.run(provider.generate(prompt, "原文"))
+
+    assert result == "豆包响应"
+    assert len(capture["payloads"]) == 2
+    assert capture["payloads"][0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in capture["payloads"][1]

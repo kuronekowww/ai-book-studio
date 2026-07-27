@@ -155,10 +155,37 @@ def _validate_exact_source(
         raise ValueError(f"{field} 不是所引用原文块中的连续原文")
 
 
-def validate_chapter_analysis(
+@dataclass(frozen=True)
+class ChapterValidationResult:
+    data: dict[str, Any]
+    issues: list[dict[str, Any]]
+    valid_item_count: int
+    invalid_item_count: int
+
+
+def _issue(
+    asset_type: str,
+    title: str,
+    error: Exception,
+    raw_item: Any,
+) -> dict[str, Any]:
+    indexes: list[str] = []
+    if isinstance(raw_item, dict):
+        raw_indexes = raw_item.get("source_content_indexes")
+        if isinstance(raw_indexes, list):
+            indexes = [str(item) for item in raw_indexes if isinstance(item, str)]
+    return {
+        "asset_type": asset_type,
+        "title": compact_text(title)[:120] or "未命名条目",
+        "error": str(error),
+        "source_content_indexes": indexes,
+    }
+
+
+def validate_chapter_analysis_partial(
     data: dict[str, Any],
     allowed_fragments: dict[str, dict[str, Any]] | set[str],
-) -> dict[str, Any]:
+) -> ChapterValidationResult:
     if isinstance(allowed_fragments, set):
         fragments = {
             index: {"text": "", "book_position": position}
@@ -173,134 +200,249 @@ def validate_chapter_analysis(
         raise ValueError("subtopics 必须是非空数组")
 
     subtopics: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+    valid_item_count = 0
     for subtopic_position, raw_subtopic in enumerate(raw_subtopics, start=1):
         if not isinstance(raw_subtopic, dict):
             raise ValueError(f"第 {subtopic_position} 个子主题结构无效")
-        title = _require_text(raw_subtopic.get("title"), "subtopic.title")
+        raw_title = raw_subtopic.get("title")
+        title = (
+            raw_title.strip()
+            if isinstance(raw_title, str) and raw_title.strip()
+            else f"子主题 {subtopic_position}"
+        )
         definitions: list[dict[str, Any]] = []
         for raw_definition in raw_subtopic.get("definitions") or []:
-            if not isinstance(raw_definition, dict):
-                raise ValueError("definitions 条目结构无效")
-            name = _require_text(raw_definition.get("name"), "definition.name")
-            definition = _require_text(
-                raw_definition.get("definition"), "definition.definition"
-            )
-            indexes = _source_indexes(
-                raw_definition.get("source_content_indexes"),
-                f"概念“{name}”",
-                fragments,
-            )
-            _validate_exact_source(definition, indexes, fragments, f"概念“{name}”")
-            definitions.append(
-                {
-                    "name": name,
-                    "definition": definition,
-                    "source_content_indexes": indexes,
-                }
-            )
+            try:
+                if not isinstance(raw_definition, dict):
+                    raise ValueError("definitions 条目结构无效")
+                name = _require_text(raw_definition.get("name"), "definition.name")
+                definition = _require_text(
+                    raw_definition.get("definition"), "definition.definition"
+                )
+                indexes = _source_indexes(
+                    raw_definition.get("source_content_indexes"),
+                    f"概念“{name}”",
+                    fragments,
+                )
+                definitions.append(
+                    {
+                        "name": name,
+                        "definition": definition,
+                        "source_content_indexes": indexes,
+                    }
+                )
+                valid_item_count += 1
+            except (TypeError, ValueError) as error:
+                raw_name = (
+                    raw_definition.get("name", "概念")
+                    if isinstance(raw_definition, dict)
+                    else "概念"
+                )
+                issues.append(_issue("概念", str(raw_name), error, raw_definition))
 
         quotes: list[dict[str, Any]] = []
         for raw_quote in raw_subtopic.get("quotes") or []:
-            if not isinstance(raw_quote, dict):
-                raise ValueError("quotes 条目必须包含 text 和 source_content_indexes")
-            text = _require_text(raw_quote.get("text"), "quote.text")
-            indexes = _source_indexes(
-                raw_quote.get("source_content_indexes"), "金句", fragments
-            )
-            _validate_exact_source(text, indexes, fragments, "金句")
-            quotes.append({"text": text, "source_content_indexes": indexes})
+            try:
+                if not isinstance(raw_quote, dict):
+                    raise ValueError("quotes 条目必须包含 text 和 source_content_indexes")
+                text = _require_text(raw_quote.get("text"), "quote.text")
+                indexes = _source_indexes(
+                    raw_quote.get("source_content_indexes"), "金句", fragments
+                )
+                _validate_exact_source(text, indexes, fragments, "金句")
+                quotes.append({"text": text, "source_content_indexes": indexes})
+                valid_item_count += 1
+            except (TypeError, ValueError) as error:
+                raw_text = (
+                    raw_quote.get("text", "金句")
+                    if isinstance(raw_quote, dict)
+                    else "金句"
+                )
+                issues.append(_issue("金句", str(raw_text), error, raw_quote))
 
         viewpoints: list[dict[str, Any]] = []
+        orphan_arguments: list[dict[str, Any]] = []
+        orphan_cases: list[dict[str, Any]] = []
         for raw_viewpoint in raw_subtopic.get("viewpoints") or []:
             if not isinstance(raw_viewpoint, dict):
-                raise ValueError("viewpoints 条目结构无效")
-            text = _require_text(raw_viewpoint.get("text"), "viewpoint.text")
-            indexes = _source_indexes(
-                raw_viewpoint.get("source_content_indexes"), "主要观点", fragments
-            )
-            _validate_exact_source(text, indexes, fragments, "主要观点")
+                issues.append(
+                    _issue(
+                        "观点",
+                        "结构无效的观点",
+                        ValueError("viewpoints 条目结构无效"),
+                        raw_viewpoint,
+                    )
+                )
+                continue
+            viewpoint_valid = True
+            text = ""
+            indexes: list[str] = []
+            try:
+                text = _require_text(raw_viewpoint.get("text"), "viewpoint.text")
+                indexes = _source_indexes(
+                    raw_viewpoint.get("source_content_indexes"),
+                    "主要观点",
+                    fragments,
+                )
+            except (TypeError, ValueError) as error:
+                viewpoint_valid = False
+                issues.append(
+                    _issue(
+                        "观点",
+                        str(raw_viewpoint.get("text", "主要观点")),
+                        error,
+                        raw_viewpoint,
+                    )
+                )
+
             arguments: list[dict[str, Any]] = []
             for raw_argument in raw_viewpoint.get("arguments") or []:
-                if not isinstance(raw_argument, dict):
-                    raise ValueError(
-                        "arguments 条目必须包含 text 和 source_content_indexes"
+                try:
+                    if not isinstance(raw_argument, dict):
+                        raise ValueError(
+                            "arguments 条目必须包含 text 和 source_content_indexes"
+                        )
+                    argument_text = _require_text(
+                        raw_argument.get("text"), "argument.text"
                     )
-                argument_text = _require_text(raw_argument.get("text"), "argument.text")
-                argument_indexes = _source_indexes(
-                    raw_argument.get("source_content_indexes"), "论据", fragments
-                )
-                _validate_exact_source(
-                    argument_text, argument_indexes, fragments, "论据"
-                )
-                arguments.append(
-                    {
-                        "text": argument_text,
-                        "source_content_indexes": argument_indexes,
-                    }
-                )
+                    argument_indexes = _source_indexes(
+                        raw_argument.get("source_content_indexes"), "论据", fragments
+                    )
+                    arguments.append(
+                        {
+                            "text": argument_text,
+                            "source_content_indexes": argument_indexes,
+                        }
+                    )
+                    valid_item_count += 1
+                except (TypeError, ValueError) as error:
+                    raw_text = (
+                        raw_argument.get("text", "论据")
+                        if isinstance(raw_argument, dict)
+                        else "论据"
+                    )
+                    issues.append(_issue("论据", str(raw_text), error, raw_argument))
+
             case: dict[str, Any] | None = None
             raw_case = raw_viewpoint.get("case")
             if raw_case is not None:
-                if not isinstance(raw_case, dict):
-                    raise ValueError("case 结构无效")
-                summary = _require_text(raw_case.get("summary"), "case.summary")
-                relation = _require_text(raw_case.get("relation"), "case.relation")
-                case_indexes = _source_indexes(
-                    raw_case.get("source_content_indexes"), "案例", fragments
+                try:
+                    if not isinstance(raw_case, dict):
+                        raise ValueError("case 结构无效")
+                    summary = _require_text(raw_case.get("summary"), "case.summary")
+                    relation = _require_text(raw_case.get("relation"), "case.relation")
+                    case_indexes = _source_indexes(
+                        raw_case.get("source_content_indexes"), "案例", fragments
+                    )
+                    raw_evidence_quotes = raw_case.get("evidence_quotes")
+                    if (
+                        not isinstance(raw_evidence_quotes, list)
+                        or not raw_evidence_quotes
+                    ):
+                        raise ValueError("案例必须包含至少一条 evidence_quotes")
+                    evidence_quotes: list[dict[str, Any]] = []
+                    for raw_evidence in raw_evidence_quotes:
+                        try:
+                            if not isinstance(raw_evidence, dict):
+                                raise ValueError("案例 evidence_quotes 结构无效")
+                            evidence_text = _require_text(
+                                raw_evidence.get("text"),
+                                "case.evidence_quote.text",
+                            )
+                            evidence_indexes = _source_indexes(
+                                raw_evidence.get("source_content_indexes"),
+                                "案例证据",
+                                fragments,
+                            )
+                            if not set(evidence_indexes).issubset(case_indexes):
+                                raise ValueError(
+                                    "案例证据索引必须包含在案例来源索引中"
+                                )
+                            evidence_quotes.append(
+                                {
+                                    "text": evidence_text,
+                                    "source_content_indexes": evidence_indexes,
+                                }
+                            )
+                        except (TypeError, ValueError) as error:
+                            raw_text = (
+                                raw_evidence.get("text", "案例证据")
+                                if isinstance(raw_evidence, dict)
+                                else "案例证据"
+                            )
+                            issues.append(
+                                _issue(
+                                    "案例证据",
+                                    str(raw_text),
+                                    error,
+                                    raw_evidence,
+                                )
+                            )
+                    if not evidence_quotes:
+                        raise ValueError("案例没有通过来源校验的 evidence_quotes")
+                    case = {
+                        "summary": summary,
+                        "relation": relation,
+                        "source_content_indexes": case_indexes,
+                        "evidence_quotes": evidence_quotes,
+                    }
+                    valid_item_count += 1
+                except (TypeError, ValueError) as error:
+                    raw_summary = (
+                        raw_case.get("summary", "案例")
+                        if isinstance(raw_case, dict)
+                        else "案例"
+                    )
+                    issues.append(
+                        _issue("案例", str(raw_summary), error, raw_case)
+                    )
+                    case = None
+            if viewpoint_valid:
+                viewpoints.append(
+                    {
+                        "text": text,
+                        "source_content_indexes": indexes,
+                        "arguments": arguments,
+                        "case": case,
+                    }
                 )
-                raw_evidence_quotes = raw_case.get("evidence_quotes")
-                if not isinstance(raw_evidence_quotes, list) or not raw_evidence_quotes:
-                    raise ValueError("案例必须包含至少一条 evidence_quotes")
-                evidence_quotes: list[dict[str, Any]] = []
-                for raw_evidence in raw_evidence_quotes:
-                    if not isinstance(raw_evidence, dict):
-                        raise ValueError("案例 evidence_quotes 结构无效")
-                    evidence_text = _require_text(
-                        raw_evidence.get("text"), "case.evidence_quote.text"
-                    )
-                    evidence_indexes = _source_indexes(
-                        raw_evidence.get("source_content_indexes"),
-                        "案例证据",
-                        fragments,
-                    )
-                    _validate_exact_source(
-                        evidence_text, evidence_indexes, fragments, "案例证据"
-                    )
-                    if not set(evidence_indexes).issubset(case_indexes):
-                        raise ValueError("案例证据索引必须包含在案例来源索引中")
-                    evidence_quotes.append(
-                        {
-                            "text": evidence_text,
-                            "source_content_indexes": evidence_indexes,
-                        }
-                    )
-                case = {
-                    "summary": summary,
-                    "relation": relation,
-                    "source_content_indexes": case_indexes,
-                    "evidence_quotes": evidence_quotes,
-                }
-            viewpoints.append(
-                {
-                    "text": text,
-                    "source_content_indexes": indexes,
-                    "arguments": arguments,
-                    "case": case,
-                }
-            )
+                valid_item_count += 1
+            else:
+                orphan_arguments.extend(arguments)
+                if case:
+                    orphan_cases.append(case)
         subtopics.append(
             {
                 "title": title,
                 "definitions": definitions,
                 "quotes": quotes,
                 "viewpoints": viewpoints,
+                "orphan_arguments": orphan_arguments,
+                "orphan_cases": orphan_cases,
             }
         )
-    return {
+    normalized = {
         "chapter_title": chapter_title,
         "chapter_theme": chapter_theme,
         "subtopics": subtopics,
     }
+    return ChapterValidationResult(
+        data=normalized,
+        issues=issues,
+        valid_item_count=valid_item_count,
+        invalid_item_count=len(issues),
+    )
+
+
+def validate_chapter_analysis(
+    data: dict[str, Any],
+    allowed_fragments: dict[str, dict[str, Any]] | set[str],
+) -> dict[str, Any]:
+    result = validate_chapter_analysis_partial(data, allowed_fragments)
+    if result.issues:
+        raise ValueError(result.issues[0]["error"])
+    return result.data
 
 
 def _stable_key(
@@ -406,6 +548,29 @@ def derive_knowledge_cards(
                         index_to_section_id,
                     )
                 )
+        for argument in subtopic.get("orphan_arguments", []):
+            cards.append(
+                _card(
+                    book_id,
+                    "论据",
+                    f"{subtopic['title']} · 论据（观点未通过校验）",
+                    argument["text"],
+                    argument["source_content_indexes"],
+                    index_to_section_id,
+                )
+            )
+        for case in subtopic.get("orphan_cases", []):
+            body = f"{case['summary']}\n\n关联：{case['relation']}"
+            cards.append(
+                _card(
+                    book_id,
+                    "案例",
+                    f"{subtopic['title']} · 案例（观点未通过校验）",
+                    body,
+                    case["source_content_indexes"],
+                    index_to_section_id,
+                )
+            )
     return cards
 
 
@@ -482,6 +647,37 @@ def render_chapter_markdown(
                     [
                         "",
                         "**案例故事：**",
+                        f"- **概述：** {case['summary']}",
+                        f"- **关联：** {case['relation']}",
+                        f"- **知识资产 ID：** {identity('案例', case_body, case_indexes)}",
+                        f"- **原文索引：** {_render_source(case_indexes)}",
+                        "- **证据原文：**",
+                    ]
+                )
+                for evidence in case["evidence_quotes"]:
+                    lines.append(
+                        f"  - {evidence['text']} "
+                        f"（{_render_source(evidence['source_content_indexes'])}）"
+                    )
+        if subtopic.get("orphan_arguments"):
+            lines.extend(["", "### 独立保留的论据（所属观点未通过原文校验）"])
+            for argument in subtopic["orphan_arguments"]:
+                argument_indexes = argument["source_content_indexes"]
+                lines.extend(
+                    [
+                        f"- {argument['text']}",
+                        "  - 知识资产 ID："
+                        f"{identity('论据', argument['text'], argument_indexes)}",
+                        f"  - 原文索引：{_render_source(argument_indexes)}",
+                    ]
+                )
+        if subtopic.get("orphan_cases"):
+            lines.extend(["", "### 独立保留的案例（所属观点未通过原文校验）"])
+            for case in subtopic["orphan_cases"]:
+                case_indexes = case["source_content_indexes"]
+                case_body = f"{case['summary']}\n\n关联：{case['relation']}"
+                lines.extend(
+                    [
                         f"- **概述：** {case['summary']}",
                         f"- **关联：** {case['relation']}",
                         f"- **知识资产 ID：** {identity('案例', case_body, case_indexes)}",

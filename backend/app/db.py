@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS chapter_analyses (
   model TEXT NOT NULL,
   input_snapshot TEXT NOT NULL DEFAULT '',
   fragment_set_id TEXT,
+  validation_issues_json TEXT NOT NULL DEFAULT '[]',
+  valid_item_count INTEGER NOT NULL DEFAULT 0,
+  invalid_item_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   UNIQUE(root_section_id, version)
 );
@@ -245,6 +248,9 @@ MIGRATION_COLUMNS = {
     },
     "chapter_analyses": {
         "fragment_set_id": "TEXT",
+        "validation_issues_json": "TEXT NOT NULL DEFAULT '[]'",
+        "valid_item_count": "INTEGER NOT NULL DEFAULT 0",
+        "invalid_item_count": "INTEGER NOT NULL DEFAULT 0",
     },
     "workflow_runs": {
         "parent_run_id": "TEXT",
@@ -413,6 +419,7 @@ JSON_COLUMNS = {
     "source_section_ids",
     "structured_json",
     "section_path_json",
+    "validation_issues_json",
 }
 
 

@@ -344,6 +344,8 @@ def book_detail(book_id: str) -> dict[str, Any]:
         SELECT ca.id, ca.book_id, ca.root_section_id, ca.version, ca.status,
                ca.rendered_markdown, ca.compressed_markdown, ca.prompt_version,
                ca.provider, ca.model, ca.fragment_set_id, ca.created_at,
+               ca.validation_issues_json, ca.valid_item_count,
+               ca.invalid_item_count,
                s.title AS chapter_title
         FROM chapter_analyses ca
         JOIN sections s ON s.id = ca.root_section_id

@@ -11,6 +11,31 @@ from .config import Settings
 from .prompts import PromptDefinition
 
 
+class ModelGenerationError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str,
+        diagnostics: dict[str, object] | None = None,
+    ):
+        super().__init__(message)
+        self.category = category
+        self.diagnostics = diagnostics or {}
+
+
+class ModelOutputTruncatedError(ModelGenerationError):
+    def __init__(self, response_chars: int, finish_reason: str):
+        super().__init__(
+            f"模型输出因长度上限被截断（已返回 {response_chars} 字符），请重跑该章",
+            category="output_truncated",
+            diagnostics={
+                "response_chars": response_chars,
+                "finish_reason": finish_reason,
+            },
+        )
+
+
 class ModelProvider(Protocol):
     name: str
     model: str
@@ -166,7 +191,8 @@ class OpenAICompatibleProvider:
         if not self.settings.api_key:
             raise RuntimeError("尚未配置 AI_BOOK_STUDIO_API_KEY")
         url = f"{self.settings.api_base.rstrip('/')}/chat/completions"
-        payload = {
+        structured_output = prompt.id in {"book_analysis", "json_repair"}
+        payload: dict[str, object] = {
             "model": self.settings.model,
             "messages": [
                 {"role": "system", "content": prompt.system},
@@ -175,14 +201,81 @@ class OpenAICompatibleProvider:
                     "content": prompt.user_template.format(source=source),
                 },
             ],
-            "temperature": 0.7,
+            "temperature": 0.1 if structured_output else 0.7,
         }
+        if structured_output:
+            payload["max_tokens"] = 16384
+            payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.settings.api_key}"}
-        async with httpx.AsyncClient(timeout=300) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-        return data["choices"][0]["message"]["content"]
+        try:
+            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                if structured_output and self._response_format_rejected(response):
+                    payload.pop("response_format", None)
+                    response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException as error:
+            raise ModelGenerationError(
+                "模型请求超过 300 秒，已超时",
+                category="model_timeout",
+                diagnostics={"timeout_seconds": 300},
+            ) from error
+        except httpx.HTTPStatusError as error:
+            raise ModelGenerationError(
+                f"模型网关请求失败（HTTP {error.response.status_code}）",
+                category="gateway_http_error",
+                diagnostics={"http_status": error.response.status_code},
+            ) from error
+        except httpx.RequestError as error:
+            raise ModelGenerationError(
+                "模型网关连接失败",
+                category="gateway_connection_error",
+                diagnostics={"error_type": type(error).__name__},
+            ) from error
+        try:
+            choice = data["choices"][0]
+            content = choice["message"]["content"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise ModelGenerationError(
+                "模型网关返回结构无效",
+                category="invalid_gateway_response",
+            ) from error
+        finish_reason = choice.get("finish_reason")
+        if finish_reason == "length":
+            raise ModelOutputTruncatedError(len(content or ""), finish_reason)
+        if finish_reason not in {None, "stop"}:
+            raise ModelGenerationError(
+                f"模型未正常完成输出（finish_reason={finish_reason}）",
+                category="abnormal_finish_reason",
+                diagnostics={
+                    "response_chars": len(content or ""),
+                    "finish_reason": finish_reason,
+                },
+            )
+        if not isinstance(content, str) or not content.strip():
+            raise ModelGenerationError(
+                "模型未返回文本内容",
+                category="empty_model_output",
+                diagnostics={
+                    "response_chars": 0,
+                    "finish_reason": finish_reason,
+                },
+            )
+        return content
+
+    @staticmethod
+    def _response_format_rejected(response: httpx.Response) -> bool:
+        if response.status_code not in {400, 422}:
+            return False
+        try:
+            detail = json.dumps(response.json(), ensure_ascii=False).lower()
+        except Exception:
+            detail = getattr(response, "text", "").lower()
+        return any(
+            marker in detail
+            for marker in ("response_format", "json_object", "unsupported")
+        )
 
 
 @dataclass

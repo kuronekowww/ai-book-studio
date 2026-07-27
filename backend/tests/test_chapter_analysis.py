@@ -9,6 +9,7 @@ from app.chapter_analysis import (
     derive_knowledge_cards,
     render_chapter_markdown,
     validate_chapter_analysis,
+    validate_chapter_analysis_partial,
 )
 from app.db import Database, now_iso
 from app.prompts import PromptDefinition
@@ -201,6 +202,52 @@ class ConcurrentChapterProvider:
         )
 
 
+class PartiallyInvalidChapterProvider(ConcurrentChapterProvider):
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        if prompt.id != "book_analysis":
+            return await DemoProvider().generate(prompt, source)
+        matches = re.findall(
+            r"\[content_index: (content_[0-9a-f]+)\]\n"
+            r"\[章节路径: [^\]]*\]\n"
+            r"(.*?)(?=\n\[content_index: |\n#{1,6} |\Z)",
+            source,
+            flags=re.S,
+        )
+        index, fragment = matches[-1]
+        exact_text = next(
+            item.strip()
+            for item in re.split(r"(?<=[。！？!?])", fragment)
+            if item.strip()
+        )
+        return json.dumps(
+            {
+                "chapter_title": "章节",
+                "chapter_theme": "主题",
+                "subtopics": [
+                    {
+                        "title": "子主题",
+                        "definitions": [],
+                        "quotes": [],
+                        "viewpoints": [
+                            {
+                                "text": "引用不存在来源的观点",
+                                "source_content_indexes": ["content_missing"],
+                                "arguments": [
+                                    {
+                                        "text": exact_text,
+                                        "source_content_indexes": [index],
+                                    }
+                                ],
+                                "case": None,
+                            }
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+
 def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     database = Database(tmp_path / "studio.sqlite3")
     database.init()
@@ -235,6 +282,35 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     context = service.contexts.build(episode["id"], "outline")
     assert "# 直接原文证据" in context.source
     assert bundle["direct_fragments"][0]["content_index"] in context.source
+
+
+def test_partial_chapter_saves_valid_assets_and_blocks_album(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, PartiallyInvalidChapterProvider())
+    book_id = seed_chapter_book(database)
+
+    result = asyncio.run(service.analyze_book(book_id))
+
+    assert result["succeeded_count"] == 0
+    assert len(result["partial_chapters"]) == 1
+    analysis = database.row(
+        "SELECT * FROM chapter_analyses WHERE book_id = ?",
+        (book_id,),
+    )
+    assert analysis["status"] == "partial"
+    assert analysis["valid_item_count"] == 1
+    assert analysis["invalid_item_count"] == 1
+    assert analysis["validation_issues_json"][0]["asset_type"] == "观点"
+    assert database.row(
+        "SELECT COUNT(*) AS count FROM knowledge_items WHERE book_id = ? AND status = 'active'",
+        (book_id,),
+    )["count"] == 1
+    try:
+        service._latest_chapter_analyses(book_id)
+        raise AssertionError("部分成功章节不应进入专辑生成")
+    except ValueError as error:
+        assert "尚未完整通过" in str(error)
 
 
 def test_invalid_content_index_is_rejected() -> None:
@@ -280,15 +356,13 @@ def test_non_verbatim_asset_text_is_rejected() -> None:
             {
                 "title": "子主题",
                 "definitions": [],
-                "quotes": [],
-                "viewpoints": [
+                "quotes": [
                     {
-                        "text": "模型改写后的观点",
+                        "text": "模型改写后的金句",
                         "source_content_indexes": ["content_valid"],
-                        "arguments": [],
-                        "case": None,
                     }
                 ],
+                "viewpoints": [],
             }
         ],
     }
@@ -302,9 +376,56 @@ def test_non_verbatim_asset_text_is_rejected() -> None:
                 }
             },
         )
-        raise AssertionError("非逐字原文资产应被拒绝")
+        raise AssertionError("非逐字原文金句应被拒绝")
     except ValueError as error:
         assert "连续原文" in str(error)
+
+
+def test_partial_validation_keeps_valid_sibling_assets() -> None:
+    fragments = {
+        "content_valid": {
+            "text": "这是原文观点。这是原文论据。",
+            "book_position": 1,
+        }
+    }
+    data = {
+        "chapter_title": "章节",
+        "chapter_theme": "主题",
+        "subtopics": [
+            {
+                "title": "子主题",
+                "definitions": [],
+                "quotes": [],
+                "viewpoints": [
+                    {
+                        "text": "引用了不存在来源的观点",
+                        "source_content_indexes": ["content_missing"],
+                        "arguments": [
+                            {
+                                "text": "这是原文论据。",
+                                "source_content_indexes": ["content_valid"],
+                            }
+                        ],
+                        "case": None,
+                    }
+                ],
+            }
+        ],
+    }
+
+    result = validate_chapter_analysis_partial(data, fragments)
+
+    assert result.invalid_item_count == 1
+    assert result.issues[0]["asset_type"] == "观点"
+    assert result.data["subtopics"][0]["viewpoints"] == []
+    assert result.data["subtopics"][0]["orphan_arguments"][0]["text"] == "这是原文论据。"
+    cards = derive_knowledge_cards(
+        result.data,
+        {"content_valid": "section_valid"},
+        "book_valid",
+    )
+    assert len(cards) == 1
+    assert cards[0]["kind"] == "论据"
 
 
 def test_partial_retry_skips_already_successful_chapters(tmp_path) -> None:

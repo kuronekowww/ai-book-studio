@@ -51,6 +51,14 @@ type ChapterAnalysis = {
   provider: string;
   model: string;
   fragment_set_id: string | null;
+  validation_issues_json: {
+    asset_type: string;
+    title: string;
+    error: string;
+    source_content_indexes: string[];
+  }[];
+  valid_item_count: number;
+  invalid_item_count: number;
   created_at: string;
 };
 
@@ -1038,7 +1046,9 @@ function BookWorkspace({
                     {!section.parent_id
                       ? section.analysis_enabled
                         ? latestChapterByRoot.has(section.id)
-                          ? "拆书成功"
+                          ? latestChapterByRoot.get(section.id)?.status === "partial"
+                            ? "部分成功"
+                            : "拆书成功"
                           : "等待拆书"
                         : "不纳入"
                       : section.status === "confirmed"
@@ -1077,6 +1087,7 @@ function BookWorkspace({
                   const precise =
                     Boolean(analysis?.fragment_set_id) &&
                     analysis?.fragment_set_id === book.fragment_set?.id;
+                  const complete = precise && analysis?.status === "succeeded";
                   return (
                     <details key={section.id} className="chapter-analysis-card">
                       <summary>
@@ -1085,12 +1096,14 @@ function BookWorkspace({
                           <small>
                             {analysis
                               ? precise
-                                ? `v${analysis.version} · ${analysis.model} · 段落级溯源`
+                                ? analysis.status === "partial"
+                                  ? `v${analysis.version} · 部分成功 · ${analysis.valid_item_count} 条有效 / ${analysis.invalid_item_count} 条未通过`
+                                  : `v${analysis.version} · ${analysis.model} · 段落级溯源`
                                 : `v${analysis.version} · 历史结果，需重跑升级溯源`
                               : "尚未成功"}
                           </small>
                         </div>
-                        {!precise && (
+                        {!complete && (
                           <button
                             type="button"
                             disabled={busy}
@@ -1104,6 +1117,23 @@ function BookWorkspace({
                         )}
                       </summary>
                       <pre>{analysis?.rendered_markdown || "该章尚无成功拆书稿。"}</pre>
+                      {analysis?.validation_issues_json?.length ? (
+                        <div className="validation-issues">
+                          <strong>未通过校验的条目</strong>
+                          {analysis.validation_issues_json.map((issue, index) => (
+                            <div key={`${issue.asset_type}-${index}`}>
+                              <span>{issue.asset_type}</span>
+                              <p>{issue.title}</p>
+                              <small>
+                                {issue.error}
+                                {issue.source_content_indexes?.length
+                                  ? ` · ${issue.source_content_indexes.join("、")}`
+                                  : ""}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </details>
                   );
                 })}
@@ -1921,6 +1951,13 @@ function RunsView({
   busy: string;
   onCancel: (id: string) => void;
 }) {
+  const runLabel = (run: WorkflowRun, index: number) => {
+    if (run.scope_type === "chapter_analysis") {
+      return `章节任务 · ${String(index + 1).padStart(2, "0")}`;
+    }
+    if (run.scope_type === "book_analysis_batch") return "全书拆书任务";
+    return `声音任务 · ${String(index + 1).padStart(2, "0")}`;
+  };
   return (
     <div className="runs-layout">
       <section className="runs-summary">
@@ -1939,7 +1976,7 @@ function RunsView({
           {runs.map((run, index) => (
             <div key={run.id}>
               <span className={run.status === "succeeded" ? "timeline-dot done" : "timeline-dot"} />
-              <small>声音任务 · {String(index + 1).padStart(2, "0")}</small>
+              <small>{runLabel(run, index)}</small>
               <strong>{stageLabels[run.stage as keyof typeof stageLabels] || run.stage}</strong>
               <p>{run.status} {run.message && `· ${run.message}`}</p>
               {["pending", "running"].includes(run.status) && (

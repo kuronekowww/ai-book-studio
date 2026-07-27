@@ -13,13 +13,13 @@ from .chapter_analysis import (
     derive_knowledge_cards,
     parse_json_object,
     render_chapter_markdown,
-    validate_chapter_analysis,
+    validate_chapter_analysis_partial,
 )
 from .contexts import EpisodeContextBuilder
 from .db import Database, now_iso
 from .evidence import EvidenceService
 from .prompts import PROMPTS
-from .providers import ModelProvider
+from .providers import ModelGenerationError, ModelProvider
 
 
 def clean_excerpt(text: str, limit: int = 360) -> str:
@@ -37,6 +37,19 @@ class StageGenerationError(RuntimeError):
         self.stage = stage
         self.original = error
         super().__init__(str(error))
+
+
+class ChapterAnalysisOutputError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str,
+        diagnostics: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.category = category
+        self.diagnostics = diagnostics or {}
 
 
 class WorkflowService:
@@ -193,19 +206,19 @@ class WorkflowService:
         if only_root_id:
             roots = [root for root in roots if root["id"] == only_root_id]
         else:
-            roots = [
-                root
-                for root in roots
-                if not self.database.row(
+            pending_roots: list[dict[str, Any]] = []
+            for root in roots:
+                latest = self.database.row(
                     """
-                    SELECT id FROM chapter_analyses
-                    WHERE root_section_id = ? AND status = 'succeeded'
-                      AND fragment_set_id = ?
+                    SELECT status FROM chapter_analyses
+                    WHERE root_section_id = ? AND fragment_set_id = ?
                     ORDER BY version DESC LIMIT 1
                     """,
                     (root["id"], fragment_set["id"]),
                 )
-            ]
+                if not latest or latest["status"] != "succeeded":
+                    pending_roots.append(root)
+            roots = pending_roots
         if not roots:
             if not only_root_id and self._all_chapters_ready(book_id):
                 self.database.execute(
@@ -213,7 +226,10 @@ class WorkflowService:
                     (now_iso(), book_id),
                 )
                 count = self.database.row(
-                    "SELECT COUNT(*) AS count FROM knowledge_items WHERE book_id = ?",
+                    """
+                    SELECT COUNT(*) AS count FROM knowledge_items
+                    WHERE book_id = ? AND status = 'active'
+                    """,
                     (book_id,),
                 )
                 return {
@@ -293,19 +309,55 @@ class WorkflowService:
                     )
                 try:
                     parsed = parse_json_object(raw)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as original_error:
                     async with semaphore:
-                        repaired = await task_provider.generate(
-                            PROMPTS["json_repair"], raw
-                        )
-                    parsed = parse_json_object(repaired)
-                data = validate_chapter_analysis(
+                        try:
+                            repaired = await task_provider.generate(
+                                PROMPTS["json_repair"], raw
+                            )
+                        except Exception as repair_error:
+                            raise ChapterAnalysisOutputError(
+                                "模型输出 JSON 无法解析，且自动修复失败",
+                                category="json_repair_failed",
+                                diagnostics={
+                                    "response_chars": len(raw),
+                                    "original_json_error": str(original_error),
+                                    "repair_error": str(repair_error),
+                                },
+                            ) from repair_error
+                    try:
+                        parsed = parse_json_object(repaired)
+                    except (json.JSONDecodeError, ValueError) as repair_parse_error:
+                        raise ChapterAnalysisOutputError(
+                            "模型输出 JSON 无法解析，自动修复后仍然无效",
+                            category="json_repair_failed",
+                            diagnostics={
+                                "response_chars": len(raw),
+                                "repair_response_chars": len(repaired),
+                                "original_json_error": str(original_error),
+                                "repair_json_error": str(repair_parse_error),
+                            },
+                        ) from repair_parse_error
+                validation = validate_chapter_analysis_partial(
                     parsed, chapter_source.fragments_by_index
                 )
+                data = validation.data
                 cards = derive_knowledge_cards(
                     data, chapter_source.index_to_section_id, book_id
                 )
+                if not cards:
+                    raise ChapterAnalysisOutputError(
+                        "章节没有任何通过来源校验的知识资产",
+                        category="no_valid_assets",
+                        diagnostics={
+                            "response_chars": len(raw),
+                            "invalid_item_count": validation.invalid_item_count,
+                        },
+                    )
                 rendered = render_chapter_markdown(data, cards)
+                analysis_status = (
+                    "partial" if validation.invalid_item_count else "succeeded"
+                )
                 analysis_id = self._save_chapter_analysis(
                     book_id,
                     root,
@@ -315,24 +367,78 @@ class WorkflowService:
                     cards,
                     task_provider,
                     fragment_set["id"],
+                    status=analysis_status,
+                    validation_issues=validation.issues,
+                    valid_item_count=len(cards),
+                    invalid_item_count=validation.invalid_item_count,
+                )
+                run_status = (
+                    "partial_failed"
+                    if analysis_status == "partial"
+                    else "succeeded"
+                )
+                message = (
+                    f"已保存 {len(cards)} 条知识资产，"
+                    f"{validation.invalid_item_count} 条未通过校验"
+                    if analysis_status == "partial"
+                    else f"已生成 {len(cards)} 条知识资产"
                 )
                 self.database.execute(
                     """
                     UPDATE workflow_runs
-                    SET status = 'succeeded', message = ?, updated_at = ?
+                    SET status = ?, message = ?, metadata_json = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (f"已生成 {len(cards)} 条知识资产", now_iso(), child_run_id),
+                    (
+                        run_status,
+                        message,
+                        json.dumps(
+                            {
+                                "book_id": book_id,
+                                "chapter_title": root["title"],
+                                "analysis_status": analysis_status,
+                                "valid_item_count": len(cards),
+                                "invalid_item_count": validation.invalid_item_count,
+                                "validation_issues": validation.issues,
+                                "response_chars": len(raw),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        now_iso(),
+                        child_run_id,
+                    ),
                 )
-                return root, {"analysis_id": analysis_id, "card_count": len(cards)}, ""
+                return root, {
+                    "analysis_id": analysis_id,
+                    "card_count": len(cards),
+                    "status": analysis_status,
+                    "invalid_item_count": validation.invalid_item_count,
+                }, ""
             except Exception as error:
+                diagnostics: dict[str, Any] = {
+                    "book_id": book_id,
+                    "chapter_title": root["title"],
+                }
+                category = "book_analysis_error"
+                if isinstance(error, ModelGenerationError):
+                    category = error.category
+                    diagnostics.update(error.diagnostics)
+                elif isinstance(error, ChapterAnalysisOutputError):
+                    category = error.category
+                    diagnostics.update(error.diagnostics)
+                diagnostics["error_category"] = category
                 self.database.execute(
                     """
                     UPDATE workflow_runs
                     SET status = 'failed', message = ?, error_stage = 'book_analysis',
-                        updated_at = ? WHERE id = ?
+                        metadata_json = ?, updated_at = ? WHERE id = ?
                     """,
-                    (str(error)[:500], now_iso(), child_run_id),
+                    (
+                        str(error)[:500],
+                        json.dumps(diagnostics, ensure_ascii=False),
+                        now_iso(),
+                        child_run_id,
+                    ),
                 )
                 return root, None, str(error)
 
@@ -342,16 +448,31 @@ class WorkflowService:
             for root, result, error in results
             if result is None
         ]
-        succeeded = [result for _, result, _ in results if result is not None]
+        succeeded = [
+            result
+            for _, result, _ in results
+            if result is not None and result["status"] == "succeeded"
+        ]
+        partial = [
+            {
+                "section_id": root["id"],
+                "title": root["title"],
+                "analysis_id": result["analysis_id"],
+                "valid_item_count": result["card_count"],
+                "invalid_item_count": result["invalid_item_count"],
+            }
+            for root, result, _ in results
+            if result is not None and result["status"] == "partial"
+        ]
         if only_root_id:
             all_ready = self._all_chapters_ready(book_id)
         else:
-            all_ready = not failed and len(succeeded) == len(roots)
+            all_ready = not failed and not partial and len(succeeded) == len(roots)
         status = (
             "analyzed"
             if all_ready
             else "analysis_partial_failed"
-            if failed
+            if failed or partial
             else "analysis_partial"
         )
         if not all_ready:
@@ -368,20 +489,27 @@ class WorkflowService:
             SET status = ?, message = ?, updated_at = ? WHERE id = ?
             """,
             (
-                "succeeded" if not failed else "failed",
-                f"成功 {len(succeeded)} 章，失败 {len(failed)} 章",
+                "partial_failed" if failed or partial else "succeeded",
+                (
+                    f"成功 {len(succeeded)} 章，部分成功 {len(partial)} 章，"
+                    f"失败 {len(failed)} 章"
+                ),
                 now_iso(),
                 parent_run_id,
             ),
         )
         count = self.database.row(
-            "SELECT COUNT(*) AS count FROM knowledge_items WHERE book_id = ?",
+            """
+            SELECT COUNT(*) AS count FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+            """,
             (book_id,),
         )
         return {
             "knowledge_count": int(count["count"]) if count else 0,
             "chapter_count": len(roots),
             "succeeded_count": len(succeeded),
+            "partial_chapters": partial,
             "failed_chapters": failed,
             "parent_run_id": parent_run_id,
         }
@@ -396,6 +524,11 @@ class WorkflowService:
         cards: list[dict[str, Any]],
         provider: ModelProvider,
         fragment_set_id: str,
+        *,
+        status: str = "succeeded",
+        validation_issues: list[dict[str, Any]] | None = None,
+        valid_item_count: int = 0,
+        invalid_item_count: int = 0,
     ) -> str:
         current = self.database.row(
             """
@@ -412,14 +545,17 @@ class WorkflowService:
                 INSERT INTO chapter_analyses
                   (id, book_id, root_section_id, version, status,
                    structured_json, rendered_markdown, prompt_version,
-                   provider, model, input_snapshot, fragment_set_id, created_at)
-                VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?)
+                   provider, model, input_snapshot, fragment_set_id,
+                   validation_issues_json, valid_item_count, invalid_item_count,
+                   created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     analysis_id,
                     book_id,
                     root["id"],
                     version,
+                    status,
                     json.dumps(data, ensure_ascii=False),
                     rendered,
                     PROMPTS["book_analysis"].version,
@@ -427,6 +563,9 @@ class WorkflowService:
                     provider.model,
                     input_snapshot,
                     fragment_set_id,
+                    json.dumps(validation_issues or [], ensure_ascii=False),
+                    valid_item_count,
+                    invalid_item_count,
                     now_iso(),
                 ),
             )
@@ -507,18 +646,18 @@ class WorkflowService:
         if not roots:
             return False
         fragment_set = self.evidence.ensure_current_fragment_set(book_id)
-        return all(
-            self.database.row(
+        for root in roots:
+            latest = self.database.row(
                 """
-                SELECT id FROM chapter_analyses
-                WHERE root_section_id = ? AND status = 'succeeded'
-                  AND fragment_set_id = ?
+                SELECT status FROM chapter_analyses
+                WHERE root_section_id = ? AND fragment_set_id = ?
                 ORDER BY version DESC LIMIT 1
                 """,
                 (root["id"], fragment_set["id"]),
             )
-            for root in roots
-        )
+            if not latest or latest["status"] != "succeeded":
+                return False
+        return True
 
     async def retry_chapter(
         self,
@@ -670,7 +809,7 @@ class WorkflowService:
         relationship_count = self.database.row(
             """
             SELECT COUNT(*) AS count FROM knowledge_items
-            WHERE book_id = ? AND kind = '人物关系'
+            WHERE book_id = ? AND kind = '人物关系' AND status = 'active'
             """,
             (book_id,),
         )
@@ -746,15 +885,21 @@ class WorkflowService:
             analysis = self.database.row(
                 """
                 SELECT * FROM chapter_analyses
-                WHERE root_section_id = ? AND status = 'succeeded'
-                  AND fragment_set_id = ?
+                WHERE root_section_id = ? AND fragment_set_id = ?
                 ORDER BY version DESC LIMIT 1
                 """,
                 (root["id"], fragment_set["id"]),
             )
-            if not analysis:
+            if not analysis or analysis["status"] != "succeeded":
+                detail = ""
+                if analysis and analysis["status"] == "partial":
+                    detail = (
+                        f"（最新版本有 {analysis['invalid_item_count']} 条"
+                        "知识资产未通过来源或金句原文校验）"
+                    )
                 raise ValueError(
-                    f"章节“{root['title']}”尚未生成段落级溯源拆书稿，请先重跑该章"
+                    f"章节“{root['title']}”尚未完整通过段落级溯源校验"
+                    f"{detail}，请先重跑该章"
                 )
             analysis["chapter_title"] = root["title"]
             analysis["position"] = root["position"]

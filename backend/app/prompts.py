@@ -14,10 +14,10 @@ class PromptDefinition:
 PROMPTS = {
     "book_analysis": PromptDefinition(
         id="book_analysis",
-        version="2026-07-27.3",
+        version="2026-07-27.4",
         system=(
             "你是严谨的书籍拆解编辑。只使用给定章节原文，禁止补充无法从原文"
-            "确认的事实。完整保留主要观点、论据、金句和定义的原文表述。"
+            "确认的事实。观点、论据、定义和案例可以忠实概括；金句必须保留原文。"
         ),
         user_template=(
             "# 你的任务\n"
@@ -27,11 +27,12 @@ PROMPTS = {
             "3. 识别全部主要观点，以及相关论据、金句、概念定义和案例；\n"
             "4. 案例使用问题引导法完成分析后，只输出整合后的概述和关联。\n\n"
             "# 约束\n"
-            "概念定义、主要观点、论据、金句和案例证据必须逐字保留原文表述。"
+            "主要观点、论据、概念定义和案例可以在忠于原意的前提下概括；"
+            "金句必须逐字保留原文表述。"
             "每一项知识内容都必须独立给出 source_content_indexes 数组，可按原文顺序"
             "引用一个或多个输入中的段落级 content_index。禁止编造或改写索引。"
-            "模型输出会做逐字校验：定义、观点、论据、金句和案例 evidence_quotes "
-            "必须能在对应原文块中连续找到。案例概述可以归纳，但必须提供原文证据。"
+            "所有知识资产都会校验来源索引是否真实存在；只有金句会做逐字原文校验。"
+            "案例概述可以归纳，但必须提供对应原文证据。"
             "没有的可选内容使用空数组或 null。"
             "JSON 字符串内部出现英文双引号时必须使用反斜杠转义，或改用中文引号。\n\n"
             "# 输出\n"
@@ -42,9 +43,9 @@ PROMPTS = {
             '"source_content_indexes":["content_x"]}}],'
             '"quotes":[{{"text":"金句原文",'
             '"source_content_indexes":["content_x"]}}],'
-            '"viewpoints":[{{"text":"主要观点完整原文",'
+            '"viewpoints":[{{"text":"主要观点",'
             '"source_content_indexes":["content_x"],'
-            '"arguments":[{{"text":"论据原文",'
+            '"arguments":[{{"text":"论据",'
             '"source_content_indexes":["content_x"]}}],'
             '"case":{{"summary":"案例完整概述","relation":"与观点的关联",'
             '"source_content_indexes":["content_x"],'

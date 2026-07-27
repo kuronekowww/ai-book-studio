@@ -187,6 +187,12 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .chapter-analysis-card summary small { color: var(--muted); }
 .chapter-analysis-card summary button { border: 0; background: transparent; color: var(--green); cursor: pointer; }
 .chapter-analysis-card pre { max-height: 360px; overflow: auto; margin: 0; padding: 12px; border-top: 1px solid var(--line); white-space: pre-wrap; font: 11px/1.7 var(--font-sans); }
+.validation-issues { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: #fff8f3; }
+.validation-issues > strong { font-size: 12px; color: #8a4b28; }
+.validation-issues > div { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 8px; border: 1px solid #ead8cb; border-radius: 6px; background: white; }
+.validation-issues span { grid-row: 1 / 3; align-self: start; padding: 2px 6px; border-radius: 999px; background: #f5e2d5; color: #8a4b28; font-size: 10px; }
+.validation-issues p, .validation-issues small { margin: 0; }
+.validation-issues small { color: var(--muted); }
 .save-outline-button { width: 100%; margin-top: 10px; padding: 9px; border: 1px solid var(--green); border-radius: 8px; background: transparent; color: var(--green); font-weight: 750; cursor: pointer; }
 .save-outline-button:hover { background: var(--green); color: white; }
 .save-outline-button:disabled { opacity: .4; cursor: not-allowed; }
