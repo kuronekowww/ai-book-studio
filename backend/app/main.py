@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .batches import BatchService
 from .config import get_settings
 from .db import Database, now_iso
+from .evidence import EvidenceService
 from .ingestion import analysis_candidate_map, parse_book
 from .model_catalog import ModelManager
 from .obsidian import ObsidianSyncService
@@ -23,6 +24,8 @@ from .workflows import StageGenerationError, WorkflowService
 settings = get_settings()
 database = Database(settings.database_path)
 database.init()
+evidence = EvidenceService(database)
+evidence.ensure_all_books()
 model_manager = ModelManager(settings)
 initial_provider = model_manager.snapshot().provider
 workflows = WorkflowService(database, initial_provider)
@@ -81,6 +84,7 @@ class EpisodeUpdate(BaseModel):
     style: str
     content_framework: str
     source_section_ids: list[str]
+    knowledge_item_ids: list[str] = Field(default_factory=list)
 
 
 class EpisodesPayload(BaseModel):
@@ -224,7 +228,10 @@ def list_books() -> list[dict[str, Any]]:
             (book["id"],),
         )
         knowledge = database.row(
-            "SELECT COUNT(*) AS knowledge_count FROM knowledge_items WHERE book_id = ?",
+            """
+            SELECT COUNT(*) AS knowledge_count FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+            """,
             (book["id"],),
         )
         book.update(counts or {})
@@ -310,9 +317,24 @@ def book_detail(book_id: str) -> dict[str, Any]:
         (book_id,),
     )
     book["knowledge"] = database.rows(
-        "SELECT * FROM knowledge_items WHERE book_id = ? ORDER BY kind, title",
+        """
+        SELECT * FROM knowledge_items
+        WHERE book_id = ? AND status = 'active'
+        ORDER BY kind, title
+        """,
         (book_id,),
     )
+    for item in book["knowledge"]:
+        item["source_content_indexes"] = [
+            row["content_index"]
+            for row in database.rows(
+                """
+                SELECT content_index FROM knowledge_item_sources
+                WHERE knowledge_item_id = ? ORDER BY source_order
+                """,
+                (item["id"],),
+            )
+        ]
     book["mind_map"] = database.row(
         "SELECT * FROM mind_maps WHERE book_id = ? ORDER BY version DESC LIMIT 1",
         (book_id,),
@@ -321,7 +343,8 @@ def book_detail(book_id: str) -> dict[str, Any]:
         """
         SELECT ca.id, ca.book_id, ca.root_section_id, ca.version, ca.status,
                ca.rendered_markdown, ca.compressed_markdown, ca.prompt_version,
-               ca.provider, ca.model, ca.created_at, s.title AS chapter_title
+               ca.provider, ca.model, ca.fragment_set_id, ca.created_at,
+               s.title AS chapter_title
         FROM chapter_analyses ca
         JOIN sections s ON s.id = ca.root_section_id
         WHERE ca.book_id = ?
@@ -329,7 +352,62 @@ def book_detail(book_id: str) -> dict[str, Any]:
         """,
         (book_id,),
     )
+    current_set = database.row(
+        """
+        SELECT * FROM source_fragment_sets
+        WHERE book_id = ? AND status = 'current'
+        ORDER BY version DESC LIMIT 1
+        """,
+        (book_id,),
+    )
+    book["fragment_set"] = current_set
+    book["fragment_count"] = (
+        database.row(
+            """
+            SELECT COUNT(*) AS count
+            FROM source_fragment_set_members
+            WHERE fragment_set_id = ?
+            """,
+            (current_set["id"],),
+        )["count"]
+        if current_set
+        else 0
+    )
     return book
+
+
+@app.get("/api/source-fragments/{content_index}")
+def source_fragment_detail(content_index: str) -> dict[str, Any]:
+    try:
+        return evidence.fragment_detail(content_index)
+    except KeyError as error:
+        raise not_found("原文片段") from error
+
+
+@app.get("/api/knowledge-items/{knowledge_item_id}/sources")
+def knowledge_item_sources(knowledge_item_id: str) -> dict[str, Any]:
+    item = database.row(
+        "SELECT * FROM knowledge_items WHERE id = ?", (knowledge_item_id,)
+    )
+    if not item:
+        raise not_found("知识资产")
+    sources = database.rows(
+        """
+        SELECT f.*, source.source_order, member.section_path_json,
+               member.book_position, member.fragment_set_id
+        FROM knowledge_item_sources source
+        JOIN source_fragments f ON f.content_index = source.content_index
+        LEFT JOIN source_fragment_set_members member
+          ON member.content_index = source.content_index
+        LEFT JOIN source_fragment_sets fragment_set
+          ON fragment_set.id = member.fragment_set_id
+        WHERE source.knowledge_item_id = ?
+          AND (fragment_set.status = 'current' OR fragment_set.status IS NULL)
+        ORDER BY source.source_order
+        """,
+        (knowledge_item_id,),
+    )
+    return {"knowledge_item": item, "sources": sources}
 
 
 @app.put("/api/books/{book_id}/sections")
@@ -358,6 +436,20 @@ def update_sections(book_id: str, payload: SectionsPayload) -> dict[str, Any]:
                 section.analysis_exclusion_reason,
             )
             for section in payload.sections
+        ],
+    )
+    database.executemany(
+        """
+        INSERT INTO episode_knowledge_items
+          (episode_id, knowledge_item_id, position, role)
+        VALUES (?, ?, ?, 'primary')
+        """,
+        [
+            (episode.id, knowledge_item_id, source_position)
+            for episode in payload.episodes
+            for source_position, knowledge_item_id in enumerate(
+                episode.knowledge_item_ids, start=1
+            )
         ],
     )
     return book_detail(book_id)
@@ -557,6 +649,16 @@ def episode_detail(episode_id: str) -> dict[str, Any]:
         return workflows.episode_detail(episode_id)
     except KeyError as error:
         raise not_found("声音") from error
+
+
+@app.get("/api/episodes/{episode_id}/evidence")
+def episode_evidence(episode_id: str) -> dict[str, Any]:
+    try:
+        return workflows.contexts.evidence_bundle(episode_id)
+    except KeyError as error:
+        raise not_found("声音") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/api/episodes/{episode_id}/final-versions")

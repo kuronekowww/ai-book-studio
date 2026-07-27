@@ -199,6 +199,13 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .knowledge-list h4 { margin: 7px 0 5px; }
 .knowledge-list p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .knowledge-list small { display: block; margin-top: 6px; color: #8a8e89; }
+.source-indexes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+.source-indexes button { max-width: 100%; overflow: hidden; padding: 4px 7px; border: 1px solid #cfd9d1; border-radius: 5px; background: #f3f7f4; color: var(--green); font: 9px ui-monospace, monospace; text-overflow: ellipsis; cursor: pointer; }
+.source-preview { position: sticky; bottom: 8px; margin-top: 10px; padding: 12px; border: 1px solid #aabcae; border-radius: 8px; background: #f7fbf7; box-shadow: 0 8px 24px rgba(28, 42, 33, .12); }
+.source-preview > button { float: right; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.source-preview small, .source-preview strong { display: block; margin-bottom: 5px; }
+.source-preview small { color: var(--green); font: 9px ui-monospace, monospace; }
+.source-preview p { max-height: 210px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; }
 .kind { padding: 3px 6px; border-radius: 5px; background: var(--blue-soft); color: #456273; font-size: 9px; }
 .kind-案例 { background: var(--ochre-soft); color: #8d4e1d; }
 .kind-金句 { background: #ece5d2; color: #715e25; }
@@ -292,6 +299,15 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .evidence-list summary span { font-size: 11px; font-weight: 550; }
 .evidence-list summary small { color: var(--muted); font: 9px ui-monospace, monospace; }
 .evidence-list details p { max-height: 230px; margin: 0; overflow: auto; padding: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.7; white-space: pre-wrap; }
+.episode-assets { margin-bottom: 10px; display: grid; gap: 6px; }
+.episode-assets article { padding: 9px 10px; border-radius: 8px; background: var(--green-soft); display: grid; gap: 4px; }
+.episode-assets article span { color: var(--green); font-size: 9px; }
+.episode-assets article strong { font-size: 11px; }
+.episode-assets article p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.auxiliary-evidence { margin-top: 9px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); font-size: 10px; }
+.auxiliary-evidence summary { padding: 9px 10px; cursor: pointer; }
+.auxiliary-evidence p { margin: 0; padding: 9px 10px; border-top: 1px dashed var(--line); white-space: pre-wrap; line-height: 1.6; }
+.auxiliary-evidence p small { display: block; margin-bottom: 4px; color: var(--green); font: 9px ui-monospace, monospace; }
 .version-panel { margin-top: 24px; }
 .version-list { display: grid; gap: 5px; }
 .version-row { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; display: flex; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }

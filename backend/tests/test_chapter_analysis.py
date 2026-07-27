@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 
 from app.chapter_analysis import (
@@ -76,33 +77,65 @@ def test_chapter_source_and_renderer_keep_stable_indexes(tmp_path) -> None:
         "SELECT * FROM sections WHERE book_id = ? ORDER BY position", (book_id,)
     )
     source = build_chapter_source(sections[0], sections)
-    child_index = content_index(sections[1]["id"])
+    child_index, child_fragment = next(
+        (index, fragment)
+        for index, fragment in source.fragments_by_index.items()
+        if fragment["source_section_id"] == sections[1]["id"]
+    )
+    exact_text = "作者提出观点并给出论据。"
     data = {
         "chapter_title": "第一章",
         "chapter_theme": "解释核心问题。",
         "subtopics": [
-            {
-                "title": "核心问题",
-                "content_index": child_index,
-                "definitions": [{"name": "概念", "definition": "概念原文。"}],
-                "quotes": ["金句原文。"],
-                "viewpoints": [
-                    {
-                        "text": "观点原文。",
-                        "arguments": ["论据原文。"],
-                        "case": {"summary": "案例概述。", "relation": "支持观点。"},
-                    }
-                ],
-            }
-        ],
-    }
-    validated = validate_chapter_analysis(data, set(source.index_to_section_id))
-    markdown = render_chapter_markdown(validated)
-    cards = derive_knowledge_cards(validated, source.index_to_section_id)
+                {
+                    "title": "核心问题",
+                    "definitions": [
+                        {
+                            "name": "概念",
+                            "definition": exact_text,
+                            "source_content_indexes": [child_index],
+                        }
+                    ],
+                    "quotes": [
+                        {
+                            "text": exact_text,
+                            "source_content_indexes": [child_index],
+                        }
+                    ],
+                    "viewpoints": [
+                        {
+                            "text": exact_text,
+                            "source_content_indexes": [child_index],
+                            "arguments": [
+                                {
+                                    "text": exact_text,
+                                    "source_content_indexes": [child_index],
+                                }
+                            ],
+                            "case": {
+                                "summary": "案例概述。",
+                                "relation": "支持观点。",
+                                "source_content_indexes": [child_index],
+                                "evidence_quotes": [
+                                    {
+                                        "text": exact_text,
+                                        "source_content_indexes": [child_index],
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    validated = validate_chapter_analysis(data, source.fragments_by_index)
+    cards = derive_knowledge_cards(validated, source.index_to_section_id, book_id)
+    markdown = render_chapter_markdown(validated, cards)
 
     assert source.source.index("# 第1章") < source.source.index("## 子主题1")
     assert child_index in source.source
-    assert f"**内容索引：** {child_index}" in markdown
+    assert f"**原文索引：** {child_index}" in markdown
+    assert all(card["source_content_indexes"] == [child_index] for card in cards)
     assert {card["kind"] for card in cards} == {"概念", "金句", "观点", "论据", "案例"}
 
 
@@ -126,11 +159,19 @@ class ConcurrentChapterProvider:
         self.maximum = max(self.maximum, self.active)
         await asyncio.sleep(0.01)
         self.active -= 1
-        index = list(dict.fromkeys(
-            part.rstrip("]")
-            for part in source.split()
-            if part.startswith("content_")
-        ))[-1]
+        matches = re.findall(
+            r"\[content_index: (content_[0-9a-f]+)\]\n"
+            r"\[章节路径: [^\]]*\]\n"
+            r"(.*?)(?=\n\[content_index: |\n#{1,6} |\Z)",
+            source,
+            flags=re.S,
+        )
+        index, fragment = matches[-1]
+        exact_text = next(
+            item.strip()
+            for item in re.split(r"(?<=[。！？!?])", fragment)
+            if item.strip()
+        )
         return json.dumps(
             {
                 "chapter_title": "章节",
@@ -138,13 +179,18 @@ class ConcurrentChapterProvider:
                 "subtopics": [
                     {
                         "title": "子主题",
-                        "content_index": index,
                         "definitions": [],
                         "quotes": [],
                         "viewpoints": [
                             {
-                                "text": "主要观点原文。",
-                                "arguments": ["论据原文。"],
+                                "text": exact_text,
+                                "source_content_indexes": [index],
+                                "arguments": [
+                                    {
+                                        "text": exact_text,
+                                        "source_content_indexes": [index],
+                                    }
+                                ],
                                 "case": None,
                             }
                         ],
@@ -181,6 +227,14 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert generated["album_outline"]["status"] == "succeeded"
     assert generated["project"]["album_special_requirements"] == "突出社会结构"
     assert "期望 3 集" in generated["project"]["episode_count_notice"]
+    episode = generated["project"]["episodes"][0]
+    assert episode["knowledge_item_ids"]
+    bundle = service.contexts.evidence_bundle(episode["id"])
+    assert bundle["knowledge_items"]
+    assert bundle["direct_fragments"]
+    context = service.contexts.build(episode["id"], "outline")
+    assert "# 直接原文证据" in context.source
+    assert bundle["direct_fragments"][0]["content_index"] in context.source
 
 
 def test_invalid_content_index_is_rejected() -> None:
@@ -188,20 +242,69 @@ def test_invalid_content_index_is_rejected() -> None:
         "chapter_title": "章节",
         "chapter_theme": "主题",
         "subtopics": [
+                {
+                    "title": "子主题",
+                    "definitions": [],
+                    "quotes": [],
+                    "viewpoints": [
+                        {
+                            "text": "原文",
+                            "source_content_indexes": ["content_missing"],
+                            "arguments": [],
+                            "case": None,
+                        }
+                    ],
+                }
+            ],
+        }
+    try:
+        validate_chapter_analysis(
+            data,
+            {
+                "content_valid": {
+                    "text": "原文",
+                    "book_position": 1,
+                }
+            },
+        )
+        raise AssertionError("未知 content_index 应被拒绝")
+    except ValueError as error:
+        assert "无效 content_index" in str(error)
+
+
+def test_non_verbatim_asset_text_is_rejected() -> None:
+    data = {
+        "chapter_title": "章节",
+        "chapter_theme": "主题",
+        "subtopics": [
             {
                 "title": "子主题",
-                "content_index": "content_missing",
                 "definitions": [],
                 "quotes": [],
-                "viewpoints": [],
+                "viewpoints": [
+                    {
+                        "text": "模型改写后的观点",
+                        "source_content_indexes": ["content_valid"],
+                        "arguments": [],
+                        "case": None,
+                    }
+                ],
             }
         ],
     }
     try:
-        validate_chapter_analysis(data, {"content_valid"})
-        raise AssertionError("未知 content_index 应被拒绝")
+        validate_chapter_analysis(
+            data,
+            {
+                "content_valid": {
+                    "text": "这是原文中的观点。",
+                    "book_position": 1,
+                }
+            },
+        )
+        raise AssertionError("非逐字原文资产应被拒绝")
     except ValueError as error:
-        assert "无效 content_index" in str(error)
+        assert "连续原文" in str(error)
 
 
 def test_partial_retry_skips_already_successful_chapters(tmp_path) -> None:

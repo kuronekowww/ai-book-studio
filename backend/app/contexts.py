@@ -43,22 +43,14 @@ class EpisodeContextBuilder:
         if not books:
             raise ValueError("内容项目没有有效来源书籍")
         source_ids = episode["source_section_ids"]
-        if not source_ids:
-            raise ValueError("声音没有关联原文块")
-        sections = [
-            self.database.row("SELECT * FROM sections WHERE id = ?", (section_id,))
-            for section_id in source_ids
-        ]
-        if any(section is None for section in sections):
-            raise ValueError("声音关联的原文块不存在")
         valid_book_ids = {book["id"] for book in books}
-        typed_sections = [section for section in sections if section]
+        bundle = self.evidence_bundle(episode_id)
+        typed_sections = bundle["legacy_sections"]
         if any(section["book_id"] not in valid_book_ids for section in typed_sections):
             raise ValueError("声音关联了项目来源书籍之外的原文块")
-        typed_sections.sort(key=lambda item: (item["book_id"], item["position"]))
 
         book_info = self._format_books(books)
-        evidence = self._format_evidence(typed_sections)
+        evidence = self._format_bundle(bundle)
         if stage == "outline":
             framework = episode["content_framework"].strip()
             if not framework:
@@ -123,6 +115,151 @@ class EpisodeContextBuilder:
         return "\n\n".join(
             f"## 原文块 [{section['id']}] {section['title']}\n{section['content']}"
             for section in sections
+        )
+
+    def evidence_bundle(self, episode_id: str) -> dict[str, Any]:
+        episode = self.database.row(
+            "SELECT * FROM episodes WHERE id = ?", (episode_id,)
+        )
+        if not episode:
+            raise KeyError(episode_id)
+        links = self.database.rows(
+            """
+            SELECT item.*, link.position, link.role
+            FROM episode_knowledge_items link
+            JOIN knowledge_items item ON item.id = link.knowledge_item_id
+            WHERE link.episode_id = ?
+            ORDER BY link.position
+            """,
+            (episode_id,),
+        )
+        if not links:
+            source_ids = episode["source_section_ids"]
+            if not source_ids:
+                raise ValueError("声音没有关联原文块")
+            sections = [
+                self.database.row(
+                    "SELECT * FROM sections WHERE id = ?", (section_id,)
+                )
+                for section_id in source_ids
+            ]
+            if any(section is None for section in sections):
+                raise ValueError("声音关联的原文块不存在")
+            typed = [section for section in sections if section]
+            typed.sort(key=lambda item: (item["book_id"], item["position"]))
+            return {
+                "knowledge_items": [],
+                "direct_fragments": [],
+                "auxiliary_fragments": [],
+                "legacy_sections": typed,
+            }
+        if any(
+            item["status"] != "active"
+            or item["source_scheme"] != "paragraph_evidence_v1"
+            for item in links
+        ):
+            raise ValueError("声音引用的知识资产已过期，请重新生成或调整专辑大纲")
+
+        knowledge_items: list[dict[str, Any]] = []
+        direct_by_index: dict[str, dict[str, Any]] = {}
+        for item in links:
+            sources = self.database.rows(
+                """
+                SELECT f.*, source.source_order, member.fragment_set_id,
+                       member.section_path_json, member.book_position,
+                       member.section_position
+                FROM knowledge_item_sources source
+                JOIN source_fragments f
+                  ON f.content_index = source.content_index
+                JOIN source_fragment_set_members member
+                  ON member.content_index = source.content_index
+                JOIN source_fragment_sets fragment_set
+                  ON fragment_set.id = member.fragment_set_id
+                WHERE source.knowledge_item_id = ?
+                  AND fragment_set.status = 'current'
+                ORDER BY source.source_order
+                """,
+                (item["id"],),
+            )
+            if not sources:
+                raise ValueError(f"知识资产“{item['title']}”缺少当前版本原文证据")
+            item_copy = dict(item)
+            item_copy["source_content_indexes"] = [
+                source["content_index"] for source in sources
+            ]
+            knowledge_items.append(item_copy)
+            for source in sources:
+                direct_by_index.setdefault(source["content_index"], source)
+
+        auxiliary_by_index: dict[str, dict[str, Any]] = {}
+        for source in direct_by_index.values():
+            neighbors = self.database.rows(
+                """
+                SELECT f.*, member.fragment_set_id, member.section_path_json,
+                       member.book_position, member.section_position
+                FROM source_fragment_set_members member
+                JOIN source_fragments f
+                  ON f.content_index = member.content_index
+                WHERE member.fragment_set_id = ?
+                  AND f.source_section_id = ?
+                  AND member.book_position BETWEEN ? AND ?
+                ORDER BY member.book_position
+                """,
+                (
+                    source["fragment_set_id"],
+                    source["source_section_id"],
+                    int(source["book_position"]) - 1,
+                    int(source["book_position"]) + 1,
+                ),
+            )
+            for neighbor in neighbors:
+                if neighbor["content_index"] not in direct_by_index:
+                    auxiliary_by_index.setdefault(neighbor["content_index"], neighbor)
+        return {
+            "knowledge_items": knowledge_items,
+            "direct_fragments": sorted(
+                direct_by_index.values(),
+                key=lambda item: (item["book_id"], item["book_position"]),
+            ),
+            "auxiliary_fragments": sorted(
+                auxiliary_by_index.values(),
+                key=lambda item: (item["book_id"], item["book_position"]),
+            ),
+            "legacy_sections": [],
+        }
+
+    def _format_bundle(self, bundle: dict[str, Any]) -> str:
+        if bundle["legacy_sections"]:
+            return self._format_evidence(bundle["legacy_sections"])
+        assets = "\n\n".join(
+            (
+                f"## [{item['id']}] {item['kind']} · {item['title']}\n"
+                f"{item['body']}\n"
+                f"证据索引：{', '.join(item['source_content_indexes'])}"
+            )
+            for item in bundle["knowledge_items"]
+        )
+        direct = "\n\n".join(
+            (
+                f"## 直接证据 [{item['content_index']}]\n"
+                f"章节路径：{' / '.join(item['section_path_json'])}\n"
+                f"{item['text']}"
+            )
+            for item in bundle["direct_fragments"]
+        )
+        auxiliary = "\n\n".join(
+            (
+                f"## 辅助上下文 [{item['content_index']}]\n"
+                f"章节路径：{' / '.join(item['section_path_json'])}\n"
+                f"{item['text']}"
+            )
+            for item in bundle["auxiliary_fragments"]
+        )
+        return (
+            f"# 本集知识资产\n{assets}\n\n"
+            f"# 直接原文证据（可作为事实与引用依据）\n{direct}\n\n"
+            f"# 邻接辅助上下文（仅帮助理解，不代表本集必须覆盖）\n"
+            f"{auxiliary or '无'}"
         )
 
     def _format_relationships(

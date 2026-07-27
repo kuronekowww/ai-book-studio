@@ -28,8 +28,27 @@ class DemoProvider:
         excerpt = cleaned[:520]
         indexes = re.findall(r"content_[0-9a-f]{8,40}", source)
         unique_indexes = list(dict.fromkeys(indexes))
+        knowledge_ids = re.findall(r"knowledge_[0-9a-f]{24}", source)
+        unique_knowledge_ids = list(dict.fromkeys(knowledge_ids))
         if prompt.id == "book_analysis":
-            index = unique_indexes[-1] if unique_indexes else "content_demo"
+            fragment_matches = re.findall(
+                r"\[content_index: (content_[0-9a-f]{8,40})\]\n"
+                r"\[章节路径: [^\]]*\]\n"
+                r"(.*?)(?=\n\[content_index: |\n#{1,6} |\Z)",
+                source,
+                flags=re.S,
+            )
+            index, fragment_text = (
+                fragment_matches[-1]
+                if fragment_matches
+                else ("content_demo", excerpt or "演示原文。")
+            )
+            sentences = [
+                item.strip()
+                for item in re.split(r"(?<=[。！？!?])", fragment_text)
+                if item.strip()
+            ]
+            exact_text = sentences[0] if sentences else fragment_text.strip()
             return json.dumps(
                 {
                     "chapter_title": "测试章节",
@@ -37,22 +56,24 @@ class DemoProvider:
                     "subtopics": [
                         {
                             "title": "核心问题",
-                            "content_index": index,
-                            "definitions": [
+                            "definitions": [],
+                            "quotes": [
                                 {
-                                    "name": "核心概念",
-                                    "definition": "这是原文用于解释核心问题的概念定义。",
+                                    "text": exact_text,
+                                    "source_content_indexes": [index],
                                 }
                             ],
-                            "quotes": ["理解问题的前提，是先看清它的结构。"],
                             "viewpoints": [
                                 {
-                                    "text": "作者认为，判断社会现象需要同时考察结构与过程。",
-                                    "arguments": ["原文从概念、事实与结果三个层面展开论证。"],
-                                    "case": {
-                                        "summary": "原文案例展示了结构变化如何影响个人选择。",
-                                        "relation": "该案例直接说明了作者的主要观点。",
-                                    },
+                                    "text": exact_text,
+                                    "source_content_indexes": [index],
+                                    "arguments": [
+                                        {
+                                            "text": exact_text,
+                                            "source_content_indexes": [index],
+                                        }
+                                    ],
+                                    "case": None,
                                 }
                             ],
                         }
@@ -67,15 +88,28 @@ class DemoProvider:
         if prompt.id == "mind_map":
             return "# 测试书\n- 核心知识\n  - 主要观点\n  - 关键案例"
         if prompt.id == "album_outline":
-            outline = [
-                {
-                    "title": f"声音 {position}",
-                    "main_points": "围绕该内容索引梳理核心观点、论据与现实意义。",
-                    "section_identifier": index,
-                    "content_type": "解读类",
-                }
-                for position, index in enumerate(unique_indexes[:12], start=1)
-            ]
+            if unique_knowledge_ids:
+                outline = [
+                    {
+                        "title": f"声音 {position}",
+                        "main_points": "围绕所选知识资产梳理核心观点、论据与现实意义。",
+                        "knowledge_item_ids": [knowledge_id],
+                        "content_type": "解读类",
+                    }
+                    for position, knowledge_id in enumerate(
+                        unique_knowledge_ids[:12], start=1
+                    )
+                ]
+            else:
+                outline = [
+                    {
+                        "title": f"声音 {position}",
+                        "main_points": "围绕该内容索引梳理核心观点、论据与现实意义。",
+                        "section_identifier": index,
+                        "content_type": "解读类",
+                    }
+                    for position, index in enumerate(unique_indexes[:12], start=1)
+                ]
             return json.dumps({"album_outline": outline}, ensure_ascii=False)
         if prompt.id == "character_relationships":
             return (

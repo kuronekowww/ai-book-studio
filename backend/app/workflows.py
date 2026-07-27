@@ -17,6 +17,7 @@ from .chapter_analysis import (
 )
 from .contexts import EpisodeContextBuilder
 from .db import Database, now_iso
+from .evidence import EvidenceService
 from .prompts import PROMPTS
 from .providers import ModelProvider
 
@@ -42,6 +43,7 @@ class WorkflowService:
     def __init__(self, database: Database, provider: ModelProvider):
         self.database = database
         self.provider = provider
+        self.evidence = EvidenceService(database)
         self.contexts = EpisodeContextBuilder(database)
 
     async def analyze_book(
@@ -186,6 +188,7 @@ class WorkflowService:
     ) -> dict[str, Any]:
         task_provider = provider or self.provider
         book_id = book["id"]
+        fragment_set = self.evidence.ensure_current_fragment_set(book_id)
         roots = self._chapter_roots(book_id)
         if only_root_id:
             roots = [root for root in roots if root["id"] == only_root_id]
@@ -197,9 +200,10 @@ class WorkflowService:
                     """
                     SELECT id FROM chapter_analyses
                     WHERE root_section_id = ? AND status = 'succeeded'
+                      AND fragment_set_id = ?
                     ORDER BY version DESC LIMIT 1
                     """,
-                    (root["id"],),
+                    (root["id"], fragment_set["id"]),
                 )
             ]
         if not roots:
@@ -270,7 +274,15 @@ class WorkflowService:
                 ),
             )
             try:
-                chapter_source = build_chapter_source(root, all_sections)
+                fragments = self.evidence.chapter_fragments(
+                    fragment_set["id"], root["id"]
+                )
+                chapter_source = build_chapter_source(
+                    root,
+                    all_sections,
+                    fragments=fragments,
+                    fragment_set_id=fragment_set["id"],
+                )
                 async with semaphore:
                     self.database.execute(
                         "UPDATE workflow_runs SET status = 'running', updated_at = ? WHERE id = ?",
@@ -288,12 +300,12 @@ class WorkflowService:
                         )
                     parsed = parse_json_object(repaired)
                 data = validate_chapter_analysis(
-                    parsed, set(chapter_source.index_to_section_id)
+                    parsed, chapter_source.fragments_by_index
                 )
-                rendered = render_chapter_markdown(data)
                 cards = derive_knowledge_cards(
-                    data, chapter_source.index_to_section_id
+                    data, chapter_source.index_to_section_id, book_id
                 )
+                rendered = render_chapter_markdown(data, cards)
                 analysis_id = self._save_chapter_analysis(
                     book_id,
                     root,
@@ -302,6 +314,7 @@ class WorkflowService:
                     chapter_source.source,
                     cards,
                     task_provider,
+                    fragment_set["id"],
                 )
                 self.database.execute(
                     """
@@ -382,6 +395,7 @@ class WorkflowService:
         input_snapshot: str,
         cards: list[dict[str, Any]],
         provider: ModelProvider,
+        fragment_set_id: str,
     ) -> str:
         current = self.database.row(
             """
@@ -398,8 +412,8 @@ class WorkflowService:
                 INSERT INTO chapter_analyses
                   (id, book_id, root_section_id, version, status,
                    structured_json, rendered_markdown, prompt_version,
-                   provider, model, input_snapshot, created_at)
-                VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?)
+                   provider, model, input_snapshot, fragment_set_id, created_at)
+                VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     analysis_id,
@@ -412,55 +426,96 @@ class WorkflowService:
                     provider.name,
                     provider.model,
                     input_snapshot,
+                    fragment_set_id,
                     now_iso(),
                 ),
             )
             connection.execute(
                 """
-                DELETE FROM knowledge_items
-                WHERE origin = 'chapter_model'
-                  AND chapter_analysis_id IN (
-                    SELECT id FROM chapter_analyses
-                    WHERE root_section_id = ? AND id != ?
+                UPDATE knowledge_items SET status = 'superseded'
+                WHERE id IN (
+                    SELECT link.knowledge_item_id
+                    FROM chapter_analysis_knowledge_items link
+                    JOIN chapter_analyses analysis
+                      ON analysis.id = link.chapter_analysis_id
+                    WHERE analysis.root_section_id = ?
                   )
                 """,
-                (root["id"], analysis_id),
+                (root["id"],),
             )
-            connection.executemany(
-                """
-                INSERT INTO knowledge_items
-                  (id, book_id, kind, title, body, source_section_ids,
-                   chapter_analysis_id, origin, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'chapter_model', ?)
-                """,
-                [
+            for card in cards:
+                connection.execute(
+                    """
+                    INSERT INTO knowledge_items
+                      (id, book_id, kind, title, body, source_section_ids,
+                       chapter_analysis_id, origin, source_scheme, status,
+                       stable_key, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'chapter_model',
+                            'paragraph_evidence_v1', 'active', ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      kind = excluded.kind,
+                      title = excluded.title,
+                      body = excluded.body,
+                      source_section_ids = excluded.source_section_ids,
+                      chapter_analysis_id = excluded.chapter_analysis_id,
+                      origin = excluded.origin,
+                      source_scheme = excluded.source_scheme,
+                      status = 'active',
+                      stable_key = excluded.stable_key
+                    """,
                     (
-                        uuid.uuid4().hex,
+                        card["id"],
                         book_id,
                         card["kind"],
                         card["title"],
                         card["body"],
                         json.dumps(card["source_section_ids"], ensure_ascii=False),
                         analysis_id,
+                        card["stable_key"],
                         now_iso(),
-                    )
-                    for card in cards
-                ],
-            )
+                    ),
+                )
+                connection.execute(
+                    "DELETE FROM knowledge_item_sources WHERE knowledge_item_id = ?",
+                    (card["id"],),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO knowledge_item_sources
+                      (knowledge_item_id, content_index, source_order)
+                    VALUES (?, ?, ?)
+                    """,
+                    [
+                        (card["id"], index, position)
+                        for position, index in enumerate(
+                            card["source_content_indexes"], start=1
+                        )
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO chapter_analysis_knowledge_items
+                      (chapter_analysis_id, knowledge_item_id)
+                    VALUES (?, ?)
+                    """,
+                    (analysis_id, card["id"]),
+                )
         return analysis_id
 
     def _all_chapters_ready(self, book_id: str) -> bool:
         roots = self._chapter_roots(book_id)
         if not roots:
             return False
+        fragment_set = self.evidence.ensure_current_fragment_set(book_id)
         return all(
             self.database.row(
                 """
                 SELECT id FROM chapter_analyses
                 WHERE root_section_id = ? AND status = 'succeeded'
+                  AND fragment_set_id = ?
                 ORDER BY version DESC LIMIT 1
                 """,
-                (root["id"],),
+                (root["id"], fragment_set["id"]),
             )
             for root in roots
         )
@@ -685,18 +740,22 @@ class WorkflowService:
         roots = self._chapter_roots(book_id)
         if not roots:
             raise ValueError("没有纳入拆书的一级章节")
+        fragment_set = self.evidence.ensure_current_fragment_set(book_id)
         latest: list[dict[str, Any]] = []
         for root in roots:
             analysis = self.database.row(
                 """
                 SELECT * FROM chapter_analyses
                 WHERE root_section_id = ? AND status = 'succeeded'
+                  AND fragment_set_id = ?
                 ORDER BY version DESC LIMIT 1
                 """,
-                (root["id"],),
+                (root["id"], fragment_set["id"]),
             )
             if not analysis:
-                raise ValueError(f"章节“{root['title']}”尚未拆书成功")
+                raise ValueError(
+                    f"章节“{root['title']}”尚未生成段落级溯源拆书稿，请先重跑该章"
+                )
             analysis["chapter_title"] = root["title"]
             analysis["position"] = root["position"]
             latest.append(analysis)
@@ -717,13 +776,19 @@ class WorkflowService:
             if not content:
                 source = item["rendered_markdown"]
                 expected = set(re.findall(r"content_[0-9a-f]{8,40}", source))
+                expected_assets = set(
+                    re.findall(r"knowledge_[0-9a-f]{24}", source)
+                )
                 content = await provider.generate(
                     PROMPTS["chapter_compression"], source
                 )
                 actual = set(re.findall(r"content_[0-9a-f]{8,40}", content))
-                if actual != expected:
+                actual_assets = set(
+                    re.findall(r"knowledge_[0-9a-f]{24}", content)
+                )
+                if actual != expected or actual_assets != expected_assets:
                     raise ValueError(
-                        f"章节“{item['chapter_title']}”压缩后 content_index 不完整"
+                        f"章节“{item['chapter_title']}”压缩后来源标识不完整"
                     )
                 self.database.execute(
                     "UPDATE chapter_analyses SET compressed_markdown = ? WHERE id = ?",
@@ -860,6 +925,31 @@ class WorkflowService:
             "SELECT id FROM sections WHERE book_id = ?", (book["id"],)
         )
         index_map = {content_index(section["id"]): section["id"] for section in sections}
+        active_assets = self.database.rows(
+            """
+            SELECT * FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+              AND source_scheme = 'paragraph_evidence_v1'
+            """,
+            (book["id"],),
+        )
+        asset_map = {asset["id"]: asset for asset in active_assets}
+        asset_sources: dict[str, list[str]] = {}
+        for asset in active_assets:
+            rows = self.database.rows(
+                """
+                SELECT f.source_section_id
+                FROM knowledge_item_sources source
+                JOIN source_fragments f
+                  ON f.content_index = source.content_index
+                WHERE source.knowledge_item_id = ?
+                ORDER BY source.source_order
+                """,
+                (asset["id"],),
+            )
+            asset_sources[asset["id"]] = list(
+                dict.fromkeys(row["source_section_id"] for row in rows)
+            )
         seen_regular: set[str] = set()
         episodes: list[dict[str, Any]] = []
         for position, item in enumerate(raw_episodes, start=1):
@@ -868,10 +958,9 @@ class WorkflowService:
             title = item.get("title")
             main_points = item.get("main_points")
             content_type = item.get("content_type")
-            identifier = item.get("section_identifier")
             if not all(
                 isinstance(value, str) and value.strip()
-                for value in (title, main_points, content_type, identifier)
+                for value in (title, main_points, content_type)
             ):
                 raise ValueError(f"专辑第 {position} 条字段不完整")
             normalized_type = content_type.strip().replace("类", "")
@@ -879,21 +968,61 @@ class WorkflowService:
                 raise ValueError(f"专辑第 {position} 条内容类型无效")
             if book["book_type"] == "narrative" and normalized_type != "解读":
                 raise ValueError("叙事类书籍不能生成过渡声音")
-            indexes = [
-                part.strip()
-                for part in re.split(r"[,，]", identifier)
-                if part.strip()
-            ]
-            expected_count = 2 if normalized_type == "过渡" else 1
-            if len(indexes) != expected_count:
-                raise ValueError(f"专辑第 {position} 条来源索引数量无效")
-            unknown = [index for index in indexes if index not in index_map]
-            if unknown:
-                raise ValueError(f"专辑第 {position} 条引用了不存在的 content_index")
-            if normalized_type == "解读":
-                if indexes[0] in seen_regular:
-                    raise ValueError("同一 content_index 被拆分到多条普通声音")
-                seen_regular.add(indexes[0])
+            knowledge_item_ids = item.get("knowledge_item_ids")
+            source_section_ids: list[str]
+            if isinstance(knowledge_item_ids, list) and knowledge_item_ids:
+                if not all(
+                    isinstance(asset_id, str) and asset_id.strip()
+                    for asset_id in knowledge_item_ids
+                ):
+                    raise ValueError(f"专辑第 {position} 条知识资产 ID 无效")
+                knowledge_item_ids = list(
+                    dict.fromkeys(asset_id.strip() for asset_id in knowledge_item_ids)
+                )
+                unknown = [
+                    asset_id
+                    for asset_id in knowledge_item_ids
+                    if asset_id not in asset_map
+                ]
+                if unknown:
+                    raise ValueError(f"专辑第 {position} 条引用了不存在的知识资产")
+                if normalized_type == "过渡" and len(knowledge_item_ids) < 2:
+                    raise ValueError(f"专辑第 {position} 条过渡声音至少需要两个知识资产")
+                if normalized_type == "解读":
+                    duplicated = seen_regular.intersection(knowledge_item_ids)
+                    if duplicated:
+                        raise ValueError("同一知识资产被拆分到多条普通声音")
+                    seen_regular.update(knowledge_item_ids)
+                source_section_ids = list(
+                    dict.fromkeys(
+                        section_id
+                        for asset_id in knowledge_item_ids
+                        for section_id in asset_sources[asset_id]
+                    )
+                )
+            else:
+                identifier = item.get("section_identifier")
+                if not isinstance(identifier, str) or not identifier.strip():
+                    raise ValueError(f"专辑第 {position} 条缺少知识资产来源")
+                indexes = [
+                    part.strip()
+                    for part in re.split(r"[,，]", identifier)
+                    if part.strip()
+                ]
+                expected_count = 2 if normalized_type == "过渡" else 1
+                if len(indexes) != expected_count:
+                    raise ValueError(f"专辑第 {position} 条来源索引数量无效")
+                unknown = [index for index in indexes if index not in index_map]
+                if unknown:
+                    raise ValueError(
+                        f"专辑第 {position} 条引用了不存在的 content_index"
+                    )
+                if normalized_type == "解读":
+                    if indexes[0] in seen_regular:
+                        raise ValueError("同一 content_index 被拆分到多条普通声音")
+                    seen_regular.add(indexes[0])
+                knowledge_item_ids = []
+                source_section_ids = [index_map[index] for index in indexes]
             episodes.append(
                 {
                     "id": uuid.uuid4().hex,
@@ -902,7 +1031,8 @@ class WorkflowService:
                     "content_type": normalized_type,
                     "style": "观点",
                     "content_framework": main_points.strip(),
-                    "source_section_ids": [index_map[index] for index in indexes],
+                    "source_section_ids": source_section_ids,
+                    "knowledge_item_ids": knowledge_item_ids,
                 }
             )
         notice = ""
@@ -936,6 +1066,20 @@ class WorkflowService:
                     json.dumps(item["source_section_ids"], ensure_ascii=False),
                 )
                 for item in episodes
+            ],
+        )
+        self.database.executemany(
+            """
+            INSERT INTO episode_knowledge_items
+              (episode_id, knowledge_item_id, position, role)
+            VALUES (?, ?, ?, 'primary')
+            """,
+            [
+                (item["id"], knowledge_item_id, position)
+                for item in episodes
+                for position, knowledge_item_id in enumerate(
+                    item.get("knowledge_item_ids", []), start=1
+                )
             ],
         )
 
@@ -1025,6 +1169,25 @@ class WorkflowService:
                 if not section or section["book_id"] not in valid_book_ids:
                     raise ValueError(
                         f"第 {episode['position']} 条声音包含无效原文块"
+                    )
+            asset_links = self.database.rows(
+                """
+                SELECT item.*
+                FROM episode_knowledge_items link
+                JOIN knowledge_items item ON item.id = link.knowledge_item_id
+                WHERE link.episode_id = ?
+                ORDER BY link.position
+                """,
+                (episode["id"],),
+            )
+            for asset in asset_links:
+                if (
+                    asset["book_id"] not in valid_book_ids
+                    or asset["status"] != "active"
+                    or asset["source_scheme"] != "paragraph_evidence_v1"
+                ):
+                    raise ValueError(
+                        f"第 {episode['position']} 条声音包含无效或已过期知识资产"
                     )
         self.database.execute(
             "UPDATE projects SET status = 'ready', updated_at = ? WHERE id = ?",
@@ -1160,6 +1323,19 @@ class WorkflowService:
             "SELECT * FROM episodes WHERE project_id = ? ORDER BY position",
             (project_id,),
         )
+        for episode in project["episodes"]:
+            episode["knowledge_item_ids"] = [
+                row["knowledge_item_id"]
+                for row in self.database.rows(
+                    """
+                    SELECT knowledge_item_id
+                    FROM episode_knowledge_items
+                    WHERE episode_id = ?
+                    ORDER BY position
+                    """,
+                    (episode["id"],),
+                )
+            ]
         return project
 
     def episode_detail(self, episode_id: str) -> dict[str, Any]:
@@ -1181,4 +1357,17 @@ class WorkflowService:
             for section_id in episode["source_section_ids"]
         ]
         episode["sources"] = [source for source in episode["sources"] if source]
+        episode["knowledge_item_ids"] = [
+            row["knowledge_item_id"]
+            for row in self.database.rows(
+                """
+                SELECT knowledge_item_id
+                FROM episode_knowledge_items
+                WHERE episode_id = ?
+                ORDER BY position
+                """,
+                (episode_id,),
+            )
+        ]
+        episode["evidence"] = self.contexts.evidence_bundle(episode_id)
         return episode

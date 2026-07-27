@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
   source_section_ids TEXT NOT NULL,
   chapter_analysis_id TEXT,
   origin TEXT NOT NULL DEFAULT 'legacy',
+  source_scheme TEXT NOT NULL DEFAULT 'legacy_section_source',
+  status TEXT NOT NULL DEFAULT 'active',
+  stable_key TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -67,12 +70,67 @@ CREATE TABLE IF NOT EXISTS chapter_analyses (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   input_snapshot TEXT NOT NULL DEFAULT '',
+  fragment_set_id TEXT,
   created_at TEXT NOT NULL,
   UNIQUE(root_section_id, version)
 );
 
 CREATE INDEX IF NOT EXISTS idx_chapter_analyses_book_root
   ON chapter_analyses(book_id, root_section_id, version);
+
+CREATE TABLE IF NOT EXISTS source_fragment_sets (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  content_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(book_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragment_sets_book_status
+  ON source_fragment_sets(book_id, status);
+
+CREATE TABLE IF NOT EXISTS source_fragments (
+  content_index TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  source_section_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  text_fingerprint TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_fragment_set_members (
+  fragment_set_id TEXT NOT NULL
+    REFERENCES source_fragment_sets(id) ON DELETE CASCADE,
+  content_index TEXT NOT NULL
+    REFERENCES source_fragments(content_index) ON DELETE RESTRICT,
+  root_section_id TEXT NOT NULL,
+  section_path_json TEXT NOT NULL,
+  book_position INTEGER NOT NULL,
+  section_position INTEGER NOT NULL,
+  PRIMARY KEY(fragment_set_id, content_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragment_members_root_position
+  ON source_fragment_set_members(fragment_set_id, root_section_id, book_position);
+
+CREATE TABLE IF NOT EXISTS knowledge_item_sources (
+  knowledge_item_id TEXT NOT NULL
+    REFERENCES knowledge_items(id) ON DELETE CASCADE,
+  content_index TEXT NOT NULL
+    REFERENCES source_fragments(content_index) ON DELETE RESTRICT,
+  source_order INTEGER NOT NULL,
+  PRIMARY KEY(knowledge_item_id, content_index)
+);
+
+CREATE TABLE IF NOT EXISTS chapter_analysis_knowledge_items (
+  chapter_analysis_id TEXT NOT NULL
+    REFERENCES chapter_analyses(id) ON DELETE CASCADE,
+  knowledge_item_id TEXT NOT NULL
+    REFERENCES knowledge_items(id) ON DELETE RESTRICT,
+  PRIMARY KEY(chapter_analysis_id, knowledge_item_id)
+);
 
 CREATE TABLE IF NOT EXISTS mind_maps (
   id TEXT PRIMARY KEY,
@@ -106,6 +164,15 @@ CREATE TABLE IF NOT EXISTS episodes (
   content_framework TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   source_section_ids TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS episode_knowledge_items (
+  episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  knowledge_item_id TEXT NOT NULL
+    REFERENCES knowledge_items(id) ON DELETE RESTRICT,
+  position INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'primary',
+  PRIMARY KEY(episode_id, knowledge_item_id, role)
 );
 
 CREATE INDEX IF NOT EXISTS idx_episodes_project_position
@@ -159,6 +226,9 @@ MIGRATION_COLUMNS = {
     "knowledge_items": {
         "chapter_analysis_id": "TEXT",
         "origin": "TEXT NOT NULL DEFAULT 'legacy'",
+        "source_scheme": "TEXT NOT NULL DEFAULT 'legacy_section_source'",
+        "status": "TEXT NOT NULL DEFAULT 'active'",
+        "stable_key": "TEXT NOT NULL DEFAULT ''",
     },
     "projects": {
         "album_special_requirements": "TEXT NOT NULL DEFAULT ''",
@@ -172,6 +242,9 @@ MIGRATION_COLUMNS = {
     "artifact_versions": {
         "author_type": "TEXT NOT NULL DEFAULT 'model'",
         "input_snapshot": "TEXT NOT NULL DEFAULT ''",
+    },
+    "chapter_analyses": {
+        "fragment_set_id": "TEXT",
     },
     "workflow_runs": {
         "parent_run_id": "TEXT",
@@ -339,6 +412,7 @@ JSON_COLUMNS = {
     "metadata_json",
     "source_section_ids",
     "structured_json",
+    "section_path_json",
 }
 
 

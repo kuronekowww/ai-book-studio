@@ -101,7 +101,11 @@ class ObsidianSyncService:
             "SELECT * FROM sections WHERE book_id = ? ORDER BY position", (book_id,)
         )
         knowledge = self.database.rows(
-            "SELECT * FROM knowledge_items WHERE book_id = ? ORDER BY kind, title",
+            """
+            SELECT * FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+            ORDER BY kind, title
+            """,
             (book_id,),
         )
         mind_map = self.database.row(
@@ -134,11 +138,96 @@ class ObsidianSyncService:
             if result:
                 changed.append(result)
 
-        kind_folder = {"观点": "02_知识点", "案例": "03_案例", "金句": "04_金句"}
+        current_set = self.database.row(
+            """
+            SELECT * FROM source_fragment_sets
+            WHERE book_id = ? AND status = 'current'
+            ORDER BY version DESC LIMIT 1
+            """,
+            (book_id,),
+        )
+        fragments: list[dict[str, Any]] = []
+        if current_set:
+            fragments = self.database.rows(
+                """
+                SELECT fragment.*, member.section_path_json,
+                       member.book_position, member.section_position
+                FROM source_fragment_set_members member
+                JOIN source_fragments fragment
+                  ON fragment.content_index = member.content_index
+                WHERE member.fragment_set_id = ?
+                ORDER BY member.book_position
+                """,
+                (current_set["id"],),
+            )
+        section_map = {section["id"]: section for section in sections}
+        for fragment in fragments:
+            linked_assets = self.database.rows(
+                """
+                SELECT item.id, item.title
+                FROM knowledge_item_sources source
+                JOIN knowledge_items item ON item.id = source.knowledge_item_id
+                WHERE source.content_index = ? AND item.status = 'active'
+                ORDER BY item.kind, item.title
+                """,
+                (fragment["content_index"],),
+            )
+            source_section = section_map.get(fragment["source_section_id"])
+            asset_links = "\n".join(
+                f"- [[{safe_name(item['title'])}__{item['id'][:8]}]]"
+                for item in linked_assets
+            )
+            note = (
+                frontmatter(
+                    {
+                        "id": fragment["content_index"],
+                        "type": "source_fragment",
+                        "book_id": book_id,
+                        "source_section_id": fragment["source_section_id"],
+                        "section_path": fragment["section_path_json"],
+                        "fragment_set_version": current_set["version"],
+                    }
+                )
+                + f"\n\n# 原文片段 {fragment['content_index']}\n\n"
+                + (
+                    f"原章节：[[{source_section['position']:03d}_"
+                    f"{safe_name(source_section['title'])}__"
+                    f"{source_section['id'][:8]}]]\n\n"
+                    if source_section
+                    else ""
+                )
+                + f"{fragment['text']}\n\n## 被以下知识资产引用\n"
+                + (asset_links or "- 暂无")
+                + "\n"
+            )
+            result = self._write(
+                folder
+                / "01_原文片段"
+                / f"{fragment['content_index']}.md",
+                note,
+                manifest,
+            )
+            if result:
+                changed.append(result)
+
+        kind_folder = {
+            "观点": "02_知识点",
+            "论据": "02_知识点",
+            "概念": "02_知识点",
+            "案例": "03_案例",
+            "金句": "04_金句",
+        }
         for item in knowledge:
+            source_indexes = self.database.rows(
+                """
+                SELECT content_index FROM knowledge_item_sources
+                WHERE knowledge_item_id = ? ORDER BY source_order
+                """,
+                (item["id"],),
+            )
             links = "\n".join(
-                f"- 来源小节 ID：`{section_id}`"
-                for section_id in item["source_section_ids"]
+                f"- [[{source['content_index']}|{source['content_index']}]]"
+                for source in source_indexes
             )
             note = frontmatter(
                 {
@@ -146,8 +235,15 @@ class ObsidianSyncService:
                     "type": item["kind"],
                     "book_id": book_id,
                     "source_section_ids": item["source_section_ids"],
+                    "source_content_indexes": [
+                        source["content_index"] for source in source_indexes
+                    ],
+                    "source_scheme": item["source_scheme"],
                 }
-            ) + f"\n\n# {item['title']}\n\n{item['body']}\n\n## 来源\n{links}\n"
+            ) + (
+                f"\n\n# {item['title']}\n\n{item['body']}\n\n"
+                f"## 段落级原文证据\n{links or '- 历史资产暂无段落级索引'}\n"
+            )
             path = (
                 folder
                 / kind_folder.get(item["kind"], "02_知识点")
@@ -200,6 +296,20 @@ class ObsidianSyncService:
 
         label = {"outline": "声音细纲", "draft": "声音初稿", "final": "声音终稿"}
         for episode in episodes:
+            episode_assets = self.database.rows(
+                """
+                SELECT item.id, item.title
+                FROM episode_knowledge_items link
+                JOIN knowledge_items item ON item.id = link.knowledge_item_id
+                WHERE link.episode_id = ? ORDER BY link.position
+                """,
+                (episode["id"],),
+            )
+            asset_ids = [item["id"] for item in episode_assets]
+            asset_links = "\n".join(
+                f"- [[{safe_name(item['title'])}__{item['id'][:8]}]]"
+                for item in episode_assets
+            )
             episode_folder = (
                 folder
                 / "03_声音"
@@ -223,8 +333,13 @@ class ObsidianSyncService:
                         "project_id": project_id,
                         "episode_id": episode["id"],
                         "source_section_ids": episode["source_section_ids"],
+                        "knowledge_item_ids": asset_ids,
                     }
-                ) + f"\n\n# {episode['title']} · {filename}\n\n{artifact['content']}\n"
+                ) + (
+                    f"\n\n# {episode['title']} · {filename}\n\n"
+                    f"## 本集知识资产\n{asset_links or '- 历史声音暂无知识资产关联'}\n\n"
+                    f"## 文稿\n{artifact['content']}\n"
+                )
                 result = self._write(episode_folder / f"{filename}.md", note, manifest)
                 if result:
                     changed.append(result)

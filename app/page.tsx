@@ -23,6 +23,8 @@ type Book = {
   knowledge?: KnowledgeItem[];
   mind_map?: { content: string } | null;
   chapter_analyses?: ChapterAnalysis[];
+  fragment_set?: { id: string; version: number } | null;
+  fragment_count?: number;
 };
 
 type Section = {
@@ -48,6 +50,7 @@ type ChapterAnalysis = {
   compressed_markdown: string;
   provider: string;
   model: string;
+  fragment_set_id: string | null;
   created_at: string;
 };
 
@@ -57,6 +60,24 @@ type KnowledgeItem = {
   title: string;
   body: string;
   source_section_ids: string[];
+  source_content_indexes: string[];
+  source_scheme: string;
+  status: string;
+};
+
+type EvidenceFragment = {
+  content_index: string;
+  source_section_id: string;
+  section_path_json: string[];
+  text: string;
+  book_position: number;
+};
+
+type EvidenceBundle = {
+  knowledge_items: KnowledgeItem[];
+  direct_fragments: EvidenceFragment[];
+  auxiliary_fragments: EvidenceFragment[];
+  legacy_sections: Section[];
 };
 
 type Project = {
@@ -82,8 +103,10 @@ type Episode = {
   content_framework: string;
   status: string;
   source_section_ids: string[];
+  knowledge_item_ids: string[];
   versions?: ArtifactVersion[];
   sources?: Section[];
+  evidence?: EvidenceBundle;
 };
 
 type ArtifactVersion = {
@@ -908,6 +931,14 @@ function BookWorkspace({
     for (const item of book.knowledge || []) result[item.kind] = (result[item.kind] || 0) + 1;
     return result;
   }, [book.knowledge]);
+  const [sourcePreview, setSourcePreview] = useState<EvidenceFragment | null>(null);
+
+  const openSource = async (contentIndex: string) => {
+    const fragment = await request<EvidenceFragment>(
+      `/api/source-fragments/${contentIndex}`,
+    );
+    setSourcePreview(fragment);
+  };
 
   return (
     <>
@@ -1043,6 +1074,9 @@ function BookWorkspace({
                 .filter((section) => section.analysis_enabled)
                 .map((section) => {
                   const analysis = latestChapterByRoot.get(section.id);
+                  const precise =
+                    Boolean(analysis?.fragment_set_id) &&
+                    analysis?.fragment_set_id === book.fragment_set?.id;
                   return (
                     <details key={section.id} className="chapter-analysis-card">
                       <summary>
@@ -1050,11 +1084,13 @@ function BookWorkspace({
                           <strong>{section.title}</strong>
                           <small>
                             {analysis
-                              ? `v${analysis.version} · ${analysis.model}`
+                              ? precise
+                                ? `v${analysis.version} · ${analysis.model} · 段落级溯源`
+                                : `v${analysis.version} · 历史结果，需重跑升级溯源`
                               : "尚未成功"}
                           </small>
                         </div>
-                        {!analysis && (
+                        {!precise && (
                           <button
                             type="button"
                             disabled={busy}
@@ -1079,13 +1115,35 @@ function BookWorkspace({
                 <span className={`kind kind-${item.kind}`}>{item.kind}</span>
                 <h4>{item.title}</h4>
                 <p>{item.body}</p>
-                <small>来源：{item.source_section_ids.length} 个小节</small>
+                {item.source_content_indexes?.length ? (
+                  <div className="source-indexes">
+                    {item.source_content_indexes.map((contentIndex) => (
+                      <button
+                        type="button"
+                        key={contentIndex}
+                        onClick={() => void openSource(contentIndex)}
+                      >
+                        {contentIndex}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <small>历史资产：暂无段落级原文索引</small>
+                )}
               </article>
             ))}
             {!book.knowledge?.length && (
               <div className="panel-empty">确认章节后即可自动拆书并生成知识资产。</div>
             )}
           </div>
+          {sourcePreview && (
+            <aside className="source-preview">
+              <button type="button" onClick={() => setSourcePreview(null)}>关闭</button>
+              <small>{sourcePreview.content_index}</small>
+              <strong>{sourcePreview.section_path_json?.join(" / ")}</strong>
+              <p>{sourcePreview.text}</p>
+            </aside>
+          )}
         </section>
 
         <section className="panel map-panel">
@@ -1560,7 +1618,10 @@ function ProjectWorkspace({
                 <div>
                   <p className="eyebrow">声音 {String(episode.position).padStart(2, "0")}</p>
                   <h3>{episode.title}</h3>
-                  <span>{episode.content_type} · {episode.style} · 引用 {episode.sources?.length || 0} 个原文小节</span>
+                  <span>
+                    {episode.content_type} · {episode.style} · 引用{" "}
+                    {episode.knowledge_item_ids?.length || 0} 条知识资产
+                  </span>
                   <p className="episode-framework">{episode.content_framework}</p>
                 </div>
                 <div className="editor-actions">
@@ -1663,19 +1724,57 @@ function ProjectWorkspace({
               <>
                 <div className="panel-heading">
                   <div><p className="eyebrow">证据</p><h3>原文引用</h3></div>
-                  <span>{episode.sources?.length || 0} 条</span>
+                  <span>
+                    {episode.evidence?.direct_fragments.length
+                      || episode.sources?.length
+                      || 0} 条
+                  </span>
                 </div>
+                {episode.evidence?.knowledge_items.length ? (
+                  <div className="episode-assets">
+                    {episode.evidence.knowledge_items.map((item) => (
+                      <article key={item.id}>
+                        <span>{item.kind}</span>
+                        <strong>{item.title}</strong>
+                        <p>{item.body}</p>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="evidence-list">
-                  {(episode.sources || []).map((source) => (
-                    <details key={source.id}>
+                  {(episode.evidence?.direct_fragments || []).map((source) => (
+                    <details key={source.content_index}>
                       <summary>
-                        <span>{source.title}</span>
-                        <small>{source.id.slice(0, 8)}</small>
+                        <span>{source.section_path_json.join(" / ")}</span>
+                        <small>{source.content_index}</small>
                       </summary>
-                      <p>{source.content}</p>
+                      <p>{source.text}</p>
                     </details>
                   ))}
+                  {!episode.evidence?.direct_fragments.length &&
+                    (episode.sources || []).map((source) => (
+                      <details key={source.id}>
+                        <summary>
+                          <span>{source.title}</span>
+                          <small>{source.id.slice(0, 8)}</small>
+                        </summary>
+                        <p>{source.content}</p>
+                      </details>
+                    ))}
                 </div>
+                {episode.evidence?.auxiliary_fragments.length ? (
+                  <details className="auxiliary-evidence">
+                    <summary>
+                      相邻辅助上下文 · {episode.evidence.auxiliary_fragments.length} 条
+                    </summary>
+                    {episode.evidence.auxiliary_fragments.map((source) => (
+                      <p key={source.content_index}>
+                        <small>{source.content_index}</small>
+                        {source.text}
+                      </p>
+                    ))}
+                  </details>
+                ) : null}
                 <div className="version-panel">
                   <div className="panel-heading">
                     <div><p className="eyebrow">历史</p><h3>终稿版本</h3></div>
