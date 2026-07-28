@@ -17,7 +17,7 @@ from .evidence import EvidenceService
 from .ingestion import analysis_candidate_map, parse_book
 from .model_catalog import ModelManager
 from .obsidian import ObsidianSyncService
-from .providers import ModelProvider
+from .providers import ModelGenerationError, ModelProvider
 from .workflows import StageGenerationError, WorkflowService
 
 
@@ -83,6 +83,7 @@ class EpisodeUpdate(BaseModel):
     content_type: str
     style: str
     content_framework: str
+    section_identifier: str = ""
     source_section_ids: list[str]
     knowledge_item_ids: list[str] = Field(default_factory=list)
 
@@ -530,6 +531,8 @@ async def retry_chapter(book_id: str, section_id: str) -> dict[str, Any]:
 def list_projects() -> list[dict[str, Any]]:
     projects = database.rows("SELECT * FROM projects ORDER BY created_at DESC")
     for project in projects:
+        project.pop("album_outline_draft_json", None)
+        project.pop("album_outline_draft_signature", None)
         count = database.row(
             """
             SELECT COUNT(*) AS episode_count,
@@ -575,7 +578,7 @@ async def generate_project_outline(
         )
     except KeyError as error:
         raise not_found("项目") from error
-    except ValueError as error:
+    except (ValueError, ModelGenerationError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
@@ -591,8 +594,8 @@ def update_project_episodes(
         """
         INSERT INTO episodes
           (id, project_id, position, title, content_type, style,
-           content_framework, status, source_section_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
+           content_framework, section_identifier, status, source_section_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
         """,
         [
             (
@@ -603,6 +606,7 @@ def update_project_episodes(
                 episode.content_type,
                 episode.style,
                 episode.content_framework.strip(),
+                episode.section_identifier.strip(),
                 json.dumps(episode.source_section_ids, ensure_ascii=False),
             )
             for index, episode in enumerate(payload.episodes, start=1)

@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS projects (
   album_special_requirements TEXT NOT NULL DEFAULT '',
   desired_episode_count INTEGER,
   episode_count_notice TEXT NOT NULL DEFAULT '',
+  album_outline_draft_json TEXT NOT NULL DEFAULT '',
+  album_outline_draft_signature TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -165,6 +167,7 @@ CREATE TABLE IF NOT EXISTS episodes (
   content_type TEXT NOT NULL,
   style TEXT NOT NULL,
   content_framework TEXT NOT NULL DEFAULT '',
+  section_identifier TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   source_section_ids TEXT NOT NULL
 );
@@ -220,6 +223,7 @@ MIGRATION_COLUMNS = {
     },
     "episodes": {
         "content_framework": "TEXT NOT NULL DEFAULT ''",
+        "section_identifier": "TEXT NOT NULL DEFAULT ''",
     },
     "sections": {
         "analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
@@ -237,6 +241,8 @@ MIGRATION_COLUMNS = {
         "album_special_requirements": "TEXT NOT NULL DEFAULT ''",
         "desired_episode_count": "INTEGER",
         "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
+        "album_outline_draft_json": "TEXT NOT NULL DEFAULT ''",
+        "album_outline_draft_signature": "TEXT NOT NULL DEFAULT ''",
     },
     "mind_maps": {
         "provider": "TEXT NOT NULL DEFAULT 'unknown'",

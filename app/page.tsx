@@ -109,9 +109,11 @@ type Episode = {
   content_type: string;
   style: string;
   content_framework: string;
+  section_identifier: string;
   status: string;
   source_section_ids: string[];
   knowledge_item_ids: string[];
+  source_content_indexes: string[];
   versions?: ArtifactVersion[];
   sources?: Section[];
   evidence?: EvidenceBundle;
@@ -1883,11 +1885,12 @@ function OutlineEditor({
       (item) =>
         !item.title.trim() ||
         !item.content_framework.trim() ||
+        !item.section_identifier.trim() ||
         !item.source_section_ids.length,
     );
     if (invalid) {
       setValidationError(
-        `第 ${invalid.position} 条声音需要填写标题、内容框架并关联原文块。`,
+        `第 ${invalid.position} 条声音需要填写标题、主要内容、内容索引并关联原文块。`,
       );
       return;
     }
@@ -1921,6 +1924,25 @@ function OutlineEditor({
               update(item.id, { content_framework: event.target.value })
             }
           />
+          <label className="outline-identifier">
+            <span>内容索引</span>
+            <textarea
+              aria-label={`第 ${index + 1} 条声音内容索引`}
+              value={item.section_identifier || ""}
+              placeholder="章节：完整章节标题 子主题：子主题标题"
+              onChange={(event) =>
+                update(item.id, { section_identifier: event.target.value })
+              }
+            />
+          </label>
+          <div className="outline-source-indexes">
+            <span>原文索引</span>
+            <div>
+              {(item.source_content_indexes || []).map((sourceIndex) => (
+                <code key={sourceIndex}>{sourceIndex}</code>
+              ))}
+            </div>
+          </div>
           <div className="form-row">
             <select value={item.content_type} onChange={(event) => update(item.id, { content_type: event.target.value })}>
               <option>解读</option><option>过渡</option><option>故事</option>

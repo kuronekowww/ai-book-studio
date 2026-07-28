@@ -276,12 +276,17 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert "期望 3 集" in generated["project"]["episode_count_notice"]
     episode = generated["project"]["episodes"][0]
     assert episode["knowledge_item_ids"]
+    assert episode["source_content_indexes"]
+    assert episode["section_identifier"].startswith("章节：")
     bundle = service.contexts.evidence_bundle(episode["id"])
     assert bundle["knowledge_items"]
     assert bundle["direct_fragments"]
     context = service.contexts.build(episode["id"], "outline")
     assert "# 直接原文证据" in context.source
     assert bundle["direct_fragments"][0]["content_index"] in context.source
+    assert set(episode["source_content_indexes"]) == {
+        item["content_index"] for item in bundle["direct_fragments"]
+    }
 
 
 def test_partial_chapter_saves_valid_assets_and_blocks_album(tmp_path) -> None:

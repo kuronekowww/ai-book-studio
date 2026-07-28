@@ -66,10 +66,11 @@ PROMPTS = {
     ),
     "chapter_compression": PromptDefinition(
         id="chapter_compression",
-        version="2026-07-27.2",
+        version="2026-07-28.1",
         system="你负责无损压缩章节拆书稿，来源索引是不可修改的事实键。",
         user_template=(
-            "压缩以下章节拆书稿，保留章节标题、全部 content_index、概念定义、"
+            "以下内容可能是完整章节，也可能是长章节中按原顺序截取的一段。"
+            "请独立压缩当前输入，保留当前输入中的标题、全部 content_index、概念定义、"
             "主要观点、关键论据、案例和金句。不得新增、删除或修改任何 "
             "content_index 或 knowledge_item_id。只输出 Markdown 压缩稿。\n\n{source}"
         ),
@@ -102,19 +103,30 @@ PROMPTS = {
     ),
     "album_outline": PromptDefinition(
         id="album_outline",
-        version="2026-07-27.3",
-        system="你是书籍解读有声内容创作者。每条声音必须明确引用有效知识资产。",
+        version="2026-07-28.1",
+        system=(
+            "你是书籍解读有声内容创作者。每条声音必须明确引用有效知识资产"
+            "及其原文索引。"
+        ),
         user_template=(
-            "根据输入的完整拆书稿、书籍信息和可选创作要求设计有声专辑目录。"
+            "输入的拆书稿已经按原书章节顺序合并，覆盖所有一级章节。"
+            "请根据这份完整拆书稿、书籍信息和可选创作要求设计有声专辑目录。"
             "优先遵循拆书稿叙述顺序，每条普通声音选择一个或多个"
             " knowledge_item_id 作为组稿知识资产；同一知识资产不得作为多条普通声音"
-            "的主要来源。段落级 content_index 只用于这些知识资产的原文证据，"
-            "不要把它作为专辑编排键。标题要有趣吸睛，不生成单独导入或尾声。"
+            "的主要来源。每集围绕一个子主题，内容高度相关的相邻子主题可以合理合并，"
+            "不要机械地把每个知识资产拆成一集。"
+            "每条声音必须在 section_identifier 中按“章节、子主题、原文索引”"
+            "列出所选知识资产对应的全部段落级 content_index，作为后续组稿的"
+            "原文溯源标识。"
+            "不得编造、删改 knowledge_item_id 或 content_index。"
+            "标题要有趣吸睛，不生成单独导入或尾声。"
             "叙事类只使用“解读类”；非叙事类仅在确有承上启下需要时增加“过渡类”，"
             "不得用过渡声音凑集数。期望集数是目标，不能通过虚构来源满足。\n\n"
             "只输出合法 JSON，不要代码围栏或解释：\n"
             '{{"album_outline":[{{"title":"声音标题",'
-            '"main_points":"主要观点与内容框架",'
+            '"main_points":"1. 每集主要内容 2. 相关论据或案例",'
+            '"section_identifier":"章节：完整章节标题 子主题：子主题标题 '
+            '原文索引：content_x、content_y",'
             '"knowledge_item_ids":["knowledge_x","knowledge_y"],'
             '"content_type":"解读类/过渡类"}}]}}\n\n{source}'
         ),

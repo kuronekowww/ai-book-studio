@@ -263,6 +263,13 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .outline-edit-top { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
 .outline-edit-top > span { color: var(--muted); font: 600 10px ui-monospace, monospace; }
 .outline-edit-top > div { display: flex; gap: 3px; }
+.outline-identifier { display: block; margin-top: 7px; }
+.outline-identifier > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.outline-identifier textarea { min-height: 48px; }
+.outline-source-indexes { margin-top: 7px; }
+.outline-source-indexes > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.outline-source-indexes > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.outline-source-indexes code { padding: 3px 5px; border-radius: 4px; background: #eef3ef; color: var(--green); font-size: 8px; overflow-wrap: anywhere; }
 .episode-row { width: 100%; padding: 9px 8px; border: 0; border-radius: 6px; background: transparent; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 7px; align-items: start; text-align: left; cursor: pointer; }
 .episode-row:hover, .episode-row.active { background: #eeece9; }
 .episode-row.active { box-shadow: inset 2px 0 var(--green); }

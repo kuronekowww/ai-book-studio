@@ -27,7 +27,7 @@ class ModelGenerationError(RuntimeError):
 class ModelOutputTruncatedError(ModelGenerationError):
     def __init__(self, response_chars: int, finish_reason: str):
         super().__init__(
-            f"模型输出因长度上限被截断（已返回 {response_chars} 字符），请重跑该章",
+            f"模型输出因长度上限被截断（已返回 {response_chars} 字符），请重试",
             category="output_truncated",
             diagnostics={
                 "response_chars": response_chars,
@@ -114,10 +114,32 @@ class DemoProvider:
             return "# 测试书\n- 核心知识\n  - 主要观点\n  - 关键案例"
         if prompt.id == "album_outline":
             if unique_knowledge_ids:
+                asset_indexes: dict[str, list[str]] = {}
+                for position, knowledge_id in enumerate(unique_knowledge_ids):
+                    start = source.find(knowledge_id)
+                    next_id = (
+                        unique_knowledge_ids[position + 1]
+                        if position + 1 < len(unique_knowledge_ids)
+                        else ""
+                    )
+                    end = source.find(next_id, start + len(knowledge_id)) if next_id else -1
+                    segment = source[start:end if end >= 0 else None]
+                    asset_indexes[knowledge_id] = list(
+                        dict.fromkeys(
+                            re.findall(r"content_[0-9a-f]{8,40}", segment)
+                        )
+                    )
                 outline = [
                     {
                         "title": f"声音 {position}",
                         "main_points": "围绕所选知识资产梳理核心观点、论据与现实意义。",
+                        "section_identifier": (
+                            "章节：测试章节 子主题：核心知识 原文索引："
+                            + "、".join(
+                                asset_indexes.get(knowledge_id)
+                                or unique_indexes[:1]
+                            )
+                        ),
                         "knowledge_item_ids": [knowledge_id],
                         "content_type": "解读类",
                     }
@@ -191,7 +213,18 @@ class OpenAICompatibleProvider:
         if not self.settings.api_key:
             raise RuntimeError("尚未配置 AI_BOOK_STUDIO_API_KEY")
         url = f"{self.settings.api_base.rstrip('/')}/chat/completions"
-        structured_output = prompt.id in {"book_analysis", "json_repair"}
+        structured_output = prompt.id in {
+            "book_analysis",
+            "json_repair",
+            "album_outline",
+        }
+        high_output = prompt.id in {
+            "book_analysis",
+            "json_repair",
+            "chapter_compression",
+            "mind_map",
+            "album_outline",
+        }
         payload: dict[str, object] = {
             "model": self.settings.model,
             "messages": [
@@ -203,12 +236,24 @@ class OpenAICompatibleProvider:
             ],
             "temperature": 0.1 if structured_output else 0.7,
         }
+        if high_output:
+            payload["max_tokens"] = (
+                32768 if prompt.id == "album_outline" else 16384
+            )
         if structured_output:
-            payload["max_tokens"] = 16384
             payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        timeout_seconds = (
+            900
+            if prompt.id == "album_outline"
+            else 600
+            if prompt.id == "mind_map"
+            else 300
+        )
         try:
-            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout_seconds, trust_env=False
+            ) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 if structured_output and self._response_format_rejected(response):
                     payload.pop("response_format", None)
@@ -217,9 +262,9 @@ class OpenAICompatibleProvider:
                 data = response.json()
         except httpx.TimeoutException as error:
             raise ModelGenerationError(
-                "模型请求超过 300 秒，已超时",
+                f"模型请求超过 {timeout_seconds} 秒，已超时",
                 category="model_timeout",
-                diagnostics={"timeout_seconds": 300},
+                diagnostics={"timeout_seconds": timeout_seconds},
             ) from error
         except httpx.HTTPStatusError as error:
             raise ModelGenerationError(
@@ -305,8 +350,17 @@ class AnthropicProvider:
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
+        timeout_seconds = (
+            900
+            if prompt.id == "album_outline"
+            else 600
+            if prompt.id == "mind_map"
+            else 300
+        )
         try:
-            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout_seconds, trust_env=False
+            ) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPStatusError as error:

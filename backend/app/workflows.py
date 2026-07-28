@@ -19,7 +19,16 @@ from .contexts import EpisodeContextBuilder
 from .db import Database, now_iso
 from .evidence import EvidenceService
 from .prompts import PROMPTS
-from .providers import ModelGenerationError, ModelProvider
+from .providers import (
+    ModelGenerationError,
+    ModelOutputTruncatedError,
+    ModelProvider,
+)
+
+
+CHAPTER_COMPRESSION_CHUNK_CHARS = 5_000
+CHAPTER_COMPRESSION_MIN_CHARS = 600
+BOOK_ANALYSIS_INPUT_MAX_CHARS = 100_000
 
 
 def clean_excerpt(text: str, limit: int = 360) -> str:
@@ -1072,34 +1081,303 @@ class WorkflowService:
         complete = "\n\n".join(
             item["rendered_markdown"] for item in analyses
         )
-        if len(complete) <= 90_000:
+        if len(complete) <= BOOK_ANALYSIS_INPUT_MAX_CHARS:
             return complete, False
-        compressed: list[str] = []
-        for item in analyses:
-            content = item["compressed_markdown"].strip()
-            if not content:
-                source = item["rendered_markdown"]
-                expected = set(re.findall(r"content_[0-9a-f]{8,40}", source))
-                expected_assets = set(
-                    re.findall(r"knowledge_[0-9a-f]{24}", source)
+        compact_chapters = [
+            self._compact_chapter_analysis(book_id, item)
+            for item in analyses
+        ]
+        compact_complete = "\n\n".join(compact_chapters)
+        if len(compact_complete) <= BOOK_ANALYSIS_INPUT_MAX_CHARS:
+            return compact_complete, True
+        limiter = asyncio.Semaphore(5)
+
+        async def compressed_chapter(
+            item: dict[str, Any], source: str
+        ) -> str:
+            return await self._compress_chapter_markdown(
+                item["chapter_title"],
+                source,
+                provider,
+                limiter=limiter,
+            )
+
+        results = await asyncio.gather(
+            *(
+                compressed_chapter(item, source)
+                for item, source in zip(
+                    analyses, compact_chapters, strict=True
                 )
+            ),
+            return_exceptions=True,
+        )
+        error = next(
+            (result for result in results if isinstance(result, Exception)),
+            None,
+        )
+        if error:
+            raise error
+        compressed = [str(result) for result in results]
+        return "\n\n".join(compressed), True
+
+    def _compact_chapter_analysis(
+        self, book_id: str, analysis: dict[str, Any]
+    ) -> str:
+        data = analysis["structured_json"]
+        fragments = self.database.rows(
+            """
+            SELECT content_index, source_section_id
+            FROM source_fragments WHERE book_id = ?
+            """,
+            (book_id,),
+        )
+        index_to_section_id = {
+            fragment["content_index"]: fragment["source_section_id"]
+            for fragment in fragments
+        }
+        cards = derive_knowledge_cards(data, index_to_section_id, book_id)
+        active_ids = {
+            row["id"]
+            for row in self.database.rows(
+                """
+                SELECT id FROM knowledge_items
+                WHERE book_id = ? AND status = 'active'
+                  AND source_scheme = 'paragraph_evidence_v1'
+                """,
+                (book_id,),
+            )
+        }
+        card_lookup = {
+            (
+                card["kind"],
+                card["body"],
+                tuple(card["source_content_indexes"]),
+            ): card
+            for card in cards
+            if card["id"] in active_ids and card["kind"] != "论据"
+        }
+
+        lines = [
+            f"# {data['chapter_title']}",
+            f"**章节主题：** {data['chapter_theme']}",
+        ]
+
+        def append_asset(
+            kind: str,
+            label: str,
+            body: str,
+            indexes: list[str],
+        ) -> None:
+            card = card_lookup.get((kind, body, tuple(indexes)))
+            if not card:
+                return
+            lines.extend(
+                [
+                    f"- [{kind}] {label}：{re.sub(r'\\s+', ' ', body).strip()}",
+                    f"  - 知识资产 ID：{card['id']}",
+                    f"  - 原文索引：{'、'.join(indexes)}",
+                ]
+            )
+
+        for subtopic in data["subtopics"]:
+            lines.append(f"\n## 子主题：{subtopic['title']}")
+            for definition in subtopic["definitions"]:
+                append_asset(
+                    "概念",
+                    definition["name"],
+                    definition["definition"],
+                    definition["source_content_indexes"],
+                )
+            for quote in subtopic["quotes"]:
+                append_asset(
+                    "金句",
+                    "金句",
+                    quote["text"],
+                    quote["source_content_indexes"],
+                )
+            for viewpoint in subtopic["viewpoints"]:
+                append_asset(
+                    "观点",
+                    "主要观点",
+                    viewpoint["text"],
+                    viewpoint["source_content_indexes"],
+                )
+                case = viewpoint["case"]
+                if case:
+                    body = f"{case['summary']}\n\n关联：{case['relation']}"
+                    append_asset(
+                        "案例",
+                        "案例",
+                        body,
+                        case["source_content_indexes"],
+                    )
+            for case in subtopic.get("orphan_cases", []):
+                body = f"{case['summary']}\n\n关联：{case['relation']}"
+                append_asset(
+                    "案例",
+                    "案例",
+                    body,
+                    case["source_content_indexes"],
+                )
+        return "\n".join(lines)
+
+    async def _compress_chapter_markdown(
+        self,
+        chapter_title: str,
+        source: str,
+        provider: ModelProvider,
+        *,
+        limiter: asyncio.Semaphore | None = None,
+    ) -> str:
+        limiter = limiter or asyncio.Semaphore(5)
+        chunks = self._split_markdown_chunks(
+            source, CHAPTER_COMPRESSION_CHUNK_CHARS
+        )
+        compressed = await asyncio.gather(
+            *(
+                self._compress_chapter_chunk(
+                    chapter_title, chunk, provider, limiter
+                )
+                for chunk in chunks
+            )
+        )
+        result = "\n\n".join(item.strip() for item in compressed if item.strip())
+        self._validate_compression_identifiers(chapter_title, source, result)
+        return result
+
+    async def _compress_chapter_chunk(
+        self,
+        chapter_title: str,
+        source: str,
+        provider: ModelProvider,
+        limiter: asyncio.Semaphore,
+    ) -> str:
+        try:
+            async with limiter:
                 content = await provider.generate(
                     PROMPTS["chapter_compression"], source
                 )
-                actual = set(re.findall(r"content_[0-9a-f]{8,40}", content))
-                actual_assets = set(
-                    re.findall(r"knowledge_[0-9a-f]{24}", content)
+        except ModelOutputTruncatedError as error:
+            return await self._compress_smaller_chapter_chunks(
+                chapter_title,
+                source,
+                provider,
+                limiter,
+                error,
+            )
+        try:
+            self._validate_compression_identifiers(
+                chapter_title, source, content
+            )
+        except ValueError as error:
+            return await self._compress_smaller_chapter_chunks(
+                chapter_title,
+                source,
+                provider,
+                limiter,
+                error,
+            )
+        return content
+
+    async def _compress_smaller_chapter_chunks(
+        self,
+        chapter_title: str,
+        source: str,
+        provider: ModelProvider,
+        limiter: asyncio.Semaphore,
+        error: Exception,
+    ) -> str:
+        if len(source) <= CHAPTER_COMPRESSION_MIN_CHARS:
+            if isinstance(error, ModelOutputTruncatedError):
+                raise ValueError(
+                    f"章节“{chapter_title}”压缩在最小分段后仍达到模型输出"
+                    f"长度上限（当前分段 {len(source)} 字符）"
+                ) from error
+            raise error
+        target_chars = max(
+            CHAPTER_COMPRESSION_MIN_CHARS,
+            min(len(source) - 1, len(source) // 2),
+        )
+        smaller_chunks = self._split_markdown_chunks(source, target_chars)
+        if len(smaller_chunks) < 2:
+            midpoint = max(1, len(source) // 2)
+            smaller_chunks = [source[:midpoint], source[midpoint:]]
+        compressed = await asyncio.gather(
+            *(
+                self._compress_chapter_chunk(
+                    chapter_title, chunk, provider, limiter
                 )
-                if actual != expected or actual_assets != expected_assets:
-                    raise ValueError(
-                        f"章节“{item['chapter_title']}”压缩后来源标识不完整"
-                    )
-                self.database.execute(
-                    "UPDATE chapter_analyses SET compressed_markdown = ? WHERE id = ?",
-                    (content, item["id"]),
+                for chunk in smaller_chunks
+                if chunk
+            )
+        )
+        content = "\n\n".join(
+            item.strip() for item in compressed if item.strip()
+        )
+        self._validate_compression_identifiers(chapter_title, source, content)
+        return content
+
+    @staticmethod
+    def _split_markdown_chunks(source: str, max_chars: int) -> list[str]:
+        text = source.strip()
+        if not text or len(text) <= max_chars:
+            return [text] if text else []
+
+        paragraphs = [
+            paragraph.strip()
+            for paragraph in re.split(r"\n{2,}", text)
+            if paragraph.strip()
+        ]
+        atoms: list[str] = []
+        for paragraph in paragraphs:
+            if len(paragraph) <= max_chars:
+                atoms.append(paragraph)
+                continue
+            lines = [line for line in paragraph.splitlines() if line.strip()]
+            for line in lines:
+                if len(line) <= max_chars:
+                    atoms.append(line)
+                    continue
+                atoms.extend(
+                    line[index : index + max_chars]
+                    for index in range(0, len(line), max_chars)
                 )
-            compressed.append(content)
-        return "\n\n".join(compressed), True
+
+        chunks: list[str] = []
+        current = ""
+        for atom in atoms:
+            candidate = f"{current}\n\n{atom}" if current else atom
+            if current and len(candidate) > max_chars:
+                chunks.append(current)
+                current = atom
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        return chunks
+
+    @staticmethod
+    def _validate_compression_identifiers(
+        chapter_title: str, source: str, compressed: str
+    ) -> None:
+        patterns = {
+            "原文索引": r"content_[0-9a-f]{8,40}",
+            "知识资产 ID": r"knowledge_[0-9a-f]{24}",
+        }
+        missing: list[str] = []
+        unexpected: list[str] = []
+        for label, pattern in patterns.items():
+            expected = set(re.findall(pattern, source))
+            actual = set(re.findall(pattern, compressed))
+            if expected - actual:
+                missing.append(f"{label} 缺少 {len(expected - actual)} 个")
+            if actual - expected:
+                unexpected.append(f"{label} 新增 {len(actual - expected)} 个")
+        if missing or unexpected:
+            detail = "；".join([*missing, *unexpected])
+            raise ValueError(
+                f"章节“{chapter_title}”压缩后来源标识不完整：{detail}"
+            )
 
     async def generate_project_knowledge_outputs(
         self,
@@ -1140,17 +1418,81 @@ class WorkflowService:
             f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}"
             f"\n\n# 拆书稿\n{facts}"
         )
-        mind_result, album_result = await asyncio.gather(
-            task_provider.generate(PROMPTS["mind_map"], mind_source),
-            task_provider.generate(PROMPTS["album_outline"], album_source),
-            return_exceptions=True,
+        album_draft_signature = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            json.dumps(
+                {
+                    "album_source": album_source,
+                    "prompt_version": PROMPTS["album_outline"].version,
+                    "provider": task_provider.name,
+                    "model": task_provider.model,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        ).hex
+        existing_episode = self.database.row(
+            "SELECT id FROM episodes WHERE project_id = ? LIMIT 1",
+            (project_id,),
         )
+        reusable_mind_map = (
+            self.database.row(
+                """
+                SELECT * FROM mind_maps
+                WHERE book_id = ?
+                ORDER BY version DESC LIMIT 1
+                """,
+                (book["id"],),
+            )
+            if not existing_episode
+            else None
+        )
+        reusable_album_data: dict[str, Any] | None = None
+        if (
+            not existing_episode
+            and project.get("album_outline_draft_json")
+            and project.get("album_outline_draft_signature")
+            == album_draft_signature
+        ):
+            try:
+                candidate = json.loads(project["album_outline_draft_json"])
+                if isinstance(candidate, dict):
+                    reusable_album_data = candidate
+            except json.JSONDecodeError:
+                reusable_album_data = None
+        if reusable_album_data is not None:
+            if reusable_mind_map:
+                mind_result: str | Exception | None = None
+            else:
+                (mind_result,) = await asyncio.gather(
+                    task_provider.generate(PROMPTS["mind_map"], mind_source),
+                    return_exceptions=True,
+                )
+            album_result: str | Exception | None = None
+        elif reusable_mind_map:
+            mind_result: str | Exception | None = None
+            (album_result,) = await asyncio.gather(
+                task_provider.generate(PROMPTS["album_outline"], album_source),
+                return_exceptions=True,
+            )
+        else:
+            mind_result, album_result = await asyncio.gather(
+                task_provider.generate(PROMPTS["mind_map"], mind_source),
+                task_provider.generate(PROMPTS["album_outline"], album_source),
+                return_exceptions=True,
+            )
         response: dict[str, Any] = {
             "compressed": compressed,
             "mind_map": {"status": "failed"},
             "album_outline": {"status": "failed"},
         }
-        if isinstance(mind_result, Exception):
+        if reusable_mind_map:
+            response["mind_map"] = {
+                "status": "succeeded",
+                "version": reusable_mind_map["version"],
+                "reused": True,
+            }
+        elif isinstance(mind_result, Exception):
             response["mind_map"]["error"] = str(mind_result)
         else:
             current = self.database.row(
@@ -1168,7 +1510,7 @@ class WorkflowService:
                     uuid.uuid4().hex,
                     book["id"],
                     version,
-                    mind_result.strip(),
+                    str(mind_result).strip(),
                     task_provider.name,
                     task_provider.model,
                     now_iso(),
@@ -1179,13 +1521,30 @@ class WorkflowService:
             response["album_outline"]["error"] = str(album_result)
         else:
             try:
-                try:
-                    album_data = parse_json_object(album_result)
-                except json.JSONDecodeError:
-                    repaired_album = await task_provider.generate(
-                        PROMPTS["json_repair"], album_result
+                if reusable_album_data is not None:
+                    album_data = reusable_album_data
+                    response["album_outline"]["reused_draft"] = True
+                else:
+                    try:
+                        album_data = parse_json_object(str(album_result))
+                    except json.JSONDecodeError:
+                        repaired_album = await task_provider.generate(
+                            PROMPTS["json_repair"], str(album_result)
+                        )
+                        album_data = parse_json_object(repaired_album)
+                    self.database.execute(
+                        """
+                        UPDATE projects
+                        SET album_outline_draft_json = ?,
+                            album_outline_draft_signature = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            json.dumps(album_data, ensure_ascii=False),
+                            album_draft_signature,
+                            project_id,
+                        ),
                     )
-                    album_data = parse_json_object(repaired_album)
                 episodes, notice = self._validate_album_outline(
                     album_data, book, desired_episode_count
                 )
@@ -1195,6 +1554,8 @@ class WorkflowService:
                     UPDATE projects
                     SET album_special_requirements = ?, desired_episode_count = ?,
                         episode_count_notice = ?, status = 'outline_review',
+                        album_outline_draft_json = '',
+                        album_outline_draft_signature = '',
                         updated_at = ?
                     WHERE id = ?
                     """,
@@ -1239,10 +1600,11 @@ class WorkflowService:
         )
         asset_map = {asset["id"]: asset for asset in active_assets}
         asset_sources: dict[str, list[str]] = {}
+        asset_content_indexes: dict[str, list[str]] = {}
         for asset in active_assets:
             rows = self.database.rows(
                 """
-                SELECT f.source_section_id
+                SELECT source.content_index, f.source_section_id
                 FROM knowledge_item_sources source
                 JOIN source_fragments f
                   ON f.content_index = source.content_index
@@ -1254,6 +1616,9 @@ class WorkflowService:
             asset_sources[asset["id"]] = list(
                 dict.fromkeys(row["source_section_id"] for row in rows)
             )
+            asset_content_indexes[asset["id"]] = list(
+                dict.fromkeys(row["content_index"] for row in rows)
+            )
         seen_regular: set[str] = set()
         episodes: list[dict[str, Any]] = []
         for position, item in enumerate(raw_episodes, start=1):
@@ -1261,10 +1626,16 @@ class WorkflowService:
                 raise ValueError("专辑大纲条目结构无效")
             title = item.get("title")
             main_points = item.get("main_points")
+            section_identifier = item.get("section_identifier")
             content_type = item.get("content_type")
             if not all(
                 isinstance(value, str) and value.strip()
-                for value in (title, main_points, content_type)
+                for value in (
+                    title,
+                    main_points,
+                    section_identifier,
+                    content_type,
+                )
             ):
                 raise ValueError(f"专辑第 {position} 条字段不完整")
             normalized_type = content_type.strip().replace("类", "")
@@ -1304,6 +1675,39 @@ class WorkflowService:
                         for section_id in asset_sources[asset_id]
                     )
                 )
+                source_content_indexes = list(
+                    dict.fromkeys(
+                        index
+                        for asset_id in knowledge_item_ids
+                        for index in asset_content_indexes[asset_id]
+                    )
+                )
+                identifier_label = re.sub(
+                    r"\s*原文索引\s*[:：].*$",
+                    "",
+                    section_identifier,
+                    flags=re.S,
+                ).strip() or "内容来源"
+                section_identifier = (
+                    f"{identifier_label} 原文索引："
+                    f"{'、'.join(source_content_indexes)}"
+                )
+                supplied_indexes = item.get("source_content_indexes")
+                if supplied_indexes is not None:
+                    if not isinstance(supplied_indexes, list) or not all(
+                        isinstance(index, str) and index.strip()
+                        for index in supplied_indexes
+                    ):
+                        raise ValueError(
+                            f"专辑第 {position} 条原文索引结构无效"
+                        )
+                    supplied_indexes = list(
+                        dict.fromkeys(index.strip() for index in supplied_indexes)
+                    )
+                    if set(supplied_indexes) != set(source_content_indexes):
+                        raise ValueError(
+                            f"专辑第 {position} 条原文索引与知识资产来源不一致"
+                        )
             else:
                 identifier = item.get("section_identifier")
                 if not isinstance(identifier, str) or not identifier.strip():
@@ -1326,6 +1730,7 @@ class WorkflowService:
                         raise ValueError("同一 content_index 被拆分到多条普通声音")
                     seen_regular.add(indexes[0])
                 knowledge_item_ids = []
+                source_content_indexes = indexes
                 source_section_ids = [index_map[index] for index in indexes]
             episodes.append(
                 {
@@ -1335,8 +1740,10 @@ class WorkflowService:
                     "content_type": normalized_type,
                     "style": "观点",
                     "content_framework": main_points.strip(),
+                    "section_identifier": section_identifier.strip(),
                     "source_section_ids": source_section_ids,
                     "knowledge_item_ids": knowledge_item_ids,
+                    "source_content_indexes": source_content_indexes,
                 }
             )
         notice = ""
@@ -1355,8 +1762,8 @@ class WorkflowService:
             """
             INSERT INTO episodes
               (id, project_id, position, title, content_type, style,
-               content_framework, status, source_section_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
+               content_framework, section_identifier, status, source_section_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
             """,
             [
                 (
@@ -1367,6 +1774,7 @@ class WorkflowService:
                     item["content_type"],
                     item["style"],
                     item["content_framework"],
+                    item["section_identifier"],
                     json.dumps(item["source_section_ids"], ensure_ascii=False),
                 )
                 for item in episodes
@@ -1433,6 +1841,7 @@ class WorkflowService:
                         f"围绕“{section['title']}”展开：先说明本节讨论的问题，"
                         "再梳理原文中的核心观点、事件或案例，最后总结其意义。"
                     ),
+                    f"章节：{section['title']}",
                     "outline_review",
                     json.dumps([section["id"]], ensure_ascii=False),
                 )
@@ -1441,8 +1850,8 @@ class WorkflowService:
             """
             INSERT INTO episodes
               (id, project_id, position, title, content_type, style,
-               content_framework, status, source_section_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               content_framework, section_identifier, status, source_section_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             episodes,
         )
@@ -1623,6 +2032,8 @@ class WorkflowService:
         project = self.database.row("SELECT * FROM projects WHERE id = ?", (project_id,))
         if not project:
             raise KeyError(project_id)
+        project.pop("album_outline_draft_json", None)
+        project.pop("album_outline_draft_signature", None)
         project["episodes"] = self.database.rows(
             "SELECT * FROM episodes WHERE project_id = ? ORDER BY position",
             (project_id,),
@@ -1640,6 +2051,9 @@ class WorkflowService:
                     (episode["id"],),
                 )
             ]
+            episode["source_content_indexes"] = self._episode_content_indexes(
+                episode
+            )
         return project
 
     def episode_detail(self, episode_id: str) -> dict[str, Any]:
@@ -1673,5 +2087,29 @@ class WorkflowService:
                 (episode_id,),
             )
         ]
+        episode["source_content_indexes"] = self._episode_content_indexes(episode)
         episode["evidence"] = self.contexts.evidence_bundle(episode_id)
         return episode
+
+    def _episode_content_indexes(
+        self, episode: dict[str, Any]
+    ) -> list[str]:
+        rows = self.database.rows(
+            """
+            SELECT source.content_index
+            FROM episode_knowledge_items link
+            JOIN knowledge_item_sources source
+              ON source.knowledge_item_id = link.knowledge_item_id
+            WHERE link.episode_id = ?
+            ORDER BY link.position, source.source_order
+            """,
+            (episode["id"],),
+        )
+        if rows:
+            return list(
+                dict.fromkeys(row["content_index"] for row in rows)
+            )
+        return [
+            content_index(section_id)
+            for section_id in episode.get("source_section_ids", [])
+        ]

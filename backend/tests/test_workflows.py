@@ -1,9 +1,10 @@
 import asyncio
+import re
 import uuid
 
 from app.db import Database, now_iso
 from app.prompts import PromptDefinition
-from app.providers import DemoProvider
+from app.providers import DemoProvider, ModelOutputTruncatedError
 from app.workflows import WorkflowService
 
 
@@ -231,3 +232,124 @@ def test_project_confirmation_requires_framework_and_valid_source(tmp_path) -> N
         raise AssertionError("无效原文块应阻止确认")
     except ValueError as error:
         assert "无效原文块" in str(error)
+
+
+class TruncatingCompressionProvider:
+    name = "test"
+    model = "compression-test"
+
+    def __init__(self, max_source_chars: int = 1800):
+        self.max_source_chars = max_source_chars
+        self.calls: list[str] = []
+
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        assert prompt.id == "chapter_compression"
+        self.calls.append(source)
+        if len(source) > self.max_source_chars:
+            raise ModelOutputTruncatedError(6300, "length")
+        return source
+
+
+def long_compression_source(group_count: int = 8) -> str:
+    groups = ["# 第一章 长章节"]
+    for index in range(group_count):
+        content_id = f"content_{index:040x}"
+        knowledge_id = f"knowledge_{index:024x}"
+        groups.append(
+            "\n".join(
+                [
+                    f"## 子主题 {index + 1}",
+                    f"### 主要观点：{'观点内容。' * 180}",
+                    f"**知识资产 ID：** {knowledge_id}",
+                    f"**原文索引：** {content_id}",
+                ]
+            )
+        )
+    return "\n\n".join(groups)
+
+
+def test_long_chapter_compression_splits_and_retries_truncated_chunks(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    provider = TruncatingCompressionProvider()
+    service = WorkflowService(database, provider)
+    source = long_compression_source()
+
+    compressed = asyncio.run(
+        service._compress_chapter_markdown("第一章 长章节", source, provider)
+    )
+
+    assert set(re.findall(r"content_[0-9a-f]{8,40}", compressed)) == set(
+        re.findall(r"content_[0-9a-f]{8,40}", source)
+    )
+    assert set(re.findall(r"knowledge_[0-9a-f]{24}", compressed)) == set(
+        re.findall(r"knowledge_[0-9a-f]{24}", source)
+    )
+    assert compressed.index("content_" + f"{0:040x}") < compressed.index(
+        "content_" + f"{7:040x}"
+    )
+    assert any(len(call) > provider.max_source_chars for call in provider.calls)
+    assert all(
+        len(call) <= 5000
+        for call in provider.calls
+        if len(call) <= provider.max_source_chars
+    )
+
+
+def test_chapter_compression_rejects_missing_source_identifier(tmp_path) -> None:
+    class MissingIdentifierProvider(TruncatingCompressionProvider):
+        async def generate(self, prompt: PromptDefinition, source: str) -> str:
+            self.calls.append(source)
+            return re.sub(
+                r"knowledge_[0-9a-f]{24}", "knowledge_missing", source, count=1
+            )
+
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    provider = MissingIdentifierProvider(max_source_chars=100_000)
+    service = WorkflowService(database, provider)
+
+    try:
+        asyncio.run(
+            service._compress_chapter_markdown(
+                "第一章 长章节",
+                long_compression_source(group_count=2),
+                provider,
+            )
+        )
+        raise AssertionError("来源标识缺失时不应接受压缩结果")
+    except ValueError as error:
+        assert "压缩后来源标识不完整" in str(error)
+
+
+def test_chapter_compression_splits_when_large_output_drops_identifier(
+    tmp_path,
+) -> None:
+    class OmittingLargeChunkProvider(TruncatingCompressionProvider):
+        async def generate(self, prompt: PromptDefinition, source: str) -> str:
+            self.calls.append(source)
+            if len(source) > self.max_source_chars:
+                return re.sub(
+                    r"content_[0-9a-f]{8,40}",
+                    "content_missing",
+                    source,
+                    count=1,
+                )
+            return source
+
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    provider = OmittingLargeChunkProvider(max_source_chars=1800)
+    service = WorkflowService(database, provider)
+    source = long_compression_source()
+
+    compressed = asyncio.run(
+        service._compress_chapter_markdown("第一章 长章节", source, provider)
+    )
+
+    assert set(re.findall(r"content_[0-9a-f]{8,40}", compressed)) == set(
+        re.findall(r"content_[0-9a-f]{8,40}", source)
+    )
+    assert any(len(call) > provider.max_source_chars for call in provider.calls)

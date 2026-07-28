@@ -195,6 +195,54 @@ def test_structured_openai_request_uses_json_mode_and_output_limit(
     assert capture["json"]["response_format"] == {"type": "json_object"}
 
 
+def test_album_outline_and_mind_map_request_high_output_limit(
+    monkeypatch,
+) -> None:
+    captures: list[dict[str, Any]] = []
+    client_options: list[dict[str, Any]] = []
+
+    class RecordingClient(OpenAIFakeClient):
+        async def post(self, url, *, json, headers):
+            captures.append(json.copy())
+            return OpenAIFakeResponse()
+
+    monkeypatch.setattr(
+        "app.providers.httpx.AsyncClient",
+        lambda **kwargs: (
+            client_options.append(kwargs) or RecordingClient({}, **kwargs)
+        ),
+    )
+    base = anthropic_settings()
+    provider = OpenAICompatibleProvider(
+        Settings(
+            data_dir=base.data_dir,
+            database_path=base.database_path,
+            provider="openai-compatible",
+            api_base=base.api_base,
+            api_key=base.api_key,
+            model=base.model,
+        )
+    )
+
+    for prompt_id in ("mind_map", "album_outline"):
+        asyncio.run(
+            provider.generate(
+                PromptDefinition(
+                    id=prompt_id,
+                    version="v1",
+                    system="输出内容。",
+                    user_template="{source}",
+                ),
+                "原文",
+            )
+        )
+
+    assert [capture["max_tokens"] for capture in captures] == [16384, 32768]
+    assert [options["timeout"] for options in client_options] == [600, 900]
+    assert "response_format" not in captures[0]
+    assert captures[1]["response_format"] == {"type": "json_object"}
+
+
 def test_openai_length_finish_reason_raises_explicit_truncation(
     monkeypatch,
 ) -> None:
