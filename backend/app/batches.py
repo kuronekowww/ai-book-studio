@@ -27,7 +27,11 @@ class BatchService:
         self.provider_resolver = provider_resolver
 
     def create_batch(
-        self, project_id: str, model_id: str | None = None
+        self,
+        project_id: str,
+        model_id: str | None = None,
+        *,
+        stage_model_ids: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         project = self.database.row(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
@@ -75,12 +79,22 @@ class BatchService:
 
         batch_id = uuid.uuid4().hex
         created_at = now_iso()
+        locked_stage_model_ids = stage_model_ids or (
+            {
+                "outline": model_id,
+                "draft": model_id,
+                "final": model_id,
+            }
+            if model_id
+            else {}
+        )
         metadata = {
             "total": len(episodes),
             "completed": 0,
             "failed": 0,
             "concurrency": self.concurrency,
             "model_id": model_id,
+            "stage_model_ids": locked_stage_model_ids,
         }
         self.database.execute(
             """
@@ -138,7 +152,11 @@ class BatchService:
         return "final"
 
     async def run_batch(
-        self, batch_id: str, provider: ModelProvider | None = None
+        self,
+        batch_id: str,
+        provider: ModelProvider | None = None,
+        *,
+        stage_providers: dict[str, ModelProvider] | None = None,
     ) -> None:
         batch = self.database.row(
             "SELECT * FROM workflow_runs WHERE id = ?", (batch_id,)
@@ -148,10 +166,20 @@ class BatchService:
         if batch["status"] == "cancelled":
             return
         task_provider = provider
-        if task_provider is None and self.provider_resolver:
-            task_provider = self.provider_resolver(
-                batch["metadata_json"].get("model_id")
-            )
+        locked_stage_providers = stage_providers
+        if locked_stage_providers is None and self.provider_resolver:
+            stage_model_ids = batch["metadata_json"].get("stage_model_ids")
+            if isinstance(stage_model_ids, dict) and stage_model_ids:
+                locked_stage_providers = {
+                    stage: self.provider_resolver(model_id)
+                    for stage, model_id in stage_model_ids.items()
+                    if stage in {"outline", "draft", "final"}
+                    and isinstance(model_id, str)
+                }
+            elif batch["metadata_json"].get("model_id"):
+                task_provider = self.provider_resolver(
+                    batch["metadata_json"].get("model_id")
+                )
 
         self.database.execute(
             """
@@ -202,7 +230,13 @@ class BatchService:
                     (now_iso(), child["id"]),
                 )
                 try:
-                    if task_provider is None:
+                    if locked_stage_providers:
+                        await self.workflows.generate_episode(
+                            child["scope_id"],
+                            child["stage"],
+                            stage_providers=locked_stage_providers,
+                        )
+                    elif task_provider is None:
                         await self.workflows.generate_episode(
                             child["scope_id"], child["stage"]
                         )
@@ -273,6 +307,9 @@ class BatchService:
             **counts,
             "concurrency": self.concurrency,
             "model_id": (batch or {}).get("metadata_json", {}).get("model_id"),
+            "stage_model_ids": (
+                (batch or {}).get("metadata_json", {}).get("stage_model_ids", {})
+            ),
         }
         if counts["failed"]:
             batch_status = "partial_failed"

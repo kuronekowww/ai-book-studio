@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings
-from app.prompts import PromptDefinition
+from app.prompts import PROMPTS, PromptDefinition
 from app.providers import (
     AnthropicProvider,
     ModelOutputTruncatedError,
@@ -23,6 +23,20 @@ def anthropic_settings() -> Settings:
         api_key="test-key",
         model="test-claude",
     )
+
+
+def test_album_outline_prompt_uses_engaging_topic_editorial_structure() -> None:
+    prompt = PROMPTS["album_outline"]
+    template = prompt.user_template
+
+    assert prompt.version == "2026-07-28.2"
+    assert "发现现象—追问原因—解释机制—讨论影响或出路" in template
+    assert "问题、冲突、悬念、反常识、因果追问" in template
+    assert "核心主题：" in template
+    assert "核心要点：" in template
+    assert "禁止使用“震惊”“颠覆认知”等空泛标题党" in template
+    assert "knowledge_item_id" in template
+    assert "content_index" in template
 
 
 class FakeResponse:

@@ -265,14 +265,27 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert database.row("SELECT COUNT(*) AS count FROM chapter_analyses")["count"] == 7
 
     project = service.create_project("测试专辑", book_id)
+    mind_provider = RecordingDemoProvider("mind-model")
+    album_provider = RecordingDemoProvider("album-model")
     generated = asyncio.run(
         service.generate_project_knowledge_outputs(
-            project["id"], "突出社会结构", desired_episode_count=3
+            project["id"],
+            "突出社会结构",
+            desired_episode_count=3,
+            mind_map_provider=mind_provider,
+            album_outline_provider=album_provider,
         )
     )
     assert generated["mind_map"]["status"] == "succeeded"
     assert generated["album_outline"]["status"] == "succeeded"
     assert generated["project"]["album_special_requirements"] == "突出社会结构"
+    assert mind_provider.calls == ["mind_map"]
+    assert album_provider.calls == ["album_outline"]
+    saved_map = database.row(
+        "SELECT model FROM mind_maps WHERE book_id = ? ORDER BY version DESC LIMIT 1",
+        (book_id,),
+    )
+    assert saved_map["model"] == "mind-model"
     assert "期望 3 集" in generated["project"]["episode_count_notice"]
     episode = generated["project"]["episodes"][0]
     assert episode["knowledge_item_ids"]
@@ -287,6 +300,16 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert set(episode["source_content_indexes"]) == {
         item["content_index"] for item in bundle["direct_fragments"]
     }
+
+
+class RecordingDemoProvider(DemoProvider):
+    def __init__(self, model: str):
+        super().__init__(name="anthropic", model=model)
+        self.calls: list[str] = []
+
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        self.calls.append(prompt.id)
+        return await super().generate(prompt, source)
 
 
 def test_partial_chapter_saves_valid_assets_and_blocks_album(tmp_path) -> None:

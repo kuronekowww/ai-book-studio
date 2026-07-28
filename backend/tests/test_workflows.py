@@ -70,11 +70,36 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     )
     first_versions = service.episode_detail(episode_id)["versions"]
     assert {item["model"] for item in first_versions} == {"locked-model"}
+    stage_providers = {
+        "outline": DemoProvider(name="anthropic", model="outline-model"),
+        "draft": DemoProvider(name="anthropic", model="draft-model"),
+        "final": DemoProvider(name="anthropic", model="final-model"),
+    }
+    asyncio.run(
+        service.generate_episode(
+            episode_id, "outline", stage_providers=stage_providers
+        )
+    )
+    staged_versions = service.episode_detail(episode_id)["versions"]
+    latest_by_stage = {
+        stage: next(
+            item for item in staged_versions if item["stage"] == stage
+        )
+        for stage in ("outline", "draft", "final")
+    }
+    assert {
+        stage: artifact["model"]
+        for stage, artifact in latest_by_stage.items()
+    } == {
+        "outline": "outline-model",
+        "draft": "draft-model",
+        "final": "final-model",
+    }
     asyncio.run(service.generate_episode(episode_id, "draft"))
     versions = service.episode_detail(episode_id)["versions"]
-    assert sum(item["stage"] == "outline" for item in versions) == 1
-    assert sum(item["stage"] == "draft" for item in versions) == 2
-    assert sum(item["stage"] == "final" for item in versions) == 2
+    assert sum(item["stage"] == "outline" for item in versions) == 2
+    assert sum(item["stage"] == "draft" for item in versions) == 3
+    assert sum(item["stage"] == "final" for item in versions) == 3
     snapshots = database.rows(
         """
         SELECT input_snapshot FROM artifact_versions
@@ -88,7 +113,7 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     service.save_manual_final(episode_id, f"{model_final['content']}\n人工修订")
     updated_versions = service.episode_detail(episode_id)["versions"]
     final_versions = [item for item in updated_versions if item["stage"] == "final"]
-    assert len(final_versions) == 3
+    assert len(final_versions) == 4
     assert final_versions[0]["author_type"] == "human"
     assert final_versions[-1]["author_type"] == "model"
 

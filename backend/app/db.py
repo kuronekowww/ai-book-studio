@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS books (
   status TEXT NOT NULL,
   source_type TEXT NOT NULL,
   parse_version INTEGER NOT NULL DEFAULT 1,
+  analysis_model_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -155,6 +156,7 @@ CREATE TABLE IF NOT EXISTS projects (
   episode_count_notice TEXT NOT NULL DEFAULT '',
   album_outline_draft_json TEXT NOT NULL DEFAULT '',
   album_outline_draft_signature TEXT NOT NULL DEFAULT '',
+  model_overrides_json TEXT NOT NULL DEFAULT '{"album_outline":"kimi-k3"}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -220,6 +222,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 MIGRATION_COLUMNS = {
     "books": {
         "book_type": "TEXT NOT NULL DEFAULT 'non_narrative'",
+        "analysis_model_id": "TEXT",
     },
     "episodes": {
         "content_framework": "TEXT NOT NULL DEFAULT ''",
@@ -243,6 +246,9 @@ MIGRATION_COLUMNS = {
         "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_json": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_signature": "TEXT NOT NULL DEFAULT ''",
+        "model_overrides_json": (
+            "TEXT NOT NULL DEFAULT '{\"album_outline\":\"kimi-k3\"}'"
+        ),
     },
     "mind_maps": {
         "provider": "TEXT NOT NULL DEFAULT 'unknown'",
@@ -426,6 +432,7 @@ JSON_COLUMNS = {
     "structured_json",
     "section_path_json",
     "validation_issues_json",
+    "model_overrides_json",
 }
 
 

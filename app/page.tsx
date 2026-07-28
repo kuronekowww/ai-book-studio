@@ -6,6 +6,20 @@ const API_BASE = "http://127.0.0.1:8000";
 
 type View = "library" | "projects" | "runs" | "settings";
 type BookType = "narrative" | "non_narrative";
+type ProjectModelStage =
+  | "mind_map"
+  | "album_outline"
+  | "episode_outline"
+  | "episode_draft"
+  | "episode_final";
+
+type EffectiveModel = {
+  model_id: string;
+  label: string;
+  model: string;
+  provider: string;
+  follows_global: boolean;
+};
 
 type Book = {
   id: string;
@@ -25,6 +39,8 @@ type Book = {
   chapter_analyses?: ChapterAnalysis[];
   fragment_set?: { id: string; version: number } | null;
   fragment_count?: number;
+  analysis_model_id?: string | null;
+  effective_analysis_model?: EffectiveModel;
 };
 
 type Section = {
@@ -99,6 +115,9 @@ type Project = {
   album_special_requirements?: string;
   desired_episode_count?: number | null;
   episode_count_notice?: string;
+  model_overrides?: Record<ProjectModelStage, string | null>;
+  effective_models?: Record<ProjectModelStage, EffectiveModel>;
+  global_model?: EffectiveModel;
 };
 
 type Episode = {
@@ -158,6 +177,12 @@ type WorkflowRun = {
   parent_run_id?: string | null;
   error_stage?: string;
   position?: number;
+  metadata_json?: {
+    model_id?: string;
+    model?: string;
+    provider?: string;
+    stage_model_ids?: Partial<Record<"outline" | "draft" | "final", string>>;
+  };
   created_at: string;
   updated_at: string;
 };
@@ -205,6 +230,18 @@ const stageLabels = {
   draft: "声音初稿",
   final: "声音终稿",
 };
+
+const projectModelStageLabels: Record<ProjectModelStage, string> = {
+  mind_map: "思维导图",
+  album_outline: "专辑大纲",
+  episode_outline: "声音细纲",
+  episode_draft: "声音初稿",
+  episode_final: "声音终稿",
+};
+
+const projectModelStages = Object.keys(
+  projectModelStageLabels,
+) as ProjectModelStage[];
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
@@ -420,6 +457,20 @@ export default function Home() {
       await refresh();
     });
 
+  const updateBookModel = (modelId: string | null) =>
+    selectedBook &&
+    runAction("保存拆书模型", async () => {
+      const config = await request<{
+        analysis_model_id: string | null;
+        effective_analysis_model: EffectiveModel;
+      }>(`/api/books/${selectedBook.id}/model`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+      });
+      setSelectedBook({ ...selectedBook, ...config });
+    });
+
   const saveSections = (sections: Section[]) =>
     selectedBook &&
     runAction("保存章节调整", async () => {
@@ -515,6 +566,23 @@ export default function Home() {
       setSelectedEpisode(null);
       setBatch(null);
       await refresh();
+    });
+
+  const updateProjectModel = (
+    stage: ProjectModelStage,
+    modelId: string | null,
+  ) =>
+    selectedProject &&
+    runAction("保存环节模型", async () => {
+      const config = await request<{
+        model_overrides: Record<ProjectModelStage, string | null>;
+        effective_models: Record<ProjectModelStage, EffectiveModel>;
+      }>(`/api/projects/${selectedProject.id}/models/${stage}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+      });
+      setSelectedProject({ ...selectedProject, ...config });
     });
 
   const generateAll = () =>
@@ -703,6 +771,8 @@ export default function Home() {
                 onRetryChapter={(id) => void retryChapter(id)}
                 onUpdateType={(bookType) => void updateBookType(bookType)}
                 onSaveSections={(sections) => void saveSections(sections)}
+                onUpdateModel={(modelId) => void updateBookModel(modelId)}
+                models={settings?.available_models || []}
                 onCreateProject={() => {
                   setView("projects");
                   setSelectedBook(null);
@@ -729,6 +799,10 @@ export default function Home() {
                 onGenerateOutline={(requirements, count) =>
                   void generateProjectOutline(requirements, count)
                 }
+                onUpdateModel={(stage, modelId) =>
+                  void updateProjectModel(stage, modelId)
+                }
+                models={settings?.available_models || []}
                 onSaveFinal={saveFinalVersion}
                 busy={Boolean(busy)}
               />
@@ -909,8 +983,10 @@ function BookWorkspace({
   onAnalyze,
   onRetryChapter,
   onUpdateType,
+  onUpdateModel,
   onSaveSections,
   onCreateProject,
+  models,
   busy,
 }: {
   book: Book;
@@ -919,8 +995,10 @@ function BookWorkspace({
   onAnalyze: () => void;
   onRetryChapter: (sectionId: string) => void;
   onUpdateType: (bookType: BookType) => void;
+  onUpdateModel: (modelId: string | null) => void;
   onSaveSections: (sections: Section[]) => void;
   onCreateProject: () => void;
+  models: ModelOption[];
   busy: boolean;
 }) {
   const structuralSections = (book.sections || []).filter(
@@ -983,6 +1061,26 @@ function BookWorkspace({
               <option value="narrative">叙事类</option>
             </select>
             <small>修改类型后需要重新拆书</small>
+          </label>
+          <label className="book-type-control">
+            <span>章节拆书模型</span>
+            <select
+              value={book.analysis_model_id || ""}
+              disabled={busy}
+              onChange={(event) =>
+                onUpdateModel(event.target.value || null)
+              }
+            >
+              <option value="">
+                跟随全局 · {book.effective_analysis_model?.label || "当前模型"}
+              </option>
+              {models.map((model) => (
+                <option value={model.id} key={model.id}>{model.label}</option>
+              ))}
+            </select>
+            <small>
+              实际使用 {book.effective_analysis_model?.label || "全局模型"}
+            </small>
           </label>
         </div>
         <div className="action-stack">
@@ -1412,6 +1510,8 @@ function ProjectWorkspace({
   onGenerate,
   onGenerateAll,
   onGenerateOutline,
+  onUpdateModel,
+  models,
   onSaveFinal,
   busy,
 }: {
@@ -1428,6 +1528,11 @@ function ProjectWorkspace({
     specialRequirements: string,
     desiredEpisodeCount: number | null,
   ) => void;
+  onUpdateModel: (
+    stage: ProjectModelStage,
+    modelId: string | null,
+  ) => void;
+  models: ModelOption[];
   onSaveFinal: (content: string) => Promise<boolean>;
   busy: boolean;
 }) {
@@ -1525,12 +1630,59 @@ function ProjectWorkspace({
         )}
       </div>
 
+      <details className="project-model-config">
+        <summary>
+          <div>
+            <p className="eyebrow">项目模型</p>
+            <strong>按生产环节选择模型</strong>
+          </div>
+          <span>未覆盖的环节跟随全局模型</span>
+        </summary>
+        <div className="project-model-grid">
+          {projectModelStages.map((stage) => {
+            const effective = project.effective_models?.[stage];
+            return (
+              <label key={stage}>
+                <span>{projectModelStageLabels[stage]}</span>
+                <select
+                  value={project.model_overrides?.[stage] || ""}
+                  disabled={busy}
+                  onChange={(event) =>
+                    onUpdateModel(stage, event.target.value || null)
+                  }
+                >
+                  <option value="">
+                    跟随全局 · {project.global_model?.label || "当前模型"}
+                  </option>
+                  {models.map((model) => (
+                    <option value={model.id} key={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  实际使用 {effective?.label || "等待读取"}
+                </small>
+              </label>
+            );
+          })}
+        </div>
+      </details>
+
       {project.status === "outline_review" && (
         <section className="album-generation-card">
           <div>
             <p className="eyebrow">模型编排</p>
             <h3>生成思维导图与专辑大纲</h3>
             <p>留空时，模型根据完整拆书稿的内容量自行决定专辑结构和集数。</p>
+            <div className="model-summary">
+              <span>
+                思维导图 · {project.effective_models?.mind_map.label || "—"}
+              </span>
+              <span>
+                专辑大纲 · {project.effective_models?.album_outline.label || "—"}
+              </span>
+            </div>
           </div>
           <textarea
             value={specialRequirements}
@@ -1590,6 +1742,11 @@ function ProjectWorkspace({
                       {batchActive ? "正在批量生产" : batch ? "最近一次生产" : "等待开始生产"}
                     </strong>
                     <span>声音之间最多 5 条并行</span>
+                    <span className="batch-model-summary">
+                      细纲 {project.effective_models?.episode_outline.label || "—"}
+                      {" · "}初稿 {project.effective_models?.episode_draft.label || "—"}
+                      {" · "}终稿 {project.effective_models?.episode_final.label || "—"}
+                    </span>
                   </div>
                   <em>{batch ? `${batchPercent}%` : "0%"}</em>
                 </div>
@@ -1980,6 +2137,16 @@ function RunsView({
     if (run.scope_type === "book_analysis_batch") return "全书拆书任务";
     return `声音任务 · ${String(index + 1).padStart(2, "0")}`;
   };
+  const runModels = (run: WorkflowRun) => {
+    const stageModels = run.metadata_json?.stage_model_ids;
+    if (stageModels) {
+      return (["outline", "draft", "final"] as const)
+        .filter((stage) => stageModels[stage])
+        .map((stage) => `${stageLabels[stage]} ${stageModels[stage]}`)
+        .join(" · ");
+    }
+    return run.metadata_json?.model || run.metadata_json?.model_id || "";
+  };
   return (
     <div className="runs-layout">
       <section className="runs-summary">
@@ -2001,6 +2168,7 @@ function RunsView({
               <small>{runLabel(run, index)}</small>
               <strong>{stageLabels[run.stage as keyof typeof stageLabels] || run.stage}</strong>
               <p>{run.status} {run.message && `· ${run.message}`}</p>
+              {runModels(run) && <p className="run-models">{runModels(run)}</p>}
               {["pending", "running"].includes(run.status) && (
                 <button className="cancel-run" onClick={() => onCancel(run.id)}>取消</button>
               )}

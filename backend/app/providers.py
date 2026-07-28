@@ -132,7 +132,13 @@ class DemoProvider:
                 outline = [
                     {
                         "title": f"声音 {position}",
-                        "main_points": "围绕所选知识资产梳理核心观点、论据与现实意义。",
+                        "main_points": (
+                            "核心主题：解释这一知识资产要解决的关键问题。\n"
+                            "核心要点：\n"
+                            "1. 从具体现象进入；\n"
+                            "2. 梳理作者的解释机制；\n"
+                            "3. 说明它对现实理解的意义。"
+                        ),
                         "section_identifier": (
                             "章节：测试章节 子主题：核心知识 原文索引："
                             + "、".join(
@@ -151,7 +157,13 @@ class DemoProvider:
                 outline = [
                     {
                         "title": f"声音 {position}",
-                        "main_points": "围绕该内容索引梳理核心观点、论据与现实意义。",
+                        "main_points": (
+                            "核心主题：解释该原文内容提出的关键问题。\n"
+                            "核心要点：\n"
+                            "1. 呈现具体现象；\n"
+                            "2. 梳理原因与机制；\n"
+                            "3. 说明现实影响。"
+                        ),
                         "section_identifier": index,
                         "content_type": "解读类",
                     }

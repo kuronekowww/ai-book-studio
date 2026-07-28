@@ -16,6 +16,7 @@ from .db import Database, now_iso
 from .evidence import EvidenceService
 from .ingestion import analysis_candidate_map, parse_book
 from .model_catalog import ModelManager
+from .model_routing import ModelRoutingService
 from .obsidian import ObsidianSyncService
 from .providers import ModelGenerationError, ModelProvider
 from .workflows import StageGenerationError, WorkflowService
@@ -27,6 +28,7 @@ database.init()
 evidence = EvidenceService(database)
 evidence.ensure_all_books()
 model_manager = ModelManager(settings)
+model_routing = ModelRoutingService(database, model_manager)
 initial_provider = model_manager.snapshot().provider
 workflows = WorkflowService(database, initial_provider)
 batches = BatchService(
@@ -114,6 +116,10 @@ class ModelSelectionPayload(BaseModel):
     model_id: str
 
 
+class ProjectModelSelectionPayload(BaseModel):
+    model_id: str | None = None
+
+
 def not_found(label: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{label}不存在")
 
@@ -129,13 +135,26 @@ async def execute_episode_run(
     episode_id: str,
     from_stage: str,
     provider: ModelProvider | None = None,
+    stage_providers: dict[str, ModelProvider] | None = None,
 ) -> None:
     current = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
     if not current or current["status"] == "cancelled":
         return
-    task_provider = provider or model_manager.snapshot_for_run(
-        current["metadata_json"].get("model_id")
-    ).provider
+    task_provider = provider
+    locked_stage_providers = stage_providers
+    if locked_stage_providers is None:
+        stage_model_ids = current["metadata_json"].get("stage_model_ids")
+        if isinstance(stage_model_ids, dict) and stage_model_ids:
+            locked_stage_providers = {
+                stage: snapshot.provider
+                for stage, snapshot in model_routing.restore_stage_snapshots(
+                    stage_model_ids
+                ).items()
+            }
+        else:
+            task_provider = task_provider or model_manager.snapshot_for_run(
+                current["metadata_json"].get("model_id")
+            ).provider
     database.execute(
         """
         UPDATE workflow_runs
@@ -146,7 +165,10 @@ async def execute_episode_run(
     )
     try:
         await workflows.generate_episode(
-            episode_id, from_stage, provider=task_provider
+            episode_id,
+            from_stage,
+            provider=task_provider,
+            stage_providers=locked_stage_providers,
         )
         batches.reconcile_episode_success(episode_id)
         current = database.row("SELECT status FROM workflow_runs WHERE id = ?", (run_id,))
@@ -237,6 +259,7 @@ def list_books() -> list[dict[str, Any]]:
         )
         book.update(counts or {})
         book.update(knowledge or {})
+        book.update(model_routing.book_config(book["id"]))
     return books
 
 
@@ -376,6 +399,7 @@ def book_detail(book_id: str) -> dict[str, Any]:
         if current_set
         else 0
     )
+    book.update(model_routing.book_config(book_id))
     return book
 
 
@@ -505,8 +529,8 @@ def confirm_sections(book_id: str) -> dict[str, Any]:
 
 @app.post("/api/books/{book_id}/analyze")
 async def analyze_book(book_id: str) -> dict[str, Any]:
-    snapshot = model_manager.snapshot()
     try:
+        snapshot = model_routing.book_snapshot(book_id)
         return await workflows.analyze_book(book_id, snapshot.provider)
     except KeyError as error:
         raise not_found("书籍") from error
@@ -516,8 +540,8 @@ async def analyze_book(book_id: str) -> dict[str, Any]:
 
 @app.post("/api/books/{book_id}/chapters/{section_id}/analyze")
 async def retry_chapter(book_id: str, section_id: str) -> dict[str, Any]:
-    snapshot = model_manager.snapshot()
     try:
+        snapshot = model_routing.book_snapshot(book_id)
         return await workflows.retry_chapter(
             book_id, section_id, snapshot.provider
         )
@@ -545,13 +569,16 @@ def list_projects() -> list[dict[str, Any]]:
             (project["id"],),
         )
         project.update(count or {})
+        project.update(model_routing.project_config(project["id"]))
     return projects
 
 
 @app.post("/api/projects")
 def create_project(payload: ProjectCreate) -> dict[str, Any]:
     try:
-        return workflows.create_project(payload.title, payload.book_id)
+        project = workflows.create_project(payload.title, payload.book_id)
+        project.update(model_routing.project_config(project["id"]))
+        return project
     except KeyError as error:
         raise not_found("书籍") from error
 
@@ -559,7 +586,9 @@ def create_project(payload: ProjectCreate) -> dict[str, Any]:
 @app.get("/api/projects/{project_id}")
 def project_detail(project_id: str) -> dict[str, Any]:
     try:
-        return workflows.project_detail(project_id)
+        project = workflows.project_detail(project_id)
+        project.update(model_routing.project_config(project_id))
+        return project
     except KeyError as error:
         raise not_found("项目") from error
 
@@ -568,14 +597,19 @@ def project_detail(project_id: str) -> dict[str, Any]:
 async def generate_project_outline(
     project_id: str, payload: ProjectGenerationPayload
 ) -> dict[str, Any]:
-    snapshot = model_manager.snapshot()
     try:
-        return await workflows.generate_project_knowledge_outputs(
+        snapshots = model_routing.project_stage_snapshots(
+            project_id, ("mind_map", "album_outline")
+        )
+        result = await workflows.generate_project_knowledge_outputs(
             project_id,
             payload.album_special_requirements,
             payload.desired_episode_count,
-            snapshot.provider,
+            mind_map_provider=snapshots["mind_map"].provider,
+            album_outline_provider=snapshots["album_outline"].provider,
         )
+        result["project"].update(model_routing.project_config(project_id))
+        return result
     except KeyError as error:
         raise not_found("项目") from error
     except (ValueError, ModelGenerationError) as error:
@@ -615,13 +649,17 @@ def update_project_episodes(
     database.execute(
         "UPDATE projects SET updated_at = ? WHERE id = ?", (now_iso(), project_id)
     )
-    return workflows.project_detail(project_id)
+    project = workflows.project_detail(project_id)
+    project.update(model_routing.project_config(project_id))
+    return project
 
 
 @app.post("/api/projects/{project_id}/confirm")
 def confirm_project(project_id: str) -> dict[str, Any]:
     try:
-        return workflows.confirm_project(project_id)
+        project = workflows.confirm_project(project_id)
+        project.update(model_routing.project_config(project_id))
+        return project
     except KeyError as error:
         raise not_found("项目") from error
     except ValueError as error:
@@ -630,9 +668,15 @@ def confirm_project(project_id: str) -> dict[str, Any]:
 
 @app.post("/api/projects/{project_id}/generate-all")
 async def generate_all(project_id: str) -> dict[str, Any]:
-    snapshot = model_manager.snapshot()
     try:
-        batch = batches.create_batch(project_id, snapshot.run_model_id)
+        snapshots = model_routing.episode_stage_snapshots(project_id)
+        batch = batches.create_batch(
+            project_id,
+            stage_model_ids={
+                stage: snapshot.run_model_id
+                for stage, snapshot in snapshots.items()
+            },
+        )
     except KeyError as error:
         raise not_found("项目") from error
     except ValueError as error:
@@ -685,11 +729,17 @@ async def generate_episode(
 ) -> dict[str, Any]:
     if payload.from_stage not in {"outline", "draft", "final"}:
         raise HTTPException(status_code=400, detail="from_stage 参数无效")
-    if not database.row("SELECT id FROM episodes WHERE id = ?", (episode_id,)):
+    episode = database.row(
+        "SELECT id, project_id FROM episodes WHERE id = ?", (episode_id,)
+    )
+    if not episode:
         raise not_found("声音")
     run_id = uuid.uuid4().hex
     now = now_iso()
-    snapshot = model_manager.snapshot()
+    snapshots = model_routing.episode_stage_snapshots(episode["project_id"])
+    stage_model_ids = {
+        stage: snapshot.run_model_id for stage, snapshot in snapshots.items()
+    }
     database.execute(
         """
         INSERT INTO workflow_runs
@@ -701,7 +751,9 @@ async def generate_episode(
             run_id,
             episode_id,
             payload.from_stage,
-            json.dumps({"model_id": snapshot.run_model_id}, ensure_ascii=False),
+            json.dumps(
+                {"stage_model_ids": stage_model_ids}, ensure_ascii=False
+            ),
             now,
             now,
         ),
@@ -711,7 +763,10 @@ async def generate_episode(
             run_id,
             episode_id,
             payload.from_stage,
-            snapshot.provider,
+            stage_providers={
+                stage: snapshot.provider
+                for stage, snapshot in snapshots.items()
+            },
         )
     )
     return database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
@@ -780,3 +835,32 @@ def select_model(payload: ModelSelectionPayload) -> dict[str, Any]:
     except OSError as error:
         raise HTTPException(status_code=500, detail="无法保存本地模型设置") from error
     return model_manager.status()
+
+
+@app.put("/api/books/{book_id}/model")
+def select_book_analysis_model(
+    book_id: str, payload: ProjectModelSelectionPayload
+) -> dict[str, Any]:
+    try:
+        config = model_routing.update_book(book_id, payload.model_id)
+    except KeyError as error:
+        raise not_found("书籍") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return config
+
+
+@app.put("/api/projects/{project_id}/models/{stage}")
+def select_project_stage_model(
+    project_id: str,
+    stage: str,
+    payload: ProjectModelSelectionPayload,
+) -> dict[str, Any]:
+    try:
+        return model_routing.update_project(
+            project_id, stage, payload.model_id
+        )
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

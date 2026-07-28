@@ -39,6 +39,7 @@ class TrackingWorkflows:
         self.failing_id = failing_id
         self.active = 0
         self.max_active = 0
+        self.stage_provider_models: list[dict[str, str]] = []
 
     def latest_artifact(self, episode_id: str, stage: str):
         return self.database.row(
@@ -51,8 +52,20 @@ class TrackingWorkflows:
         )
 
     async def generate_episode(
-        self, episode_id: str, from_stage: str, provider=None
+        self,
+        episode_id: str,
+        from_stage: str,
+        provider=None,
+        *,
+        stage_providers=None,
     ):
+        if stage_providers:
+            self.stage_provider_models.append(
+                {
+                    stage: stage_provider.model
+                    for stage, stage_provider in stage_providers.items()
+                }
+            )
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
@@ -140,8 +153,55 @@ def test_batch_restores_the_model_snapshot_from_run_metadata(tmp_path) -> None:
     asyncio.run(batches.run_batch(batch["id"]))
     finished = batches.batch_detail(batch["id"])
 
-    assert captured_model_ids == ["kimi-k3"]
+    assert captured_model_ids == ["kimi-k3", "kimi-k3", "kimi-k3"]
     assert finished["metadata_json"]["model_id"] == "kimi-k3"
+    assert finished["metadata_json"]["stage_model_ids"] == {
+        "outline": "kimi-k3",
+        "draft": "kimi-k3",
+        "final": "kimi-k3",
+    }
+    assert workflows.stage_provider_models == [
+        {
+            "outline": "locked-model",
+            "draft": "locked-model",
+            "final": "locked-model",
+        }
+    ]
+
+
+def test_batch_restores_different_model_for_each_episode_stage(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    project_id, _ = seed_project(database, count=1)
+    workflows = TrackingWorkflows(database, failing_id="")
+
+    def resolve(model_id: str | None):
+        return DemoProvider(name="anthropic", model=str(model_id))
+
+    batches = BatchService(
+        database,
+        workflows,  # type: ignore[arg-type]
+        concurrency=5,
+        provider_resolver=resolve,
+    )
+    batch = batches.create_batch(
+        project_id,
+        stage_model_ids={
+            "outline": "kimi-k3",
+            "draft": "claude-sonnet-5",
+            "final": "glm-5.2",
+        },
+    )
+
+    asyncio.run(batches.run_batch(batch["id"]))
+
+    assert workflows.stage_provider_models == [
+        {
+            "outline": "kimi-k3",
+            "draft": "claude-sonnet-5",
+            "final": "glm-5.2",
+        }
+    ]
 
 
 def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
@@ -197,6 +257,9 @@ def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
         mind_map_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(mind_maps)")
         }
+        project_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(projects)")
+        }
         legacy_framework = connection.execute(
             """
             SELECT content_framework FROM episodes
@@ -209,3 +272,5 @@ def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
     assert {"author_type", "input_snapshot"} <= artifact_columns
     assert {"parent_run_id", "error_stage", "position", "metadata_json"} <= run_columns
     assert {"provider", "model"} <= mind_map_columns
+    assert "analysis_model_id" in book_columns
+    assert "model_overrides_json" in project_columns

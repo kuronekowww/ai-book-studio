@@ -273,7 +273,14 @@ class WorkflowService:
             (
                 parent_run_id,
                 book_id,
-                json.dumps({"chapter_count": len(roots)}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        "chapter_count": len(roots),
+                        "provider": task_provider.name,
+                        "model": task_provider.model,
+                    },
+                    ensure_ascii=False,
+                ),
                 started,
                 started,
             ),
@@ -299,7 +306,12 @@ class WorkflowService:
                     parent_run_id,
                     root["position"],
                     json.dumps(
-                        {"book_id": book_id, "chapter_title": root["title"]},
+                        {
+                            "book_id": book_id,
+                            "chapter_title": root["title"],
+                            "provider": task_provider.name,
+                            "model": task_provider.model,
+                        },
                         ensure_ascii=False,
                     ),
                     now,
@@ -889,7 +901,12 @@ class WorkflowService:
                     run_id,
                     section["id"],
                     json.dumps(
-                        {"book_id": book_id, "section_title": section["title"]},
+                        {
+                            "book_id": book_id,
+                            "section_title": section["title"],
+                            "provider": provider.name,
+                            "model": provider.model,
+                        },
                         ensure_ascii=False,
                     ),
                     now,
@@ -1385,8 +1402,13 @@ class WorkflowService:
         special_requirements: str = "",
         desired_episode_count: int | None = None,
         provider: ModelProvider | None = None,
+        *,
+        mind_map_provider: ModelProvider | None = None,
+        album_outline_provider: ModelProvider | None = None,
     ) -> dict[str, Any]:
-        task_provider = provider or self.provider
+        fallback_provider = provider or self.provider
+        mind_provider = mind_map_provider or fallback_provider
+        album_provider = album_outline_provider or fallback_provider
         project = self.database.row(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         )
@@ -1399,9 +1421,19 @@ class WorkflowService:
         )
         if not book:
             raise ValueError("项目关联书籍不存在")
-        facts, compressed = await self._book_analysis_input(
-            book["id"], task_provider
+        mind_facts, mind_compressed = await self._book_analysis_input(
+            book["id"], mind_provider
         )
+        if (
+            mind_provider.name == album_provider.name
+            and mind_provider.model == album_provider.model
+        ):
+            album_facts = mind_facts
+            album_compressed = mind_compressed
+        else:
+            album_facts, album_compressed = await self._book_analysis_input(
+                book["id"], album_provider
+            )
         requirements = special_requirements.strip()
         count_text = (
             str(desired_episode_count)
@@ -1412,11 +1444,11 @@ class WorkflowService:
             f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}\n"
             f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
             f"# 专辑特殊要求\n{requirements or '无'}\n\n"
-            f"# 期望集数\n{count_text}\n\n# 拆书稿\n{facts}"
+            f"# 期望集数\n{count_text}\n\n# 拆书稿\n{album_facts}"
         )
         mind_source = (
             f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}"
-            f"\n\n# 拆书稿\n{facts}"
+            f"\n\n# 拆书稿\n{mind_facts}"
         )
         album_draft_signature = uuid.uuid5(
             uuid.NAMESPACE_URL,
@@ -1424,8 +1456,8 @@ class WorkflowService:
                 {
                     "album_source": album_source,
                     "prompt_version": PROMPTS["album_outline"].version,
-                    "provider": task_provider.name,
-                    "model": task_provider.model,
+                    "provider": album_provider.name,
+                    "model": album_provider.model,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -1465,24 +1497,24 @@ class WorkflowService:
                 mind_result: str | Exception | None = None
             else:
                 (mind_result,) = await asyncio.gather(
-                    task_provider.generate(PROMPTS["mind_map"], mind_source),
+                    mind_provider.generate(PROMPTS["mind_map"], mind_source),
                     return_exceptions=True,
                 )
             album_result: str | Exception | None = None
         elif reusable_mind_map:
             mind_result: str | Exception | None = None
             (album_result,) = await asyncio.gather(
-                task_provider.generate(PROMPTS["album_outline"], album_source),
+                album_provider.generate(PROMPTS["album_outline"], album_source),
                 return_exceptions=True,
             )
         else:
             mind_result, album_result = await asyncio.gather(
-                task_provider.generate(PROMPTS["mind_map"], mind_source),
-                task_provider.generate(PROMPTS["album_outline"], album_source),
+                mind_provider.generate(PROMPTS["mind_map"], mind_source),
+                album_provider.generate(PROMPTS["album_outline"], album_source),
                 return_exceptions=True,
             )
         response: dict[str, Any] = {
-            "compressed": compressed,
+            "compressed": mind_compressed or album_compressed,
             "mind_map": {"status": "failed"},
             "album_outline": {"status": "failed"},
         }
@@ -1511,8 +1543,8 @@ class WorkflowService:
                     book["id"],
                     version,
                     str(mind_result).strip(),
-                    task_provider.name,
-                    task_provider.model,
+                    mind_provider.name,
+                    mind_provider.model,
                     now_iso(),
                 ),
             )
@@ -1528,7 +1560,7 @@ class WorkflowService:
                     try:
                         album_data = parse_json_object(str(album_result))
                     except json.JSONDecodeError:
-                        repaired_album = await task_provider.generate(
+                        repaired_album = await album_provider.generate(
                             PROMPTS["json_repair"], str(album_result)
                         )
                         album_data = parse_json_object(repaired_album)
@@ -1638,6 +1670,10 @@ class WorkflowService:
                 )
             ):
                 raise ValueError(f"专辑第 {position} 条字段不完整")
+            if "核心主题：" not in main_points or "核心要点：" not in main_points:
+                raise ValueError(
+                    f"专辑第 {position} 条主要内容缺少核心主题或核心要点"
+                )
             normalized_type = content_type.strip().replace("类", "")
             if normalized_type not in {"解读", "过渡"}:
                 raise ValueError(f"专辑第 {position} 条内容类型无效")
@@ -1917,14 +1953,21 @@ class WorkflowService:
         episode_id: str,
         from_stage: str = "outline",
         provider: ModelProvider | None = None,
+        *,
+        stage_providers: dict[str, ModelProvider] | None = None,
     ) -> dict[str, Any]:
-        task_provider = provider or self.provider
+        fallback_provider = provider or self.provider
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:
             raise KeyError(episode_id)
         stages = ["outline", "draft", "final"]
         start = stages.index(from_stage)
         for stage in stages[start:]:
+            task_provider = (
+                stage_providers.get(stage, fallback_provider)
+                if stage_providers
+                else fallback_provider
+            )
             self.database.execute(
                 "UPDATE episodes SET status = ? WHERE id = ?",
                 (f"generating_{stage}", episode_id),
