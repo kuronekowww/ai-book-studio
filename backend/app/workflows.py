@@ -18,6 +18,7 @@ from .chapter_analysis import (
 from .contexts import EpisodeContextBuilder
 from .db import Database, now_iso
 from .evidence import EvidenceService
+from .prompt_config import PromptConfigurationService
 from .prompts import PROMPTS
 from .providers import (
     ModelGenerationError,
@@ -70,11 +71,17 @@ class LocalRevalidationProvider:
 
 
 class WorkflowService:
-    def __init__(self, database: Database, provider: ModelProvider):
+    def __init__(
+        self,
+        database: Database,
+        provider: ModelProvider,
+        prompt_configuration: PromptConfigurationService | None = None,
+    ):
         self.database = database
         self.provider = provider
         self.evidence = EvidenceService(database)
         self.contexts = EpisodeContextBuilder(database)
+        self.prompts = prompt_configuration or PromptConfigurationService(database)
 
     async def analyze_book(
         self, book_id: str, provider: ModelProvider | None = None
@@ -1405,6 +1412,7 @@ class WorkflowService:
         *,
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
+        album_prompt_lock: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
         mind_provider = mind_map_provider or fallback_provider
@@ -1446,6 +1454,25 @@ class WorkflowService:
             f"# 专辑特殊要求\n{requirements or '无'}\n\n"
             f"# 期望集数\n{count_text}\n\n# 拆书稿\n{album_facts}"
         )
+        album_prompt = self.prompts.snapshot(
+            "album_outline",
+            {
+                "book_analysis": album_facts,
+                "book_title": book["title"],
+                "book_author": book["author"] or "未填写",
+                "book_type": (
+                    "叙事类"
+                    if book["book_type"] == "narrative"
+                    else "非叙事类"
+                ),
+                "album_special_requirements": requirements or "无",
+                "desired_episode_count": count_text,
+            },
+            project_id=project_id,
+            locked=album_prompt_lock,
+            prompt_id="album_outline",
+            book_type=book["book_type"],
+        )
         mind_source = (
             f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}"
             f"\n\n# 拆书稿\n{mind_facts}"
@@ -1455,7 +1482,8 @@ class WorkflowService:
             json.dumps(
                 {
                     "album_source": album_source,
-                    "prompt_version": PROMPTS["album_outline"].version,
+                    "prompt_version_id": album_prompt.prompt_version_id,
+                    "system_version_id": album_prompt.system_version_id,
                     "provider": album_provider.name,
                     "model": album_provider.model,
                 },
@@ -1504,13 +1532,13 @@ class WorkflowService:
         elif reusable_mind_map:
             mind_result: str | Exception | None = None
             (album_result,) = await asyncio.gather(
-                album_provider.generate(PROMPTS["album_outline"], album_source),
+                album_provider.generate(album_prompt.prompt, album_prompt.source),
                 return_exceptions=True,
             )
         else:
             mind_result, album_result = await asyncio.gather(
                 mind_provider.generate(PROMPTS["mind_map"], mind_source),
-                album_provider.generate(PROMPTS["album_outline"], album_source),
+                album_provider.generate(album_prompt.prompt, album_prompt.source),
                 return_exceptions=True,
             )
         response: dict[str, Any] = {
@@ -1586,6 +1614,8 @@ class WorkflowService:
                     UPDATE projects
                     SET album_special_requirements = ?, desired_episode_count = ?,
                         episode_count_notice = ?, status = 'outline_review',
+                        album_prompt_version_id = ?,
+                        album_prompt_system_version_id = ?,
                         album_outline_draft_json = '',
                         album_outline_draft_signature = '',
                         updated_at = ?
@@ -1595,6 +1625,8 @@ class WorkflowService:
                         requirements,
                         desired_episode_count,
                         notice,
+                        album_prompt.prompt_version_id,
+                        album_prompt.system_version_id,
                         now_iso(),
                         project_id,
                     ),
@@ -1973,6 +2005,7 @@ class WorkflowService:
         provider: ModelProvider | None = None,
         *,
         stage_providers: dict[str, ModelProvider] | None = None,
+        stage_prompt_locks: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
@@ -1992,8 +2025,21 @@ class WorkflowService:
             )
             try:
                 context = self.contexts.build(episode_id, stage)
-                prompt = PROMPTS[context.prompt_id]
-                content = await task_provider.generate(prompt, context.source)
+                prompt_snapshot = self.prompts.snapshot(
+                    f"episode_{stage}",
+                    context.variables,
+                    project_id=context.project_id,
+                    locked=(
+                        stage_prompt_locks.get(stage)
+                        if stage_prompt_locks
+                        else None
+                    ),
+                    prompt_id=context.prompt_id,
+                    book_type=context.book_type,
+                )
+                content = await task_provider.generate(
+                    prompt_snapshot.prompt, prompt_snapshot.source
+                )
             except Exception as error:
                 self.database.execute(
                     "UPDATE episodes SET status = 'failed' WHERE id = ?",
@@ -2004,10 +2050,12 @@ class WorkflowService:
                 episode_id,
                 stage,
                 content,
-                prompt.version,
+                prompt_snapshot.version_label,
                 provider=task_provider.name,
                 model=task_provider.model,
-                input_snapshot=context.source,
+                input_snapshot=prompt_snapshot.source,
+                prompt_version_id=prompt_snapshot.prompt_version_id,
+                prompt_system_version_id=prompt_snapshot.system_version_id,
             )
         self.database.execute(
             "UPDATE episodes SET status = 'review' WHERE id = ?",
@@ -2026,6 +2074,8 @@ class WorkflowService:
         provider: str | None = None,
         model: str | None = None,
         input_snapshot: str = "",
+        prompt_version_id: str | None = None,
+        prompt_system_version_id: str | None = None,
     ) -> None:
         current = self.database.row(
             """
@@ -2040,8 +2090,9 @@ class WorkflowService:
             """
             INSERT INTO artifact_versions
               (id, episode_id, stage, version, content, prompt_version,
-               provider, model, author_type, input_snapshot, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               prompt_version_id, prompt_system_version_id, provider, model,
+               author_type, input_snapshot, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uuid.uuid4().hex,
@@ -2050,6 +2101,8 @@ class WorkflowService:
                 version,
                 content,
                 prompt_version,
+                prompt_version_id,
+                prompt_system_version_id,
                 provider or self.provider.name,
                 model or self.provider.model,
                 author_type,

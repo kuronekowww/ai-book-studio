@@ -16,6 +16,9 @@ STAGE_PROMPTS = {
 class StageContext:
     prompt_id: str
     source: str
+    project_id: str
+    book_type: str
+    variables: dict[str, str]
 
 
 class EpisodeContextBuilder:
@@ -51,11 +54,46 @@ class EpisodeContextBuilder:
 
         book_info = self._format_books(books)
         evidence = self._format_bundle(bundle)
+        narrative = books[0]["book_type"] == "narrative"
+        relationships = (
+            self._format_relationships(books, set(source_ids))
+            if narrative
+            else "非故事类书籍无须提供人物关系。"
+        )
+        previous_episode = self.database.row(
+            """
+            SELECT previous_artifact.content
+            FROM episodes previous_episode
+            JOIN artifact_versions previous_artifact
+              ON previous_artifact.episode_id = previous_episode.id
+            WHERE previous_episode.project_id = ?
+              AND previous_episode.position < ?
+              AND previous_artifact.stage = 'final'
+            ORDER BY previous_episode.position DESC,
+                     previous_artifact.version DESC
+            LIMIT 1
+            """,
+            (episode["project_id"], episode["position"]),
+        )
+        common_variables = {
+            "book_title": "、".join(book["title"] for book in books),
+            "book_author": "、".join(
+                book["author"] or "未填写" for book in books
+            ),
+            "episode_title": episode["title"],
+            "episode_framework": episode["content_framework"].strip(),
+            "source_text": evidence,
+            "character_relationships": relationships,
+            "previous_episode_final": (
+                previous_episode["content"]
+                if previous_episode
+                else "当前没有可用的上一集终稿。"
+            ),
+        }
         if stage == "outline":
             framework = episode["content_framework"].strip()
             if not framework:
                 raise ValueError("声音内容框架不能为空")
-            narrative = books[0]["book_type"] == "narrative"
             parts = [
                 book_info,
                 (
@@ -67,10 +105,7 @@ class EpisodeContextBuilder:
                 f"# 声音内容框架\n{framework}",
             ]
             if narrative:
-                parts.append(
-                    "# 人物关系\n"
-                    + self._format_relationships(books, set(source_ids))
-                )
+                parts.append("# 人物关系\n" + relationships)
             parts.append(f"# 书籍内容（原文证据）\n{evidence}")
             return StageContext(
                 prompt_id=(
@@ -79,6 +114,9 @@ class EpisodeContextBuilder:
                     else "episode_outline_non_narrative"
                 ),
                 source="\n\n".join(parts),
+                project_id=project["id"],
+                book_type=books[0]["book_type"],
+                variables=common_variables,
             )
 
         previous_stage = "outline" if stage == "draft" else "draft"
@@ -93,6 +131,14 @@ class EpisodeContextBuilder:
         if not previous:
             label = "声音细纲" if previous_stage == "outline" else "声音初稿"
             raise ValueError(f"缺少上一步产物：{label}")
+        variables = {
+            **common_variables,
+            (
+                "episode_outline"
+                if stage == "draft"
+                else "episode_draft"
+            ): previous["content"],
+        }
         return StageContext(
             prompt_id=STAGE_PROMPTS[stage],
             source=(
@@ -100,6 +146,9 @@ class EpisodeContextBuilder:
                 f"# 上一步产物\n{previous['content']}\n\n"
                 f"# 原文证据\n{evidence}"
             ),
+            project_id=project["id"],
+            book_type=books[0]["book_type"],
+            variables=variables,
         )
 
     @staticmethod

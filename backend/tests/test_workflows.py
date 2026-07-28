@@ -56,11 +56,24 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     assert analysis["knowledge_count"] >= 1
 
     project = service.create_project("测试专辑", book_id)
+    album_prompt = service.prompts.create_version(
+        "album_outline",
+        "project",
+        "项目专辑提示词\n{{book_analysis}}",
+        project["id"],
+    )
     project = asyncio.run(
         service.generate_project_knowledge_outputs(project["id"])
     )["project"]
+    assert project["album_prompt_version_id"] == album_prompt["prompt_version_id"]
     service.confirm_project(project["id"])
     episode_id = project["episodes"][0]["id"]
+    draft_prompt = service.prompts.create_version(
+        "episode_draft",
+        "project",
+        "项目声音初稿提示词\n{{episode_outline}}\n{{source_text}}",
+        project["id"],
+    )
 
     locked_provider = DemoProvider(name="anthropic", model="locked-model")
     asyncio.run(
@@ -102,12 +115,22 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     assert sum(item["stage"] == "final" for item in versions) == 3
     snapshots = database.rows(
         """
-        SELECT input_snapshot FROM artifact_versions
+        SELECT stage, input_snapshot, prompt_version_id
+        FROM artifact_versions
         WHERE episode_id = ? AND author_type = 'model'
         """,
         (episode_id,),
     )
     assert all(item["input_snapshot"] for item in snapshots)
+    draft_snapshots = [item for item in snapshots if item["stage"] == "draft"]
+    assert all(
+        item["prompt_version_id"] == draft_prompt["prompt_version_id"]
+        for item in draft_snapshots
+    )
+    assert all(
+        "项目声音初稿提示词" in item["input_snapshot"]
+        for item in draft_snapshots
+    )
 
     model_final = next(item for item in versions if item["stage"] == "final")
     service.save_manual_final(episode_id, f"{model_final['content']}\n人工修订")

@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 const API_BASE = "http://127.0.0.1:8000";
 
-type View = "library" | "projects" | "runs" | "settings";
+type View = "library" | "projects" | "prompts" | "runs" | "settings";
 type BookType = "narrative" | "non_narrative";
 type ProjectModelStage =
   | "mind_map"
@@ -146,6 +146,8 @@ type ArtifactVersion = {
   provider: string;
   model: string;
   prompt_version: string;
+  prompt_version_id?: string | null;
+  prompt_system_version_id?: string | null;
   author_type: "model" | "human";
   created_at: string;
 };
@@ -167,6 +169,45 @@ type ModelOption = {
   provider: string;
 };
 
+type PromptStage =
+  | "album_outline"
+  | "episode_outline"
+  | "episode_draft"
+  | "episode_final";
+
+type PromptTemplateConfig = {
+  stage_key: PromptStage;
+  label: string;
+  source_scope: "system" | "global" | "project";
+  source_label: string;
+  user_template: string;
+  prompt_version_id: string;
+  version: number;
+  system_version_id: string;
+  system_version: string;
+  allowed_placeholders: Record<string, string>;
+  required_placeholders: string[];
+  has_project_override: boolean;
+  has_global_override: boolean;
+};
+
+type PromptHistoryVersion = {
+  id: string;
+  scope: "global" | "project";
+  project_id: string | null;
+  version: number;
+  user_template: string;
+  source_version_id: string | null;
+  created_at: string;
+};
+
+type PromptPreview = {
+  rendered_user_template: string;
+  protected_suffix: string;
+  source_label: string;
+  truncated: boolean;
+};
+
 type WorkflowRun = {
   id: string;
   scope_type: string;
@@ -182,6 +223,12 @@ type WorkflowRun = {
     model?: string;
     provider?: string;
     stage_model_ids?: Partial<Record<"outline" | "draft" | "final", string>>;
+    stage_prompt_locks?: Partial<
+      Record<
+        "outline" | "draft" | "final",
+        { prompt_version_id: string; system_version_id: string }
+      >
+    >;
   };
   created_at: string;
   updated_at: string;
@@ -277,6 +324,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [backendOnline, setBackendOnline] = useState(false);
   const [vaultPath, setVaultPath] = useState("");
+  const [promptDirty, setPromptDirty] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -690,6 +738,7 @@ export default function Home() {
   const navItems: { key: View; label: string; hint: string }[] = [
     { key: "library", label: "书籍知识库", hint: `${books.length} 本` },
     { key: "projects", label: "内容项目", hint: `${projects.length} 个` },
+    { key: "prompts", label: "提示词", hint: "4 个环节" },
     { key: "runs", label: "运行记录", hint: busy ? "执行中" : "正常" },
     { key: "settings", label: "设置与同步", hint: settings?.provider || "—" },
   ];
@@ -710,6 +759,14 @@ export default function Home() {
               key={item.key}
               className={view === item.key ? "nav-item active" : "nav-item"}
               onClick={() => {
+                if (
+                  view === "prompts" &&
+                  item.key !== "prompts" &&
+                  promptDirty &&
+                  !window.confirm("提示词还有未保存修改，确定离开吗？")
+                ) {
+                  return;
+                }
                 setView(item.key);
                 if (item.key === "library") setSelectedProject(null);
                 if (item.key === "projects") setSelectedBook(null);
@@ -735,12 +792,14 @@ export default function Home() {
             <p className="eyebrow">
               {view === "library" && "KNOWLEDGE LIBRARY"}
               {view === "projects" && "CONTENT STUDIO"}
+              {view === "prompts" && "PROMPT WORKBENCH"}
               {view === "runs" && "WORKFLOW RUNS"}
               {view === "settings" && "LOCAL SETTINGS"}
             </p>
             <h1>
               {view === "library" && (selectedBook?.title || "书籍知识库")}
               {view === "projects" && (selectedProject?.title || "内容项目")}
+              {view === "prompts" && "提示词配置"}
               {view === "runs" && "运行记录"}
               {view === "settings" && "设置与 Obsidian"}
             </h1>
@@ -822,6 +881,13 @@ export default function Home() {
               runs={runs}
               busy={busy}
               onCancel={(id) => void cancelRun(id)}
+            />
+          )}
+
+          {view === "prompts" && (
+            <PromptSettingsView
+              projects={projects}
+              onDirtyChange={setPromptDirty}
             />
           )}
 
@@ -2177,6 +2243,469 @@ function RunsView({
           {!runs.length && <div className="panel-empty">生成声音后，运行状态会显示在这里。</div>}
         </div>
       </section>
+    </div>
+  );
+}
+
+const promptStages: PromptStage[] = [
+  "album_outline",
+  "episode_outline",
+  "episode_draft",
+  "episode_final",
+];
+
+function promptDraftIssues(
+  config: PromptTemplateConfig | null,
+  draft: string,
+): string[] {
+  if (!config) return [];
+  const issues: string[] = [];
+  if (!draft.trim()) issues.push("提示词不能为空");
+  if (draft.length > 50_000) issues.push("提示词不能超过 50,000 个字符");
+  const tokenPattern = /\{\{([a-z][a-z0-9_]*)\}\}/g;
+  const withoutTokens = draft.replace(tokenPattern, "");
+  if (withoutTokens.includes("{{") || withoutTokens.includes("}}")) {
+    issues.push("存在不完整的占位符花括号");
+  }
+  const used = new Set(Array.from(draft.matchAll(tokenPattern), (match) => match[1]));
+  const unknown = Array.from(used).filter(
+    (name) => !(name in config.allowed_placeholders),
+  );
+  if (unknown.length) issues.push(`未知占位符：${unknown.join("、")}`);
+  const missing = config.required_placeholders.filter((name) => !used.has(name));
+  if (missing.length) issues.push(`缺少必要占位符：${missing.join("、")}`);
+  return issues;
+}
+
+function PromptSettingsView({
+  projects,
+  onDirtyChange,
+}: {
+  projects: Project[];
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [scope, setScope] = useState<"global" | "project">("global");
+  const [projectId, setProjectId] = useState(projects[0]?.id || "");
+  const [templates, setTemplates] = useState<PromptTemplateConfig[]>([]);
+  const [selectedStage, setSelectedStage] =
+    useState<PromptStage>("album_outline");
+  const [draft, setDraft] = useState("");
+  const [history, setHistory] = useState<PromptHistoryVersion[]>([]);
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodeId, setEpisodeId] = useState("");
+  const [preview, setPreview] = useState<PromptPreview | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  const current = useMemo(
+    () => templates.find((item) => item.stage_key === selectedStage) || null,
+    [selectedStage, templates],
+  );
+  const issues = useMemo(
+    () => promptDraftIssues(current, draft),
+    [current, draft],
+  );
+
+  const load = useCallback(async () => {
+    if (scope === "project" && !projectId) {
+      setTemplates([]);
+      setHistory([]);
+      setEpisodes([]);
+      return;
+    }
+    const projectQuery =
+      scope === "project" ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    const historyParams = new URLSearchParams({
+      stage_key: selectedStage,
+      scope,
+    });
+    if (scope === "project") historyParams.set("project_id", projectId);
+    const requests: [
+      Promise<PromptTemplateConfig[]>,
+      Promise<PromptHistoryVersion[]>,
+      Promise<Project | null>,
+    ] = [
+      request<PromptTemplateConfig[]>(`/api/prompts/templates${projectQuery}`),
+      request<PromptHistoryVersion[]>(
+        `/api/prompts/history?${historyParams.toString()}`,
+      ),
+      scope === "project"
+        ? request<Project>(`/api/projects/${projectId}`)
+        : Promise.resolve(null),
+    ];
+    const [nextTemplates, nextHistory, project] = await Promise.all(requests);
+    const nextCurrent =
+      nextTemplates.find((item) => item.stage_key === selectedStage) || null;
+    setTemplates(nextTemplates);
+    setHistory(nextHistory);
+    setDraft(nextCurrent?.user_template || "");
+    setEpisodes(project?.episodes || []);
+    setEpisodeId((currentEpisodeId) => {
+      if (project?.episodes?.some((item) => item.id === currentEpisodeId)) {
+        return currentEpisodeId;
+      }
+      return project?.episodes?.[0]?.id || "";
+    });
+    setPreview(null);
+    setDirty(false);
+    onDirtyChange(false);
+  }, [onDirtyChange, projectId, scope, selectedStage]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.resolve()
+      .then(load)
+      .catch((caught: unknown) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "载入提示词失败");
+        }
+      })
+      .finally(() => {
+        if (active) setBusy("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [load]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const changeDraft = (value: string) => {
+    setDraft(value);
+    setDirty(value !== current?.user_template);
+    onDirtyChange(value !== current?.user_template);
+    setPreview(null);
+  };
+
+  const confirmDiscard = () =>
+    !dirty || window.confirm("提示词还有未保存修改，确定放弃吗？");
+
+  const changeScope = (nextScope: "global" | "project") => {
+    if (scope === nextScope || !confirmDiscard()) return;
+    setScope(nextScope);
+    setPreview(null);
+  };
+
+  const changeStage = (stage: PromptStage) => {
+    if (selectedStage === stage || !confirmDiscard()) return;
+    setSelectedStage(stage);
+    setPreview(null);
+  };
+
+  const runPromptAction = async (
+    label: string,
+    action: () => Promise<void>,
+  ) => {
+    setBusy(label);
+    setError("");
+    setNotice("");
+    try {
+      await action();
+      setNotice(`${label}完成`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `${label}失败`);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const save = () =>
+    runPromptAction("保存新版本", async () => {
+      if (issues.length) throw new Error(issues[0]);
+      await request("/api/prompts/versions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage_key: selectedStage,
+          scope,
+          project_id: scope === "project" ? projectId : null,
+          user_template: draft,
+        }),
+      });
+      await load();
+    });
+
+  const restore = (version: PromptHistoryVersion) => {
+    if (!window.confirm(`恢复 ${scope === "global" ? "全局" : "项目"} v${version.version}？恢复会创建一个新版本。`)) {
+      return;
+    }
+    void runPromptAction("恢复历史版本", async () => {
+      await request("/api/prompts/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage_key: selectedStage,
+          scope,
+          project_id: scope === "project" ? projectId : null,
+          version_id: version.id,
+        }),
+      });
+      await load();
+    });
+  };
+
+  const reset = () => {
+    const message =
+      scope === "global"
+        ? "恢复系统默认？现有全局历史版本会保留。"
+        : "取消当前项目覆盖？该项目将重新跟随全局提示词。";
+    if (!window.confirm(message)) return;
+    void runPromptAction(
+      scope === "global" ? "恢复系统默认" : "取消项目覆盖",
+      async () => {
+        const path =
+          scope === "global"
+            ? `/api/prompts/global/${selectedStage}`
+            : `/api/projects/${projectId}/prompts/${selectedStage}`;
+        await request(path, { method: "DELETE" });
+        await load();
+      },
+    );
+  };
+
+  const showPreview = () =>
+    runPromptAction("生成预览", async () => {
+      if (issues.length) throw new Error(issues[0]);
+      setPreview(
+        await request<PromptPreview>("/api/prompts/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stage_key: selectedStage,
+            project_id: scope === "project" ? projectId : null,
+            episode_id:
+              scope === "project" && selectedStage !== "album_outline"
+                ? episodeId || null
+                : null,
+            user_template: draft,
+          }),
+        }),
+      );
+    });
+
+  const insertPlaceholder = (name: string) => {
+    const editor = editorRef.current;
+    const token = `{{${name}}}`;
+    const start = editor?.selectionStart ?? draft.length;
+    const end = editor?.selectionEnd ?? draft.length;
+    changeDraft(`${draft.slice(0, start)}${token}${draft.slice(end)}`);
+    window.requestAnimationFrame(() => {
+      editor?.focus();
+      editor?.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  return (
+    <div className="prompt-settings-page">
+      <section className="prompt-toolbar">
+        <div className="prompt-scope-switch" aria-label="提示词作用范围">
+          <button
+            className={scope === "global" ? "active" : ""}
+            onClick={() => changeScope("global")}
+          >
+            全局默认
+          </button>
+          <button
+            className={scope === "project" ? "active" : ""}
+            onClick={() => changeScope("project")}
+          >
+            项目覆盖
+          </button>
+        </div>
+        {scope === "project" && (
+          <label className="prompt-project-select">
+            <span>内容项目</span>
+            <select
+              value={projectId}
+              onChange={(event) => {
+                if (!confirmDiscard()) return;
+                setProjectId(event.target.value);
+              }}
+            >
+              <option value="">选择内容项目</option>
+              {projects.map((project) => (
+                <option value={project.id} key={project.id}>
+                  {project.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p>
+          {scope === "global"
+            ? "未设置项目覆盖的内容项目会自动使用这里的最新版本。"
+            : "项目未保存覆盖时继续跟随全局；保存后仅影响当前项目。"}
+        </p>
+      </section>
+
+      {(notice || error) && (
+        <div className={error ? "prompt-message error" : "prompt-message"}>
+          {error || notice}
+        </div>
+      )}
+
+      {scope === "project" && !projectId ? (
+        <div className="empty-card">
+          <span>词</span>
+          <h2>请选择内容项目</h2>
+          <p>选择项目后，可以为四个生产环节设置独立提示词。</p>
+        </div>
+      ) : (
+        <div className="prompt-workbench">
+          <aside className="prompt-stage-rail">
+            <p className="eyebrow">WORKFLOW</p>
+            <h2>提示词环节</h2>
+            {promptStages.map((stage) => {
+              const item = templates.find((template) => template.stage_key === stage);
+              return (
+                <button
+                  key={stage}
+                  className={selectedStage === stage ? "active" : ""}
+                  onClick={() => changeStage(stage)}
+                >
+                  <strong>{item?.label || projectModelStageLabels[stage]}</strong>
+                  <span>{item?.source_label || "载入中"}</span>
+                </button>
+              );
+            })}
+          </aside>
+
+          <section className="prompt-editor-panel">
+            <header>
+              <div>
+                <p className="eyebrow">USER PROMPT TEMPLATE</p>
+                <h2>{current?.label || "提示词模板"}</h2>
+                <span>
+                  当前生效：{current?.source_label || "—"} · 系统约束{" "}
+                  {current?.system_version || "—"}
+                </span>
+              </div>
+              {dirty && <em>未保存</em>}
+            </header>
+            <textarea
+              ref={editorRef}
+              value={draft}
+              onChange={(event) => changeDraft(event.target.value)}
+              spellCheck={false}
+              aria-label="用户提示词模板"
+            />
+            {issues.length > 0 && (
+              <div className="prompt-validation">
+                {issues.map((issue) => <span key={issue}>{issue}</span>)}
+              </div>
+            )}
+            {scope === "project" &&
+              selectedStage !== "album_outline" &&
+              episodes.length > 0 && (
+                <label className="prompt-preview-episode">
+                  <span>预览使用的声音</span>
+                  <select
+                    value={episodeId}
+                    onChange={(event) => setEpisodeId(event.target.value)}
+                  >
+                    {episodes.map((episode) => (
+                      <option key={episode.id} value={episode.id}>
+                        {String(episode.position).padStart(2, "0")} · {episode.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            <footer>
+              <button
+                className="quiet-button"
+                disabled={Boolean(busy) || issues.length > 0}
+                onClick={() => void showPreview()}
+              >
+                预览填充结果
+              </button>
+              <button
+                className="primary-button"
+                disabled={Boolean(busy) || !dirty || issues.length > 0}
+                onClick={() => void save()}
+              >
+                {busy || "保存为新版本"}
+              </button>
+            </footer>
+            {preview && (
+              <div className="prompt-preview">
+                <div>
+                  <strong>用户模板渲染结果</strong>
+                  {preview.truncated && <span>长内容已截断</span>}
+                </div>
+                <pre>{preview.rendered_user_template}</pre>
+                <details>
+                  <summary>查看系统追加的受保护约束</summary>
+                  <pre>{preview.protected_suffix}</pre>
+                </details>
+              </div>
+            )}
+          </section>
+
+          <aside className="prompt-meta-panel">
+            <section>
+              <p className="eyebrow">PLACEHOLDERS</p>
+              <h3>可用占位符</h3>
+              <div className="placeholder-list">
+                {Object.entries(current?.allowed_placeholders || {}).map(
+                  ([name, description]) => (
+                    <button key={name} onClick={() => insertPlaceholder(name)}>
+                      <code>{`{{${name}}}`}</code>
+                      <span>{description}</span>
+                      <em>
+                        {current?.required_placeholders.includes(name)
+                          ? "必要"
+                          : "可选"}
+                      </em>
+                    </button>
+                  ),
+                )}
+              </div>
+            </section>
+            <section className="prompt-history">
+              <div className="prompt-history-heading">
+                <div><p className="eyebrow">VERSIONS</p><h3>历史版本</h3></div>
+                {(scope === "global"
+                  ? current?.has_global_override
+                  : current?.has_project_override) && (
+                  <button className="text-button danger" onClick={reset}>
+                    {scope === "global" ? "恢复系统默认" : "取消项目覆盖"}
+                  </button>
+                )}
+              </div>
+              {history.length ? history.map((version) => (
+                <details key={version.id}>
+                  <summary>
+                    <div>
+                      <strong>v{version.version}</strong>
+                      <span>{new Date(version.created_at).toLocaleString("zh-CN")}</span>
+                    </div>
+                    <span>查看</span>
+                  </summary>
+                  <pre>{version.user_template}</pre>
+                  <button
+                    className="quiet-button"
+                    disabled={Boolean(busy)}
+                    onClick={() => restore(version)}
+                  >
+                    恢复为新版本
+                  </button>
+                </details>
+              )) : <p className="prompt-empty-history">还没有用户保存的版本。</p>}
+            </section>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

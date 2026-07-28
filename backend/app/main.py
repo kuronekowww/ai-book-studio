@@ -18,6 +18,7 @@ from .ingestion import analysis_candidate_map, parse_book
 from .model_catalog import ModelManager
 from .model_routing import ModelRoutingService
 from .obsidian import ObsidianSyncService
+from .prompt_config import PromptConfigurationService
 from .providers import ModelGenerationError, ModelProvider
 from .workflows import StageGenerationError, WorkflowService
 
@@ -29,8 +30,11 @@ evidence = EvidenceService(database)
 evidence.ensure_all_books()
 model_manager = ModelManager(settings)
 model_routing = ModelRoutingService(database, model_manager)
+prompt_configuration = PromptConfigurationService(database)
 initial_provider = model_manager.snapshot().provider
-workflows = WorkflowService(database, initial_provider)
+workflows = WorkflowService(
+    database, initial_provider, prompt_configuration=prompt_configuration
+)
 batches = BatchService(
     database,
     workflows,
@@ -120,8 +124,139 @@ class ProjectModelSelectionPayload(BaseModel):
     model_id: str | None = None
 
 
+class PromptVersionPayload(BaseModel):
+    stage_key: str
+    scope: Literal["global", "project"]
+    project_id: str | None = None
+    user_template: str = Field(min_length=1, max_length=50_000)
+
+
+class PromptRestorePayload(BaseModel):
+    stage_key: str
+    scope: Literal["global", "project"]
+    version_id: str
+    project_id: str | None = None
+
+
+class PromptPreviewPayload(BaseModel):
+    stage_key: str
+    user_template: str = Field(min_length=1, max_length=50_000)
+    project_id: str | None = None
+    episode_id: str | None = None
+
+
 def not_found(label: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{label}不存在")
+
+
+def _truncate_prompt_value(value: str, limit: int = 6_000) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}\n\n[预览已截断，原始长度 {len(value)} 字符]"
+
+
+def prompt_preview_values(
+    stage_key: str,
+    project_id: str | None = None,
+    episode_id: str | None = None,
+) -> tuple[dict[str, str], str]:
+    values = {
+        "book_analysis": "# 第一章 示例拆书稿\n\n## 子主题\n示例观点与原文索引。",
+        "book_title": "示例书名",
+        "book_author": "示例作者",
+        "book_type": "非叙事类",
+        "album_special_requirements": "无",
+        "desired_episode_count": "未指定，由模型根据内容自行决定",
+        "episode_title": "示例声音标题",
+        "episode_framework": "听众钩子、核心主题与递进核心要点。",
+        "source_text": "示例原文块与知识资产证据。",
+        "character_relationships": "非故事类书籍无须提供人物关系。",
+        "episode_outline": "示例声音细纲。",
+        "episode_draft": "示例声音初稿。",
+        "previous_episode_final": "当前没有可用的上一集终稿。",
+    }
+    book_type = "non_narrative"
+    if not project_id:
+        return values, book_type
+    project = database.row("SELECT * FROM projects WHERE id = ?", (project_id,))
+    if not project:
+        raise KeyError(project_id)
+    book = (
+        database.row("SELECT * FROM books WHERE id = ?", (project["book_ids"][0],))
+        if project["book_ids"]
+        else None
+    )
+    if book:
+        book_type = book["book_type"]
+        values.update(
+            {
+                "book_title": book["title"],
+                "book_author": book["author"] or "未填写",
+                "book_type": "叙事类" if book_type == "narrative" else "非叙事类",
+                "album_special_requirements": (
+                    project["album_special_requirements"] or "无"
+                ),
+                "desired_episode_count": (
+                    str(project["desired_episode_count"])
+                    if project["desired_episode_count"]
+                    else "未指定，由模型根据内容自行决定"
+                ),
+            }
+        )
+        analyses = database.rows(
+            """
+            SELECT current.rendered_markdown
+            FROM chapter_analyses current
+            WHERE current.book_id = ? AND current.status = 'succeeded'
+              AND current.version = (
+                SELECT MAX(latest.version)
+                FROM chapter_analyses latest
+                WHERE latest.root_section_id = current.root_section_id
+              )
+            ORDER BY current.created_at
+            """,
+            (book["id"],),
+        )
+        if analyses:
+            values["book_analysis"] = "\n\n".join(
+                item["rendered_markdown"] for item in analyses
+            )
+    if stage_key != "album_outline":
+        episode = (
+            database.row(
+                "SELECT * FROM episodes WHERE id = ? AND project_id = ?",
+                (episode_id, project_id),
+            )
+            if episode_id
+            else database.row(
+                """
+                SELECT * FROM episodes
+                WHERE project_id = ? ORDER BY position LIMIT 1
+                """,
+                (project_id,),
+            )
+        )
+        if episode:
+            try:
+                values.update(workflows.contexts.build(episode["id"], "outline").variables)
+            except ValueError:
+                values.update(
+                    {
+                        "episode_title": episode["title"],
+                        "episode_framework": episode["content_framework"],
+                    }
+                )
+            for artifact_stage, variable in (
+                ("outline", "episode_outline"),
+                ("draft", "episode_draft"),
+            ):
+                artifact = workflows.latest_artifact(episode["id"], artifact_stage)
+                if artifact:
+                    values[variable] = artifact["content"]
+    return {
+        key: _truncate_prompt_value(value)
+        for key, value in values.items()
+    }, book_type
 
 
 def create_task(coroutine: Any) -> None:
@@ -136,12 +271,18 @@ async def execute_episode_run(
     from_stage: str,
     provider: ModelProvider | None = None,
     stage_providers: dict[str, ModelProvider] | None = None,
+    stage_prompt_locks: dict[str, dict[str, str]] | None = None,
 ) -> None:
     current = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
     if not current or current["status"] == "cancelled":
         return
     task_provider = provider
     locked_stage_providers = stage_providers
+    locked_prompt_versions = stage_prompt_locks
+    if locked_prompt_versions is None:
+        metadata_locks = current["metadata_json"].get("stage_prompt_locks")
+        if isinstance(metadata_locks, dict):
+            locked_prompt_versions = metadata_locks
     if locked_stage_providers is None:
         stage_model_ids = current["metadata_json"].get("stage_model_ids")
         if isinstance(stage_model_ids, dict) and stage_model_ids:
@@ -169,6 +310,7 @@ async def execute_episode_run(
             from_stage,
             provider=task_provider,
             stage_providers=locked_stage_providers,
+            stage_prompt_locks=locked_prompt_versions,
         )
         batches.reconcile_episode_success(episode_id)
         current = database.row("SELECT status FROM workflow_runs WHERE id = ?", (run_id,))
@@ -607,6 +749,9 @@ async def generate_project_outline(
             payload.desired_episode_count,
             mind_map_provider=snapshots["mind_map"].provider,
             album_outline_provider=snapshots["album_outline"].provider,
+            album_prompt_lock=prompt_configuration.lock_stage(
+                "album_outline", project_id
+            ),
         )
         result["project"].update(model_routing.project_config(project_id))
         return result
@@ -676,6 +821,9 @@ async def generate_all(project_id: str) -> dict[str, Any]:
                 stage: snapshot.run_model_id
                 for stage, snapshot in snapshots.items()
             },
+            stage_prompt_locks=prompt_configuration.lock_episode_stages(
+                project_id
+            ),
         )
     except KeyError as error:
         raise not_found("项目") from error
@@ -740,6 +888,9 @@ async def generate_episode(
     stage_model_ids = {
         stage: snapshot.run_model_id for stage, snapshot in snapshots.items()
     }
+    stage_prompt_locks = prompt_configuration.lock_episode_stages(
+        episode["project_id"]
+    )
     database.execute(
         """
         INSERT INTO workflow_runs
@@ -752,7 +903,11 @@ async def generate_episode(
             episode_id,
             payload.from_stage,
             json.dumps(
-                {"stage_model_ids": stage_model_ids}, ensure_ascii=False
+                {
+                    "stage_model_ids": stage_model_ids,
+                    "stage_prompt_locks": stage_prompt_locks,
+                },
+                ensure_ascii=False,
             ),
             now,
             now,
@@ -767,6 +922,7 @@ async def generate_episode(
                 stage: snapshot.provider
                 for stage, snapshot in snapshots.items()
             },
+            stage_prompt_locks=stage_prompt_locks,
         )
     )
     return database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
@@ -824,6 +980,112 @@ def sync_obsidian(payload: SyncPayload) -> dict[str, Any]:
 @app.get("/api/settings/status")
 def settings_status() -> dict[str, Any]:
     return model_manager.status()
+
+
+@app.get("/api/prompts/templates")
+def list_prompt_templates(
+    project_id: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return prompt_configuration.list_templates(project_id)
+    except KeyError as error:
+        raise not_found("项目") from error
+
+
+@app.get("/api/prompts/effective")
+def effective_prompt(
+    stage_key: str,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return prompt_configuration.effective(stage_key, project_id)
+    except KeyError as error:
+        raise not_found("项目或提示词") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/prompts/history")
+def prompt_history(
+    stage_key: str,
+    scope: Literal["global", "project"],
+    project_id: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return prompt_configuration.history(stage_key, scope, project_id)
+    except KeyError as error:
+        raise not_found("项目或提示词") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/prompts/versions")
+def create_prompt_version(payload: PromptVersionPayload) -> dict[str, Any]:
+    try:
+        return prompt_configuration.create_version(
+            payload.stage_key,
+            payload.scope,
+            payload.user_template,
+            payload.project_id,
+        )
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/prompts/restore")
+def restore_prompt_version(payload: PromptRestorePayload) -> dict[str, Any]:
+    try:
+        return prompt_configuration.restore(
+            payload.stage_key,
+            payload.scope,
+            payload.version_id,
+            payload.project_id,
+        )
+    except KeyError as error:
+        raise not_found("项目或提示词") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.delete("/api/prompts/global/{stage_key}")
+def reset_global_prompt(stage_key: str) -> dict[str, Any]:
+    try:
+        return prompt_configuration.reset_global(stage_key)
+    except (KeyError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/projects/{project_id}/prompts/{stage_key}")
+def clear_project_prompt(project_id: str, stage_key: str) -> dict[str, Any]:
+    try:
+        return prompt_configuration.clear_project(stage_key, project_id)
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/prompts/preview")
+def preview_prompt(payload: PromptPreviewPayload) -> dict[str, Any]:
+    try:
+        values, book_type = prompt_preview_values(
+            payload.stage_key,
+            payload.project_id,
+            payload.episode_id,
+        )
+        return prompt_configuration.preview(
+            payload.stage_key,
+            payload.user_template,
+            values,
+            project_id=payload.project_id,
+            book_type=book_type,
+        )
+    except KeyError as error:
+        raise not_found("项目") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.put("/api/settings/model")

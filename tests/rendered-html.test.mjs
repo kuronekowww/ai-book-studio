@@ -54,3 +54,23 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(styles, /grid-template-columns: minmax\(280px, 300px\).*minmax\(250px, 280px\)/);
   assert.match(styles, /\.final-editor \{/);
 });
+
+test("keeps the versioned prompt workbench in source", async () => {
+  const [page, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /label: "提示词"/);
+  assert.match(page, /全局默认/);
+  assert.match(page, /项目覆盖/);
+  assert.match(page, /保存为新版本/);
+  assert.match(page, /预览填充结果/);
+  assert.match(page, /恢复系统默认/);
+  assert.match(page, /取消项目覆盖/);
+  assert.match(page, /required_placeholders/);
+  assert.match(page, /\{\{\$\{name\}\}\}/);
+  assert.match(styles, /\.prompt-workbench/);
+  assert.match(styles, /\.prompt-stage-rail/);
+  assert.match(styles, /\.prompt-editor-panel/);
+  assert.match(styles, /\.prompt-meta-panel/);
+});

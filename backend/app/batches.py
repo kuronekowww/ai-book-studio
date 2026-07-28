@@ -32,6 +32,7 @@ class BatchService:
         model_id: str | None = None,
         *,
         stage_model_ids: dict[str, str] | None = None,
+        stage_prompt_locks: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         project = self.database.row(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
@@ -95,6 +96,7 @@ class BatchService:
             "concurrency": self.concurrency,
             "model_id": model_id,
             "stage_model_ids": locked_stage_model_ids,
+            "stage_prompt_locks": stage_prompt_locks or {},
         }
         self.database.execute(
             """
@@ -157,6 +159,7 @@ class BatchService:
         provider: ModelProvider | None = None,
         *,
         stage_providers: dict[str, ModelProvider] | None = None,
+        stage_prompt_locks: dict[str, dict[str, str]] | None = None,
     ) -> None:
         batch = self.database.row(
             "SELECT * FROM workflow_runs WHERE id = ?", (batch_id,)
@@ -167,6 +170,11 @@ class BatchService:
             return
         task_provider = provider
         locked_stage_providers = stage_providers
+        locked_prompt_versions = stage_prompt_locks
+        if locked_prompt_versions is None:
+            metadata_locks = batch["metadata_json"].get("stage_prompt_locks")
+            if isinstance(metadata_locks, dict):
+                locked_prompt_versions = metadata_locks
         if locked_stage_providers is None and self.provider_resolver:
             stage_model_ids = batch["metadata_json"].get("stage_model_ids")
             if isinstance(stage_model_ids, dict) and stage_model_ids:
@@ -211,6 +219,11 @@ class BatchService:
             (batch_id,),
         )
         semaphore = asyncio.Semaphore(self.concurrency)
+        prompt_kwargs = (
+            {"stage_prompt_locks": locked_prompt_versions}
+            if locked_prompt_versions
+            else {}
+        )
 
         async def worker(child: dict[str, Any]) -> None:
             async with semaphore:
@@ -235,16 +248,20 @@ class BatchService:
                             child["scope_id"],
                             child["stage"],
                             stage_providers=locked_stage_providers,
+                            **prompt_kwargs,
                         )
                     elif task_provider is None:
                         await self.workflows.generate_episode(
-                            child["scope_id"], child["stage"]
+                            child["scope_id"],
+                            child["stage"],
+                            **prompt_kwargs,
                         )
                     else:
                         await self.workflows.generate_episode(
                             child["scope_id"],
                             child["stage"],
                             provider=task_provider,
+                            **prompt_kwargs,
                         )
                     self.database.execute(
                         """
@@ -309,6 +326,11 @@ class BatchService:
             "model_id": (batch or {}).get("metadata_json", {}).get("model_id"),
             "stage_model_ids": (
                 (batch or {}).get("metadata_json", {}).get("stage_model_ids", {})
+            ),
+            "stage_prompt_locks": (
+                (batch or {}).get("metadata_json", {}).get(
+                    "stage_prompt_locks", {}
+                )
             ),
         }
         if counts["failed"]:

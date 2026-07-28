@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS projects (
   episode_count_notice TEXT NOT NULL DEFAULT '',
   album_outline_draft_json TEXT NOT NULL DEFAULT '',
   album_outline_draft_signature TEXT NOT NULL DEFAULT '',
+  album_prompt_version_id TEXT,
+  album_prompt_system_version_id TEXT,
   model_overrides_json TEXT NOT NULL DEFAULT '{"album_outline":"kimi-k3"}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -193,12 +195,53 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
   version INTEGER NOT NULL,
   content TEXT NOT NULL,
   prompt_version TEXT NOT NULL,
+  prompt_version_id TEXT,
+  prompt_system_version_id TEXT,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   author_type TEXT NOT NULL DEFAULT 'model',
   input_snapshot TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   UNIQUE(episode_id, stage, version)
+);
+
+CREATE TABLE IF NOT EXISTS prompt_templates (
+  id TEXT PRIMARY KEY,
+  stage_key TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  allowed_placeholders_json TEXT NOT NULL,
+  required_placeholders_json TEXT NOT NULL,
+  active_system_version_id TEXT,
+  active_global_version_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL REFERENCES prompt_templates(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  user_template TEXT NOT NULL,
+  system_prompt TEXT NOT NULL DEFAULT '',
+  protected_suffix TEXT NOT NULL DEFAULT '',
+  system_version TEXT NOT NULL DEFAULT '',
+  base_system_version_id TEXT,
+  source_version_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(template_id, scope, project_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_lookup
+  ON prompt_versions(template_id, scope, project_id, version);
+
+CREATE TABLE IF NOT EXISTS prompt_bindings (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL REFERENCES prompt_templates(id) ON DELETE CASCADE,
+  active_version_id TEXT NOT NULL REFERENCES prompt_versions(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, template_id)
 );
 
 CREATE TABLE IF NOT EXISTS workflow_runs (
@@ -246,6 +289,8 @@ MIGRATION_COLUMNS = {
         "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_json": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_signature": "TEXT NOT NULL DEFAULT ''",
+        "album_prompt_version_id": "TEXT",
+        "album_prompt_system_version_id": "TEXT",
         "model_overrides_json": (
             "TEXT NOT NULL DEFAULT '{\"album_outline\":\"kimi-k3\"}'"
         ),
@@ -257,6 +302,8 @@ MIGRATION_COLUMNS = {
     "artifact_versions": {
         "author_type": "TEXT NOT NULL DEFAULT 'model'",
         "input_snapshot": "TEXT NOT NULL DEFAULT ''",
+        "prompt_version_id": "TEXT",
+        "prompt_system_version_id": "TEXT",
     },
     "chapter_analyses": {
         "fragment_set_id": "TEXT",
@@ -433,6 +480,8 @@ JSON_COLUMNS = {
     "section_path_json",
     "validation_issues_json",
     "model_overrides_json",
+    "allowed_placeholders_json",
+    "required_placeholders_json",
 }
 
 

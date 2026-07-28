@@ -40,6 +40,7 @@ class TrackingWorkflows:
         self.active = 0
         self.max_active = 0
         self.stage_provider_models: list[dict[str, str]] = []
+        self.stage_prompt_locks: list[dict[str, dict[str, str]]] = []
 
     def latest_artifact(self, episode_id: str, stage: str):
         return self.database.row(
@@ -58,6 +59,7 @@ class TrackingWorkflows:
         provider=None,
         *,
         stage_providers=None,
+        stage_prompt_locks=None,
     ):
         if stage_providers:
             self.stage_provider_models.append(
@@ -66,6 +68,8 @@ class TrackingWorkflows:
                     for stage, stage_provider in stage_providers.items()
                 }
             )
+        if stage_prompt_locks:
+            self.stage_prompt_locks.append(stage_prompt_locks)
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
@@ -202,6 +206,39 @@ def test_batch_restores_different_model_for_each_episode_stage(tmp_path) -> None
             "final": "glm-5.2",
         }
     ]
+
+
+def test_batch_restores_prompt_versions_from_run_metadata(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    project_id, _ = seed_project(database, count=1)
+    workflows = TrackingWorkflows(database, failing_id="")
+    prompt_locks = {
+        "outline": {
+            "prompt_version_id": "outline-user",
+            "system_version_id": "outline-system",
+        },
+        "draft": {
+            "prompt_version_id": "draft-user",
+            "system_version_id": "draft-system",
+        },
+        "final": {
+            "prompt_version_id": "final-user",
+            "system_version_id": "final-system",
+        },
+    }
+    batches = BatchService(
+        database, workflows, concurrency=5  # type: ignore[arg-type]
+    )
+    batch = batches.create_batch(
+        project_id, stage_prompt_locks=prompt_locks
+    )
+
+    asyncio.run(batches.run_batch(batch["id"]))
+    finished = batches.batch_detail(batch["id"])
+
+    assert workflows.stage_prompt_locks == [prompt_locks]
+    assert finished["metadata_json"]["stage_prompt_locks"] == prompt_locks
 
 
 def test_database_adds_context_columns_to_existing_tables(tmp_path) -> None:
