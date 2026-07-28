@@ -1670,9 +1670,27 @@ class WorkflowService:
                 )
             ):
                 raise ValueError(f"专辑第 {position} 条字段不完整")
-            if "核心主题：" not in main_points or "核心要点：" not in main_points:
+            required_markers = ("听众钩子：", "核心主题：", "核心要点：")
+            if any(marker not in main_points for marker in required_markers):
                 raise ValueError(
-                    f"专辑第 {position} 条主要内容缺少核心主题或核心要点"
+                    f"专辑第 {position} 条主要内容缺少听众钩子、核心主题或核心要点"
+                )
+            marker_positions = [main_points.index(marker) for marker in required_markers]
+            if marker_positions != sorted(marker_positions):
+                raise ValueError(
+                    f"专辑第 {position} 条主要内容结构顺序无效"
+                )
+            key_points_text = main_points.split("核心要点：", 1)[1].strip()
+            key_point_count = len(
+                re.findall(
+                    r"(?:^|[\n；;])\s*(?:\d+\s*[.．、)）]|[-*])\s*\S+",
+                    key_points_text,
+                    flags=re.M,
+                )
+            )
+            if key_point_count < 2 or key_point_count > 4:
+                raise ValueError(
+                    f"专辑第 {position} 条核心要点必须为 2 至 4 条"
                 )
             normalized_type = content_type.strip().replace("类", "")
             if normalized_type not in {"解读", "过渡"}:

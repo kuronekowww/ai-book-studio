@@ -29,9 +29,16 @@ def test_album_outline_prompt_uses_engaging_topic_editorial_structure() -> None:
     prompt = PROMPTS["album_outline"]
     template = prompt.user_template
 
-    assert prompt.version == "2026-07-28.2"
-    assert "发现现象—追问原因—解释机制—讨论影响或出路" in template
+    assert prompt.version == "2026-07-28.3"
+    assert "此前没有阅读过原书" in template
+    assert "主要通过连续收听" in template
+    assert "建立背景或发现异常—提出问题—解释原因与机制—展开影响" in template
+    assert "相邻声音" in template
+    assert "最低限度" in template
     assert "问题、冲突、悬念、反常识、因果追问" in template
+    assert "轻松但克制" in template
+    assert "不复制任何特定创作者的口头禅" in template
+    assert "听众钩子：" in template
     assert "核心主题：" in template
     assert "核心要点：" in template
     assert "禁止使用“震惊”“颠覆认知”等空泛标题党" in template

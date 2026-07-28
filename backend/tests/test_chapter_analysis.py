@@ -290,6 +290,7 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     episode = generated["project"]["episodes"][0]
     assert episode["knowledge_item_ids"]
     assert episode["source_content_indexes"]
+    assert "听众钩子：" in episode["content_framework"]
     assert episode["section_identifier"].startswith("章节：")
     bundle = service.contexts.evidence_bundle(episode["id"])
     assert bundle["knowledge_items"]
@@ -300,6 +301,85 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert set(episode["source_content_indexes"]) == {
         item["content_index"] for item in bundle["direct_fragments"]
     }
+
+
+def test_album_outline_requires_hook_and_two_to_four_key_points(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, ConcurrentChapterProvider())
+    book_id = seed_chapter_book(database)
+    asyncio.run(service.analyze_book(book_id))
+    book = database.row("SELECT * FROM books WHERE id = ?", (book_id,))
+    asset = database.row(
+        """
+        SELECT * FROM knowledge_items
+        WHERE book_id = ? AND status = 'active'
+        ORDER BY created_at
+        LIMIT 1
+        """,
+        (book_id,),
+    )
+    base_episode = {
+        "title": "一个反常识现象背后的原因",
+        "section_identifier": "章节：第一章 子主题：核心问题",
+        "knowledge_item_ids": [asset["id"]],
+        "content_type": "解读类",
+    }
+
+    invalid_main_points = (
+        "核心主题：解释关键问题。\n"
+        "核心要点：\n"
+        "1. 只有一个要点。"
+    )
+    try:
+        service._validate_album_outline(
+            {
+                "album_outline": [
+                    {**base_episode, "main_points": invalid_main_points}
+                ]
+            },
+            book,
+            None,
+        )
+    except ValueError as error:
+        assert "听众钩子" in str(error)
+    else:
+        raise AssertionError("缺少听众钩子的专辑大纲应被拒绝")
+
+    valid_main_points = (
+        "听众钩子：一个熟悉现象为什么会产生相反结果？\n"
+        "核心主题：解释关键问题。\n"
+        "核心要点：\n"
+        "1. 从具体现象进入；\n"
+        "2. 解释背后的原因与机制。"
+    )
+    episodes, _ = service._validate_album_outline(
+        {"album_outline": [{**base_episode, "main_points": valid_main_points}]},
+        book,
+        None,
+    )
+    assert episodes[0]["content_framework"] == valid_main_points
+
+    too_many_points = (
+        "听众钩子：为什么这件事值得听？\n"
+        "核心主题：解释关键问题。\n"
+        "核心要点：\n"
+        "1. 现象；\n2. 背景；\n3. 原因；\n4. 影响；\n5. 延伸。"
+    )
+    try:
+        service._validate_album_outline(
+            {
+                "album_outline": [
+                    {**base_episode, "main_points": too_many_points}
+                ]
+            },
+            book,
+            None,
+        )
+    except ValueError as error:
+        assert "2 至 4 条" in str(error)
+    else:
+        raise AssertionError("超过四条核心要点的专辑大纲应被拒绝")
 
 
 class RecordingDemoProvider(DemoProvider):
