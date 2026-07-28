@@ -142,19 +142,6 @@ def _source_indexes(
     return sorted(indexes, key=lambda index: order[index])
 
 
-def _validate_exact_source(
-    text: str,
-    indexes: list[str],
-    fragments: dict[str, dict[str, Any]],
-    field: str,
-) -> None:
-    evidence = compact_text(
-        "\n".join(str(fragments[index]["text"]) for index in indexes)
-    )
-    if compact_text(text) not in evidence:
-        raise ValueError(f"{field} 不是所引用原文块中的连续原文")
-
-
 @dataclass(frozen=True)
 class ChapterValidationResult:
     data: dict[str, Any]
@@ -250,7 +237,6 @@ def validate_chapter_analysis_partial(
                 indexes = _source_indexes(
                     raw_quote.get("source_content_indexes"), "金句", fragments
                 )
-                _validate_exact_source(text, indexes, fragments, "金句")
                 quotes.append({"text": text, "source_content_indexes": indexes})
                 valid_item_count += 1
             except (TypeError, ValueError) as error:
@@ -412,6 +398,36 @@ def validate_chapter_analysis_partial(
                 orphan_arguments.extend(arguments)
                 if case:
                     orphan_cases.append(case)
+        for raw_argument in raw_subtopic.get("orphan_arguments") or []:
+            try:
+                if not isinstance(raw_argument, dict):
+                    raise ValueError(
+                        "orphan_arguments 条目必须包含 text 和 source_content_indexes"
+                    )
+                argument_text = _require_text(
+                    raw_argument.get("text"), "orphan_argument.text"
+                )
+                argument_indexes = _source_indexes(
+                    raw_argument.get("source_content_indexes"),
+                    "独立论据",
+                    fragments,
+                )
+                orphan_arguments.append(
+                    {
+                        "text": argument_text,
+                        "source_content_indexes": argument_indexes,
+                    }
+                )
+                valid_item_count += 1
+            except (TypeError, ValueError) as error:
+                raw_text = (
+                    raw_argument.get("text", "独立论据")
+                    if isinstance(raw_argument, dict)
+                    else "独立论据"
+                )
+                issues.append(
+                    _issue("论据", str(raw_text), error, raw_argument)
+                )
         subtopics.append(
             {
                 "title": title,

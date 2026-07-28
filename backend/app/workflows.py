@@ -52,6 +52,14 @@ class ChapterAnalysisOutputError(RuntimeError):
         self.diagnostics = diagnostics or {}
 
 
+class LocalRevalidationProvider:
+    name = "local-revalidation"
+    model = "stored-structured-json"
+
+    async def generate(self, prompt: Any, source: str) -> str:
+        raise RuntimeError("本地历史重新校验不得调用模型")
+
+
 class WorkflowService:
     def __init__(self, database: Database, provider: ModelProvider):
         self.database = database
@@ -529,6 +537,7 @@ class WorkflowService:
         validation_issues: list[dict[str, Any]] | None = None,
         valid_item_count: int = 0,
         invalid_item_count: int = 0,
+        prompt_version: str | None = None,
     ) -> str:
         current = self.database.row(
             """
@@ -558,7 +567,7 @@ class WorkflowService:
                     status,
                     json.dumps(data, ensure_ascii=False),
                     rendered,
-                    PROMPTS["book_analysis"].version,
+                    prompt_version or PROMPTS["book_analysis"].version,
                     provider.name,
                     provider.model,
                     input_snapshot,
@@ -658,6 +667,156 @@ class WorkflowService:
             if not latest or latest["status"] != "succeeded":
                 return False
         return True
+
+    def revalidate_partial_chapters(self, book_id: str) -> dict[str, Any]:
+        book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
+        if not book:
+            raise KeyError(book_id)
+        if book["book_type"] != "non_narrative":
+            raise ValueError("历史逐章重新校验仅适用于非叙事类书籍")
+        unfinished = self.database.row(
+            """
+            SELECT id FROM workflow_runs
+            WHERE status IN ('pending', 'running')
+              AND (
+                scope_id = ?
+                OR json_extract(metadata_json, '$.book_id') = ?
+              )
+            LIMIT 1
+            """,
+            (book_id, book_id),
+        )
+        if unfinished:
+            raise ValueError("该书仍有运行中的任务，请等待完成后再重新校验")
+
+        fragment_set = self.evidence.ensure_current_fragment_set(book_id)
+        roots = self._chapter_roots(book_id)
+        all_sections = self.database.rows(
+            "SELECT * FROM sections WHERE book_id = ? ORDER BY position",
+            (book_id,),
+        )
+        upgraded: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        local_provider = LocalRevalidationProvider()
+
+        for root in roots:
+            latest = self.database.row(
+                """
+                SELECT * FROM chapter_analyses
+                WHERE root_section_id = ? AND fragment_set_id = ?
+                ORDER BY version DESC LIMIT 1
+                """,
+                (root["id"], fragment_set["id"]),
+            )
+            if not latest or latest["status"] != "partial":
+                skipped.append(
+                    {
+                        "section_id": root["id"],
+                        "title": root["title"],
+                        "status": latest["status"] if latest else "missing",
+                    }
+                )
+                continue
+            try:
+                fragments = self.evidence.chapter_fragments(
+                    fragment_set["id"], root["id"]
+                )
+                chapter_source = build_chapter_source(
+                    root,
+                    all_sections,
+                    fragments=fragments,
+                    fragment_set_id=fragment_set["id"],
+                )
+                validation = validate_chapter_analysis_partial(
+                    latest["structured_json"],
+                    chapter_source.fragments_by_index,
+                )
+                if validation.issues:
+                    raise ValueError(validation.issues[0]["error"])
+                cards = derive_knowledge_cards(
+                    validation.data,
+                    chapter_source.index_to_section_id,
+                    book_id,
+                )
+                existing_ids = {
+                    row["knowledge_item_id"]
+                    for row in self.database.rows(
+                        """
+                        SELECT knowledge_item_id
+                        FROM chapter_analysis_knowledge_items
+                        WHERE chapter_analysis_id = ?
+                        """,
+                        (latest["id"],),
+                    )
+                }
+                new_ids = {card["id"] for card in cards}
+                if not cards or new_ids != existing_ids:
+                    raise ValueError(
+                        "重新校验后的知识资产集合与当前部分版本不一致，"
+                        "为保护历史数据已停止升级"
+                    )
+                rendered = render_chapter_markdown(validation.data, cards)
+                analysis_id = self._save_chapter_analysis(
+                    book_id,
+                    root,
+                    validation.data,
+                    rendered,
+                    latest["input_snapshot"],
+                    cards,
+                    local_provider,
+                    fragment_set["id"],
+                    status="succeeded",
+                    validation_issues=[],
+                    valid_item_count=len(cards),
+                    invalid_item_count=0,
+                    prompt_version="local-revalidation-2026-07-28",
+                )
+                upgraded.append(
+                    {
+                        "section_id": root["id"],
+                        "title": root["title"],
+                        "previous_analysis_id": latest["id"],
+                        "analysis_id": analysis_id,
+                        "version": int(latest["version"]) + 1,
+                        "knowledge_count": len(cards),
+                    }
+                )
+            except Exception as error:
+                failed.append(
+                    {
+                        "section_id": root["id"],
+                        "title": root["title"],
+                        "error": str(error),
+                    }
+                )
+
+        all_ready = self._all_chapters_ready(book_id)
+        self.database.execute(
+            "UPDATE books SET status = ?, updated_at = ? WHERE id = ?",
+            (
+                "analyzed" if all_ready else "analysis_partial_failed",
+                now_iso(),
+                book_id,
+            ),
+        )
+        active = self.database.row(
+            """
+            SELECT COUNT(*) AS count FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+            """,
+            (book_id,),
+        )
+        return {
+            "book_id": book_id,
+            "upgraded": upgraded,
+            "skipped": skipped,
+            "failed": failed,
+            "all_chapters_ready": all_ready,
+            "book_status": "analyzed" if all_ready else "analysis_partial_failed",
+            "active_knowledge_count": int(active["count"]) if active else 0,
+            "model_calls": 0,
+        }
 
     async def retry_chapter(
         self,

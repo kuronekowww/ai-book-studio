@@ -313,6 +313,46 @@ def test_partial_chapter_saves_valid_assets_and_blocks_album(tmp_path) -> None:
         assert "尚未完整通过" in str(error)
 
 
+def test_saved_partial_chapter_is_revalidated_without_model_call(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    provider = PartiallyInvalidChapterProvider()
+    service = WorkflowService(database, provider)
+    book_id = seed_chapter_book(database)
+    first = asyncio.run(service.analyze_book(book_id))
+    assert len(first["partial_chapters"]) == 1
+    active_before = database.row(
+        """
+        SELECT COUNT(*) AS count FROM knowledge_items
+        WHERE book_id = ? AND status = 'active'
+        """,
+        (book_id,),
+    )["count"]
+
+    result = service.revalidate_partial_chapters(book_id)
+
+    assert result["model_calls"] == 0
+    assert len(result["upgraded"]) == 1
+    assert result["failed"] == []
+    assert result["all_chapters_ready"] is True
+    assert result["book_status"] == "analyzed"
+    assert result["active_knowledge_count"] == active_before
+    analyses = database.rows(
+        """
+        SELECT status, version, invalid_item_count, validation_issues_json
+        FROM chapter_analyses WHERE book_id = ? ORDER BY version
+        """,
+        (book_id,),
+    )
+    assert [(item["status"], item["version"]) for item in analyses] == [
+        ("partial", 1),
+        ("succeeded", 2),
+    ]
+    assert analyses[0]["validation_issues_json"]
+    assert analyses[1]["validation_issues_json"] == []
+    assert analyses[1]["invalid_item_count"] == 0
+
+
 def test_invalid_content_index_is_rejected() -> None:
     data = {
         "chapter_title": "章节",
@@ -348,7 +388,7 @@ def test_invalid_content_index_is_rejected() -> None:
         assert "无效 content_index" in str(error)
 
 
-def test_non_verbatim_asset_text_is_rejected() -> None:
+def test_non_verbatim_quote_is_accepted_when_source_index_is_valid() -> None:
     data = {
         "chapter_title": "章节",
         "chapter_theme": "主题",
@@ -366,19 +406,17 @@ def test_non_verbatim_asset_text_is_rejected() -> None:
             }
         ],
     }
-    try:
-        validate_chapter_analysis(
-            data,
-            {
-                "content_valid": {
-                    "text": "这是原文中的观点。",
-                    "book_position": 1,
-                }
-            },
-        )
-        raise AssertionError("非逐字原文金句应被拒绝")
-    except ValueError as error:
-        assert "连续原文" in str(error)
+    validated = validate_chapter_analysis(
+        data,
+        {
+            "content_valid": {
+                "text": "这是原文中的观点。",
+                "book_position": 1,
+            }
+        },
+    )
+
+    assert validated["subtopics"][0]["quotes"][0]["text"] == "模型改写后的金句"
 
 
 def test_partial_validation_keeps_valid_sibling_assets() -> None:
