@@ -103,7 +103,7 @@ PROMPTS = {
     ),
     "album_outline": PromptDefinition(
         id="album_outline",
-        version="2026-07-29.1",
+        version="2026-07-29.2",
         system=(
             "你是一位资深讲书专辑总编，擅长从知识材料中发现听众真正关心的"
             "问题，把一本书编排成准确、通俗、有故事感并且有连续收听动力的"
@@ -124,16 +124,18 @@ PROMPTS = {
     ),
     "album_module_plan": PromptDefinition(
         id="album_module_plan",
-        version="2026-07-29.1",
+        version="2026-07-29.2",
         system="你负责把一本书的轻量章节目录组织成循序渐进的讲书知识模块。",
         user_template=(
             "根据章节目录设计完整知识模块。覆盖所有 CHAPTER 标识，不得编造标识，"
-            "不展开每集，不输出 JSON。每个模块按以下 Markdown 格式输出：\n"
+            "不展开每集，不输出 JSON。若输入给出目标集数和允许浮动范围，所有模块的"
+            "建议声音数之和必须落在该范围内；需要时合并相邻章节，避免模块过碎。"
+            "每个模块按以下 Markdown 格式输出：\n"
             "## 模块N：模块标题\n"
             "听众问题：这个模块为未读听众解决什么问题？\n"
             "认知顺序：如何承接前后模块。\n"
             "来源章节：[CHAPTER_001]、[CHAPTER_002]\n"
-            "建议声音数：3至5\n\n{source}"
+            "建议声音数：数字\n\n{source}"
         ),
     ),
     "album_outline_structure": PromptDefinition(

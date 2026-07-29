@@ -29,7 +29,7 @@ def test_album_outline_prompt_uses_engaging_topic_editorial_structure() -> None:
     prompt = PROMPTS["album_outline"]
     template = prompt.user_template
 
-    assert prompt.version == "2026-07-29.1"
+    assert prompt.version == "2026-07-29.2"
     assert "没有阅读过原书" in template
     assert "连续收听" in template
     assert "听众钩子" in template

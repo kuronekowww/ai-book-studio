@@ -141,6 +141,14 @@ class DemoProvider:
             )
         if prompt.id == "album_outline":
             selected = chapter_keys[:3] or ["CHAPTER_001"]
+            allocated_match = re.search(
+                r"本模块分配集数[：:]\s*(\d+)", creative_source
+            )
+            episode_count = (
+                int(allocated_match.group(1))
+                if allocated_match
+                else len(selected)
+            )
             return "\n\n".join(
                 (
                     f"## 第{position}集：为什么第{position}个问题值得追问？\n"
@@ -153,7 +161,13 @@ class DemoProvider:
                     "内容类型：解读\n"
                     f"来源章节：[{key}]"
                 )
-                for position, key in enumerate(selected, start=1)
+                for position, key in (
+                    (
+                        position,
+                        selected[(position - 1) % len(selected)],
+                    )
+                    for position in range(1, episode_count + 1)
+                )
             )
         if prompt.id == "album_outline_structure":
             blocks = re.split(r"(?=^##\s+第?\d+\s*集)", source, flags=re.M)

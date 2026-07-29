@@ -2006,7 +2006,7 @@ function ProjectWorkspace({
           <div>
             <p className="eyebrow">模型编排</p>
             <h3>生成思维导图与专辑大纲</h3>
-            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；留空时由模型根据内容结构决定集数。</p>
+            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；填写目标后允许上下浮动 2 集，留空时由模型自行决定。</p>
             <div className="model-summary">
               <span>
                 思维导图 · {project.effective_models?.mind_map.label || "—"}
@@ -2023,14 +2023,14 @@ function ProjectWorkspace({
           />
           <div className="album-generation-actions">
             <label>
-              期望集数（可选）
+              目标集数（允许上下浮动 2 集）
               <input
                 type="number"
                 min={1}
                 max={500}
                 value={desiredEpisodeCount}
                 onChange={(event) => setDesiredEpisodeCount(event.target.value)}
-                placeholder="由模型自行决定"
+                placeholder="例如 15，将生成 13–17 集"
               />
             </label>
             <button

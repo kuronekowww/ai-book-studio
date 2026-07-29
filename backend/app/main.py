@@ -164,7 +164,7 @@ def prompt_preview_values(
         "chapter_catalog": "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题",
         "module_brief": (
             "模块标题：示例知识模块\n听众问题：这个模块解决什么问题？\n"
-            "来源章节：[CHAPTER_001]\n建议声音数：3"
+            "来源章节：[CHAPTER_001]\n本模块分配集数：3"
         ),
         "module_source": (
             "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题\n"
@@ -174,7 +174,7 @@ def prompt_preview_values(
         "book_author": "示例作者",
         "book_type": "非叙事类",
         "album_special_requirements": "无",
-        "desired_episode_count": "未指定，由模型根据内容自行决定",
+        "desired_episode_count": "目标 15 集，允许 13 至 17 集",
         "episode_title": "示例声音标题",
         "episode_framework": "听众钩子、核心主题与递进核心要点。",
         "source_text": "示例原文块与知识资产证据。",
@@ -250,7 +250,7 @@ def prompt_preview_values(
                     + "、".join(
                         f"[{entry.chapter_key}]" for entry in preview_entries
                     )
-                    + "\n建议声音数：3至5"
+                    + "\n本模块分配集数：3"
                 )
             except ValueError:
                 pass

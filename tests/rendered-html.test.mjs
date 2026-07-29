@@ -38,7 +38,7 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /重新选择/);
   assert.match(page, /analysis_enabled/);
   assert.match(page, /生成思维导图与专辑大纲/);
-  assert.match(page, /期望集数（可选）/);
+  assert.match(page, /目标集数（允许上下浮动 2 集）/);
   assert.match(page, /设为全局模型/);
   assert.match(page, /新任务使用新模型，正在运行的任务继续使用启动时的模型/);
   assert.match(page, /available_models/);

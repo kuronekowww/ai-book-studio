@@ -50,6 +50,14 @@ class AlbumModule:
     position: int
 
 
+@dataclass(frozen=True)
+class AlbumEpisodeBudget:
+    desired_count: int
+    minimum_count: int
+    maximum_count: int
+    selected_count: int
+
+
 class AlbumPlanningArtifactRepository:
     def __init__(self, database: Database):
         self.database = database
@@ -351,15 +359,189 @@ class AlbumPlanningService:
         return result
 
     @staticmethod
+    def apply_episode_budget(
+        modules: list[AlbumModule],
+        entries: list[ChapterPlanningEntry],
+        *,
+        desired_episode_count: int,
+        tolerance: int = 2,
+        max_chars: int = MODULE_INPUT_TARGET_CHARS,
+    ) -> tuple[list[AlbumModule], AlbumEpisodeBudget]:
+        if not modules:
+            raise ValueError("模块计划不能为空")
+        if desired_episode_count < 1:
+            raise ValueError("目标集数必须大于 0")
+        minimum = max(1, desired_episode_count - tolerance)
+        maximum = desired_episode_count + tolerance
+        normalized = list(modules)
+        if len(normalized) > maximum:
+            merged: list[AlbumModule] = []
+            count = len(normalized)
+            for group_position in range(maximum):
+                start = group_position * count // maximum
+                end = (group_position + 1) * count // maximum
+                group = normalized[start:end]
+                chapter_keys = tuple(
+                    dict.fromkeys(
+                        key for module in group for key in module.chapter_keys
+                    )
+                )
+                merged.append(
+                    AlbumModule(
+                        key=f"MODULE_{group_position + 1:03d}",
+                        title=" / ".join(module.title for module in group),
+                        listener_question="；".join(
+                            dict.fromkeys(
+                                module.listener_question for module in group
+                            )
+                        ),
+                        chapter_keys=chapter_keys,
+                        suggested_episode_count=sum(
+                            module.suggested_episode_count for module in group
+                        ),
+                        position=group_position + 1,
+                    )
+                )
+            normalized = merged
+
+        normalized = [
+            AlbumModule(
+                key=f"MODULE_{position:03d}",
+                title=module.title,
+                listener_question=module.listener_question,
+                chapter_keys=module.chapter_keys,
+                suggested_episode_count=max(1, module.suggested_episode_count),
+                position=position,
+            )
+            for position, module in enumerate(normalized, start=1)
+        ]
+        for module in normalized:
+            source_chars = len(
+                AlbumPlanningService.render_module_source(
+                    entries, module.chapter_keys
+                )
+            )
+            if source_chars > max_chars:
+                raise ValueError(
+                    f"目标 {desired_episode_count} 集的允许上限为 {maximum} 集，"
+                    f"但合并后的“{module.title}”材料仍有 {source_chars} 字符。"
+                    "请提高目标集数，避免单次模型输入过长。"
+                )
+
+        suggested_total = sum(
+            module.suggested_episode_count for module in normalized
+        )
+        selected = max(minimum, min(maximum, suggested_total))
+        selected = max(len(normalized), selected)
+        if selected > maximum:
+            raise ValueError(
+                f"至少需要 {len(normalized)} 集才能覆盖全部知识模块，"
+                f"已超过目标允许上限 {maximum} 集"
+            )
+
+        if suggested_total == selected:
+            allocated = normalized
+        else:
+            remaining = selected - len(normalized)
+            weights = [
+                max(1, module.suggested_episode_count)
+                for module in normalized
+            ]
+            weight_total = sum(weights)
+            floors = [
+                remaining * weight // weight_total
+                for weight in weights
+            ]
+            remainders = [
+                (remaining * weight) % weight_total
+                for weight in weights
+            ]
+            extras = remaining - sum(floors)
+            bonus_positions = set(
+                sorted(
+                    range(len(normalized)),
+                    key=lambda index: (-remainders[index], index),
+                )[:extras]
+            )
+            allocated = [
+                AlbumModule(
+                    key=module.key,
+                    title=module.title,
+                    listener_question=module.listener_question,
+                    chapter_keys=module.chapter_keys,
+                    suggested_episode_count=(
+                        1
+                        + floors[index]
+                        + (1 if index in bonus_positions else 0)
+                    ),
+                    position=module.position,
+                )
+                for index, module in enumerate(normalized)
+            ]
+
+        return allocated, AlbumEpisodeBudget(
+            desired_count=desired_episode_count,
+            minimum_count=minimum,
+            maximum_count=maximum,
+            selected_count=selected,
+        )
+
+    @staticmethod
+    def render_module_plan(
+        modules: list[AlbumModule],
+        budget: AlbumEpisodeBudget | None = None,
+    ) -> str:
+        lines: list[str] = []
+        if budget:
+            lines.extend(
+                [
+                    f"目标集数：{budget.desired_count}",
+                    (
+                        f"允许范围：{budget.minimum_count}"
+                        f"至{budget.maximum_count}集"
+                    ),
+                    f"本次规划总数：{budget.selected_count}集",
+                    "",
+                ]
+            )
+        for module in modules:
+            lines.extend(
+                [
+                    f"## 模块{module.position}：{module.title}",
+                    f"听众问题：{module.listener_question}",
+                    "来源章节："
+                    + "、".join(f"[{key}]" for key in module.chapter_keys),
+                    f"建议声音数：{module.suggested_episode_count}",
+                    "",
+                ]
+            )
+        return "\n".join(lines).strip()
+
+    @staticmethod
     def validate_module_outline(
-        markdown: str, allowed_keys: set[str]
+        markdown: str,
+        allowed_keys: set[str],
+        *,
+        expected_episode_count: int | None = None,
     ) -> str:
         if not markdown.strip():
             raise ValueError("模块没有生成专辑大纲")
         episode_blocks = re.split(r"(?=^##\s+第?\d+\s*集)", markdown, flags=re.M)
-        valid_blocks = [block for block in episode_blocks if block.strip()]
+        valid_blocks = [
+            block
+            for block in episode_blocks
+            if re.search(r"^##\s+第?\d+\s*集", block, flags=re.M)
+        ]
         if not valid_blocks:
             raise ValueError("模块大纲没有可识别的声音条目")
+        if (
+            expected_episode_count is not None
+            and len(valid_blocks) != expected_episode_count
+        ):
+            raise ValueError(
+                f"本模块分配 {expected_episode_count} 集，"
+                f"模型实际生成 {len(valid_blocks)} 集"
+            )
         for position, block in enumerate(valid_blocks, start=1):
             keys = set(CHAPTER_KEY_RE.findall(block))
             if not keys:
@@ -381,6 +563,8 @@ class AlbumPlanningService:
         *,
         book_type: str,
         desired_episode_count: int | None,
+        expected_episode_count: int | None = None,
+        allowed_episode_range: tuple[int, int] | None = None,
     ) -> tuple[list[dict[str, Any]], str]:
         raw_episodes = data.get("album_outline")
         if not isinstance(raw_episodes, list) or not raw_episodes:
@@ -441,12 +625,34 @@ class AlbumPlanningService:
                     "source_content_indexes": [],
                 }
             )
-        notice = ""
-        if desired_episode_count is not None and desired_episode_count != len(episodes):
-            notice = (
-                f"期望 {desired_episode_count} 集，模型根据内容结构生成"
-                f" {len(episodes)} 集。"
+        if (
+            expected_episode_count is not None
+            and len(episodes) != expected_episode_count
+        ):
+            raise ValueError(
+                f"本次规划总数为 {expected_episode_count} 集，"
+                f"结构化结果却有 {len(episodes)} 集"
             )
+        if allowed_episode_range is not None:
+            minimum, maximum = allowed_episode_range
+            if not minimum <= len(episodes) <= maximum:
+                raise ValueError(
+                    f"专辑实际 {len(episodes)} 集，超出允许范围"
+                    f" {minimum} 至 {maximum} 集"
+                )
+        notice = ""
+        if desired_episode_count is not None:
+            if allowed_episode_range is not None:
+                minimum, maximum = allowed_episode_range
+                notice = (
+                    f"目标 {desired_episode_count} 集，允许 {minimum} 至"
+                    f" {maximum} 集，本次生成 {len(episodes)} 集。"
+                )
+            elif desired_episode_count != len(episodes):
+                notice = (
+                    f"期望 {desired_episode_count} 集，模型根据内容结构生成"
+                    f" {len(episodes)} 集。"
+                )
         return episodes, notice
 
     @staticmethod

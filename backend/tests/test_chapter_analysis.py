@@ -288,7 +288,8 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
         (book_id,),
     )
     assert saved_map["model"] == "mind-model"
-    assert "期望 3 集" in generated["project"]["episode_count_notice"]
+    assert "目标 3 集" in generated["project"]["episode_count_notice"]
+    assert "允许 1 至 5 集" in generated["project"]["episode_count_notice"]
     episode = generated["project"]["episodes"][0]
     assert episode["knowledge_item_ids"] == []
     assert episode["source_content_indexes"] == []

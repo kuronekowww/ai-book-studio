@@ -1783,6 +1783,14 @@ class WorkflowService:
             if desired_episode_count is not None
             else "未指定，由模型根据内容自行决定"
         )
+        count_range_text = (
+            (
+                f"{max(1, desired_episode_count - 2)}"
+                f"至{desired_episode_count + 2}集"
+            )
+            if desired_episode_count is not None
+            else "未指定"
+        )
         report(
             "design_album_modules",
             "running",
@@ -1806,6 +1814,7 @@ class WorkflowService:
                     f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
                     f"# 专辑特殊要求\n{requirements or '无'}\n\n"
                     f"# 期望集数\n{count_text}\n\n"
+                    f"# 允许浮动范围\n{count_range_text}\n\n"
                     f"# 轻量章节目录\n{catalog}"
                 )
                 module_plan_markdown = await album_provider.generate(
@@ -1818,6 +1827,18 @@ class WorkflowService:
             modules = self.album_planning.split_oversized_modules(
                 modules, entries
             )
+            episode_budget = None
+            if desired_episode_count is not None:
+                modules, episode_budget = (
+                    self.album_planning.apply_episode_budget(
+                        modules,
+                        entries,
+                        desired_episode_count=desired_episode_count,
+                    )
+                )
+                module_plan_markdown = self.album_planning.render_module_plan(
+                    modules, episode_budget
+                )
             if planning_run_id:
                 self.album_planning.artifacts.upsert(
                     run_id=planning_run_id,
@@ -1833,8 +1854,18 @@ class WorkflowService:
                     "artifact_type": "album_planning_artifact",
                     "planning_artifact_type": "module_plan",
                     "module_count": len(modules),
+                    "selected_episode_count": (
+                        episode_budget.selected_count
+                        if episode_budget
+                        else None
+                    ),
                 },
-                f"已设计 {len(modules)} 个知识模块",
+                (
+                    f"已设计 {len(modules)} 个知识模块，"
+                    f"本次规划 {episode_budget.selected_count} 集"
+                    if episode_budget
+                    else f"已设计 {len(modules)} 个知识模块"
+                ),
             )
         except Exception as error:
             if planning_run_id:
@@ -1873,8 +1904,23 @@ class WorkflowService:
                 else None
             )
             if existing and existing["status"] == "succeeded":
-                completed_modules += 1
-                return module, existing["content"]
+                try:
+                    existing_content = (
+                        self.album_planning.validate_module_outline(
+                            existing["content"],
+                            set(module.chapter_keys),
+                            expected_episode_count=(
+                                module.suggested_episode_count
+                                if episode_budget
+                                else None
+                            ),
+                        )
+                    )
+                except ValueError:
+                    existing = None
+                else:
+                    completed_modules += 1
+                    return module, existing_content
             if (
                 existing
                 and existing["status"] == "failed"
@@ -1917,9 +1963,24 @@ class WorkflowService:
                     module_brief = (
                         f"模块标题：{module.title}\n"
                         f"听众问题：{module.listener_question}\n"
-                        f"建议声音数：{module.suggested_episode_count}\n"
-                        "来源章节："
+                        + (
+                            f"本模块分配集数：{module.suggested_episode_count}"
+                            "（必须严格生成这个数量）\n"
+                            if episode_budget
+                            else f"建议声音数：{module.suggested_episode_count}\n"
+                        )
+                        + "来源章节："
                         + "、".join(f"[{key}]" for key in module.chapter_keys)
+                    )
+                    module_count_text = (
+                        (
+                            f"目标 {episode_budget.desired_count} 集，允许"
+                            f" {episode_budget.minimum_count} 至"
+                            f" {episode_budget.maximum_count} 集，本次规划"
+                            f" {episode_budget.selected_count} 集"
+                        )
+                        if episode_budget
+                        else count_text
                     )
                     snapshot = self.prompts.snapshot(
                         "album_outline",
@@ -1936,7 +1997,7 @@ class WorkflowService:
                                 else "非叙事类"
                             ),
                             "album_special_requirements": requirements or "无",
-                            "desired_episode_count": count_text,
+                            "desired_episode_count": module_count_text,
                         },
                         project_id=project_id,
                         locked=album_prompt_lock,
@@ -1948,7 +2009,13 @@ class WorkflowService:
                     )
                     check_cancelled()
                     markdown = self.album_planning.validate_module_outline(
-                        markdown, set(module.chapter_keys)
+                        markdown,
+                        set(module.chapter_keys),
+                        expected_episode_count=(
+                            module.suggested_episode_count
+                            if episode_budget
+                            else None
+                        ),
                     )
                 if planning_run_id:
                     self.album_planning.artifacts.upsert(
@@ -2110,6 +2177,19 @@ class WorkflowService:
                 entries,
                 book_type=book["book_type"],
                 desired_episode_count=desired_episode_count,
+                expected_episode_count=(
+                    episode_budget.selected_count
+                    if episode_budget
+                    else None
+                ),
+                allowed_episode_range=(
+                    (
+                        episode_budget.minimum_count,
+                        episode_budget.maximum_count,
+                    )
+                    if episode_budget
+                    else None
+                ),
             )
             if planning_run_id:
                 self.album_planning.artifacts.upsert(

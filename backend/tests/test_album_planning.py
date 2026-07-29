@@ -255,3 +255,115 @@ def test_oversized_module_splits_without_losing_or_reordering_chapters() -> None
         <= 600
         for module in modules
     )
+
+
+def _planning_entries(count: int) -> list[ChapterPlanningEntry]:
+    return [
+        ChapterPlanningEntry(
+            chapter_key=f"CHAPTER_{position:03d}",
+            section_id=f"section-{position}",
+            title=f"第{position}章",
+            theme=f"主题 {position}",
+            subtopic_titles=(f"子主题 {position}",),
+            concise_points=(f"观点 {position}",),
+            position=position,
+        )
+        for position in range(1, count + 1)
+    ]
+
+
+def _planning_modules(count: int) -> list[AlbumModule]:
+    return [
+        AlbumModule(
+            key=f"MODULE_{position:03d}",
+            title=f"模块 {position}",
+            listener_question=f"问题 {position}",
+            chapter_keys=(f"CHAPTER_{position:03d}",),
+            suggested_episode_count=(position % 5) + 1,
+            position=position,
+        )
+        for position in range(1, count + 1)
+    ]
+
+
+def test_episode_budget_selects_total_within_range_and_merges_in_order() -> None:
+    fifteen, budget = AlbumPlanningService.apply_episode_budget(
+        _planning_modules(15),
+        _planning_entries(15),
+        desired_episode_count=15,
+    )
+    assert (budget.minimum_count, budget.maximum_count) == (13, 17)
+    assert budget.selected_count == 17
+    assert len(fifteen) == 15
+    assert sum(module.suggested_episode_count for module in fifteen) == 17
+
+    within_range, budget = AlbumPlanningService.apply_episode_budget(
+        _planning_modules(4),
+        _planning_entries(4),
+        desired_episode_count=15,
+    )
+    assert budget.selected_count == 14
+    assert sum(module.suggested_episode_count for module in within_range) == 14
+
+    merged, budget = AlbumPlanningService.apply_episode_budget(
+        _planning_modules(20),
+        _planning_entries(20),
+        desired_episode_count=15,
+    )
+    assert len(merged) == 17
+    assert [key for module in merged for key in module.chapter_keys] == [
+        f"CHAPTER_{position:03d}" for position in range(1, 21)
+    ]
+    assert budget.selected_count == 17
+    assert sum(module.suggested_episode_count for module in merged) == 17
+
+
+def test_module_and_final_outline_enforce_selected_episode_count() -> None:
+    markdown = """## 第1集：第一集
+听众钩子：为什么？
+核心主题：解释问题。
+核心要点：
+1. 现象
+内容类型：解读
+来源章节：[CHAPTER_001]
+
+## 第2集：第二集
+听众钩子：然后呢？
+核心主题：继续解释。
+核心要点：
+1. 原因
+内容类型：解读
+来源章节：[CHAPTER_001]
+"""
+    with pytest.raises(ValueError, match="本模块分配 1 集"):
+        AlbumPlanningService.validate_module_outline(
+            markdown,
+            {"CHAPTER_001"},
+            expected_episode_count=1,
+        )
+
+    main_points = (
+        "听众钩子：为什么值得听？\n"
+        "核心主题：解释一个问题。\n"
+        "核心要点：\n1. 现象；\n2. 机制。"
+    )
+    data = {
+        "album_outline": [
+            {
+                "title": f"声音 {position}",
+                "main_points": main_points,
+                "chapter_keys": ["CHAPTER_001"],
+                "content_type": "解读",
+            }
+            for position in range(1, 3)
+        ]
+    }
+    with pytest.raises(ValueError, match="本次规划总数为 1"):
+        AlbumPlanningService.validate_structured_outline(
+            data,
+            _planning_entries(1),
+            book_type="non_narrative",
+            desired_episode_count=2,
+            expected_episode_count=1,
+            allowed_episode_range=(1, 4),
+        )
