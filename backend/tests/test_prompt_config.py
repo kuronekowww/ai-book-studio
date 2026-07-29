@@ -51,11 +51,12 @@ def test_prompt_defaults_are_initialized_idempotently(tmp_path) -> None:
         "SELECT COUNT(*) AS count FROM prompt_versions WHERE scope = 'system'"
     )["count"] == 4
     album = service.effective("album_outline")
-    assert album["system_version"] == "2026-07-29.2"
+    assert album["system_version"] == "2026-07-29.3"
     assert "module_source" in album["allowed_placeholders"]
     assert "只输出以下 Markdown 结构" in album["protected_suffix"]
     assert "knowledge_item_id" in album["protected_suffix"]
     assert "必须严格输出该数量" in album["protected_suffix"]
+    assert "当前调用只处理一个知识模块" in album["protected_suffix"]
 
 
 def test_prompt_template_validation_and_single_pass_rendering() -> None:

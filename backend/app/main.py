@@ -174,7 +174,7 @@ def prompt_preview_values(
         "book_author": "示例作者",
         "book_type": "非叙事类",
         "album_special_requirements": "无",
-        "desired_episode_count": "目标 15 集，允许 13 至 17 集",
+        "desired_episode_count": "3",
         "episode_title": "示例声音标题",
         "episode_framework": "听众钩子、核心主题与递进核心要点。",
         "source_text": "示例原文块与知识资产证据。",

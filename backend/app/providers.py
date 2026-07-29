@@ -169,6 +169,35 @@ class DemoProvider:
                     for position in range(1, episode_count + 1)
                 )
             )
+        if prompt.id == "album_outline_count_repair":
+            count_match = re.search(r"必须生成集数[：:]\s*(\d+)", source)
+            episode_count = int(count_match.group(1)) if count_match else 1
+            legal_section = re.search(
+                r"# 合法章节标识\s*(.*?)(?=\n# |\Z)",
+                source,
+                flags=re.S,
+            )
+            legal_keys = list(
+                dict.fromkeys(
+                    re.findall(
+                        r"CHAPTER_\d{3}",
+                        legal_section.group(1) if legal_section else source,
+                    )
+                )
+            ) or ["CHAPTER_001"]
+            return "\n\n".join(
+                (
+                    f"## 第{position}集：修正后的模块声音 {position}\n"
+                    "听众钩子：一个问题为什么值得继续追问？\n"
+                    "核心主题：解释当前模块的关键问题。\n"
+                    "核心要点：\n"
+                    "1. 从现象进入；\n"
+                    "2. 解释原因与影响。\n"
+                    "内容类型：解读\n"
+                    f"来源章节：[{legal_keys[(position - 1) % len(legal_keys)]}]"
+                )
+                for position in range(1, episode_count + 1)
+            )
         if prompt.id == "album_outline_structure":
             blocks = re.split(r"(?=^##\s+第?\d+\s*集)", source, flags=re.M)
             outline = []
@@ -276,6 +305,7 @@ class OpenAICompatibleProvider:
             "chapter_compression",
             "mind_map",
             "album_outline",
+            "album_outline_count_repair",
             "album_module_plan",
             "album_outline_structure",
         }
@@ -292,14 +322,26 @@ class OpenAICompatibleProvider:
         }
         if high_output:
             payload["max_tokens"] = (
-                32768 if prompt.id in {"album_outline", "album_module_plan"} else 16384
+                32768
+                if prompt.id
+                in {
+                    "album_outline",
+                    "album_outline_count_repair",
+                    "album_module_plan",
+                }
+                else 16384
             )
         if structured_output:
             payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         timeout_seconds = (
             900
-            if prompt.id in {"album_outline", "album_module_plan"}
+            if prompt.id
+            in {
+                "album_outline",
+                "album_outline_count_repair",
+                "album_module_plan",
+            }
             else 600
             if prompt.id == "mind_map"
             else 300
@@ -406,7 +448,12 @@ class AnthropicProvider:
         }
         timeout_seconds = (
             900
-            if prompt.id in {"album_outline", "album_module_plan"}
+            if prompt.id
+            in {
+                "album_outline",
+                "album_outline_count_repair",
+                "album_module_plan",
+            }
             else 600
             if prompt.id == "mind_map"
             else 300

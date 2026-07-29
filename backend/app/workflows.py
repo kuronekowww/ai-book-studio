@@ -1973,14 +1973,9 @@ class WorkflowService:
                         + "、".join(f"[{key}]" for key in module.chapter_keys)
                     )
                     module_count_text = (
-                        (
-                            f"目标 {episode_budget.desired_count} 集，允许"
-                            f" {episode_budget.minimum_count} 至"
-                            f" {episode_budget.maximum_count} 集，本次规划"
-                            f" {episode_budget.selected_count} 集"
-                        )
+                        str(module.suggested_episode_count)
                         if episode_budget
-                        else count_text
+                        else "未指定，由模型根据当前模块内容自行决定"
                     )
                     snapshot = self.prompts.snapshot(
                         "album_outline",
@@ -2008,15 +2003,49 @@ class WorkflowService:
                         snapshot.prompt, snapshot.source
                     )
                     check_cancelled()
-                    markdown = self.album_planning.validate_module_outline(
-                        markdown,
-                        set(module.chapter_keys),
-                        expected_episode_count=(
-                            module.suggested_episode_count
-                            if episode_budget
-                            else None
-                        ),
+                    expected_episode_count = (
+                        module.suggested_episode_count
+                        if episode_budget
+                        else None
                     )
+                    try:
+                        markdown = (
+                            self.album_planning.validate_module_outline(
+                                markdown,
+                                set(module.chapter_keys),
+                                expected_episode_count=expected_episode_count,
+                            )
+                        )
+                    except ValueError as validation_error:
+                        if (
+                            expected_episode_count is None
+                            or "本模块分配" not in str(validation_error)
+                        ):
+                            raise
+                        correction_source = (
+                            "# 必须生成集数\n"
+                            f"必须生成集数：{expected_episode_count}\n\n"
+                            "# 合法章节标识\n"
+                            + "、".join(
+                                f"[{key}]" for key in module.chapter_keys
+                            )
+                            + "\n\n# 当前模块精简材料\n"
+                            + module_source
+                            + "\n\n# 首次生成结果\n"
+                            + markdown
+                        )
+                        markdown = await album_provider.generate(
+                            PROMPTS["album_outline_count_repair"],
+                            correction_source,
+                        )
+                        check_cancelled()
+                        markdown = (
+                            self.album_planning.validate_module_outline(
+                                markdown,
+                                set(module.chapter_keys),
+                                expected_episode_count=expected_episode_count,
+                            )
+                        )
                 if planning_run_id:
                     self.album_planning.artifacts.upsert(
                         run_id=planning_run_id,

@@ -122,6 +122,19 @@ PROMPTS = {
             "{source}"
         ),
     ),
+    "album_outline_count_repair": PromptDefinition(
+        id="album_outline_count_repair",
+        version="2026-07-29.1",
+        system=(
+            "你是专辑大纲责任编辑，只负责把一个知识模块的声音条目调整为指定数量。"
+        ),
+        user_template=(
+            "把首次生成的模块大纲重组为严格指定数量。可以合并重复选题、删减重复条目"
+            "或重新拆分，但不得新增事实、观点、章节标识或输出 JSON。每集必须保留"
+            "标题、听众钩子、核心主题、2 至 4 条核心要点、内容类型和来源章节。"
+            "只输出修正后的 Markdown 声音条目。\n\n{source}"
+        ),
+    ),
     "album_module_plan": PromptDefinition(
         id="album_module_plan",
         version="2026-07-29.2",

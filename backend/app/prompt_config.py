@@ -97,6 +97,8 @@ content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER �
 一个、允许选择多个来源章节，同一章节可以用于多集。不生成单独导入或尾声；叙事类
 只使用“解读”，非叙事类仅在确有必要时使用“过渡”。
 如果“当前模块”中包含“本模块分配集数”，必须严格输出该数量的声音条目。
+当前调用只处理一个知识模块。即使用户模板仍出现“全书”“整张专辑”或“全专辑集数”
+等旧措辞，也不得扩展到其他模块；唯一数量约束是当前模块分配集数。
 
 只输出以下 Markdown 结构：
 ## 第1集：声音标题
@@ -180,7 +182,7 @@ PROMPT_TEMPLATE_SPECS = {
     "album_outline": PromptTemplateSpec(
         stage_key="album_outline",
         label="专辑大纲",
-        system_version="2026-07-29.2",
+        system_version="2026-07-29.3",
         system_prompt="你是一位资深讲书专辑总编，负责把拆书稿编排成准确、通俗、有连续收听动力的有声专辑。",
         default_user_template=ALBUM_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_PROTECTED_SUFFIX,
@@ -193,7 +195,7 @@ PROMPT_TEMPLATE_SPECS = {
             "book_author": "作者",
             "book_type": "叙事类或非叙事类",
             "album_special_requirements": "用户填写的专辑特殊要求",
-            "desired_episode_count": "用户目标、允许范围和本次规划总数",
+            "desired_episode_count": "当前模块分配集数；未分配时说明由模型决定",
         },
         required_placeholders=(),
     ),

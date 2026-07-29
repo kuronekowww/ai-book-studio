@@ -400,6 +400,100 @@ class RecordingDemoProvider(DemoProvider):
         return await super().generate(prompt, source)
 
 
+def _module_outline_markdown(count: int) -> str:
+    return "\n\n".join(
+        (
+            f"## 第{position}集：模块声音 {position}\n"
+            "听众钩子：为什么值得听？\n"
+            "核心主题：解释当前模块的问题。\n"
+            "核心要点：\n"
+            "1. 先看现象；\n"
+            "2. 再解释机制。\n"
+            "内容类型：解读\n"
+            "来源章节：[CHAPTER_001]"
+        )
+        for position in range(1, count + 1)
+    )
+
+
+class CountConflictProvider(DemoProvider):
+    def __init__(self, *, repair_count: int):
+        super().__init__(name="anthropic", model="count-conflict")
+        self.repair_count = repair_count
+        self.calls: list[str] = []
+        self.album_sources: list[str] = []
+
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        self.calls.append(prompt.id)
+        if prompt.id == "album_outline":
+            self.album_sources.append(source)
+            return _module_outline_markdown(15)
+        if prompt.id == "album_outline_count_repair":
+            return _module_outline_markdown(self.repair_count)
+        return await super().generate(prompt, source)
+
+
+def test_module_outline_uses_local_count_and_repairs_legacy_prompt_conflict(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, ConcurrentChapterProvider())
+    book_id = seed_chapter_book(database)
+    asyncio.run(service.analyze_book(book_id))
+    project = service.create_project("数量纠偏专辑", book_id)
+    service.prompts.create_version(
+        "album_outline",
+        "global",
+        (
+            "请把全书拆书稿编排成一张专辑。\n"
+            "全专辑期望集数：{{desired_episode_count}}\n"
+            "# 当前模块\n{{module_brief}}\n"
+            "# 拆书稿\n{{module_source}}"
+        ),
+    )
+    provider = CountConflictProvider(repair_count=2)
+
+    generated = asyncio.run(
+        service.generate_project_knowledge_outputs(
+            project["id"],
+            desired_episode_count=3,
+            mind_map_provider=DemoProvider(),
+            album_outline_provider=provider,
+        )
+    )
+
+    assert generated["album_outline"]["status"] == "succeeded"
+    assert len(generated["project"]["episodes"]) == 2
+    assert provider.calls.count("album_outline") == 1
+    assert provider.calls.count("album_outline_count_repair") == 1
+    assert "全专辑期望集数：2" in provider.album_sources[0]
+    assert "全专辑期望集数：3" not in provider.album_sources[0]
+
+
+def test_module_outline_fails_after_one_unsuccessful_count_repair(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, ConcurrentChapterProvider())
+    book_id = seed_chapter_book(database)
+    asyncio.run(service.analyze_book(book_id))
+    project = service.create_project("数量纠偏失败专辑", book_id)
+    provider = CountConflictProvider(repair_count=15)
+
+    generated = asyncio.run(
+        service.generate_project_knowledge_outputs(
+            project["id"],
+            desired_episode_count=3,
+            mind_map_provider=DemoProvider(),
+            album_outline_provider=provider,
+        )
+    )
+
+    assert generated["album_outline"]["status"] == "failed"
+    assert provider.calls.count("album_outline_count_repair") == 1
+    assert "失败 1 个模块" in generated["album_outline"]["error"]
+
+
 def test_partial_chapter_saves_valid_assets_and_blocks_album(tmp_path) -> None:
     database = Database(tmp_path / "studio.sqlite3")
     database.init()

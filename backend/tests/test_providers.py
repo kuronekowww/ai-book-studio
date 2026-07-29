@@ -240,7 +240,11 @@ def test_album_outline_and_mind_map_request_high_output_limit(
         )
     )
 
-    for prompt_id in ("mind_map", "album_outline"):
+    for prompt_id in (
+        "mind_map",
+        "album_outline",
+        "album_outline_count_repair",
+    ):
         asyncio.run(
             provider.generate(
                 PromptDefinition(
@@ -253,10 +257,19 @@ def test_album_outline_and_mind_map_request_high_output_limit(
             )
         )
 
-    assert [capture["max_tokens"] for capture in captures] == [16384, 32768]
-    assert [options["timeout"] for options in client_options] == [600, 900]
+    assert [capture["max_tokens"] for capture in captures] == [
+        16384,
+        32768,
+        32768,
+    ]
+    assert [options["timeout"] for options in client_options] == [
+        600,
+        900,
+        900,
+    ]
     assert "response_format" not in captures[0]
     assert "response_format" not in captures[1]
+    assert "response_format" not in captures[2]
 
     asyncio.run(
         provider.generate(
@@ -269,7 +282,7 @@ def test_album_outline_and_mind_map_request_high_output_limit(
             "Markdown 大纲",
         )
     )
-    assert captures[2]["response_format"] == {"type": "json_object"}
+    assert captures[3]["response_format"] == {"type": "json_object"}
 
 
 def test_openai_length_finish_reason_raises_explicit_truncation(
