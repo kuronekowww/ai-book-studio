@@ -213,8 +213,19 @@ type WorkflowRun = {
   scope_type: string;
   scope_id: string;
   stage: string;
+  current_stage: string;
   status: "pending" | "running" | "succeeded" | "partial_failed" | "failed" | "cancelled";
   message: string;
+  progress_current: number;
+  progress_total: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  heartbeat_at?: string | null;
+  attempt?: number;
+  scope_label?: string;
+  project_id?: string;
+  book_id?: string;
+  reused?: boolean;
   parent_run_id?: string | null;
   error_stage?: string;
   position?: number;
@@ -229,9 +240,31 @@ type WorkflowRun = {
         { prompt_version_id: string; system_version_id: string }
       >
     >;
+    stages?: Record<
+      string,
+      {
+        status: string;
+        message?: string;
+        updated_at?: string;
+        output?: Record<string, unknown>;
+      }
+    >;
   };
   created_at: string;
   updated_at: string;
+};
+
+type RunOutput = {
+  id?: string;
+  stage: string;
+  artifact_type: string;
+  label: string;
+  content: string;
+  version?: number;
+  provider?: string;
+  model?: string;
+  created_at?: string;
+  episode_count?: number;
 };
 
 type BatchChild = WorkflowRun & {
@@ -276,6 +309,19 @@ const stageLabels = {
   outline: "声音细纲",
   draft: "声音初稿",
   final: "声音终稿",
+};
+
+const workflowStageLabels: Record<string, string> = {
+  prepare_chapters: "准备章节",
+  analyze_chapters: "逐章拆书",
+  finalize_book: "汇总书籍知识",
+  prepare_analysis: "准备完整拆书稿",
+  generate_mind_map: "生成思维导图",
+  generate_album_outline: "生成专辑大纲",
+  save_project_outline: "校验并保存专辑大纲",
+  episode_generation: "批量生产声音",
+  book_analysis: "章节拆书",
+  ...stageLabels,
 };
 
 const projectModelStageLabels: Record<ProjectModelStage, string> = {
@@ -325,6 +371,8 @@ export default function Home() {
   const [backendOnline, setBackendOnline] = useState(false);
   const [vaultPath, setVaultPath] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
+  const [workspaceRestored, setWorkspaceRestored] = useState(false);
+  const previousActiveRuns = useRef<Map<string, WorkflowRun>>(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -354,13 +402,52 @@ export default function Home() {
       request<SettingsStatus>("/api/settings/status"),
       request<WorkflowRun[]>("/api/runs"),
     ])
-      .then(([bookList, projectList, settingsStatus, runList]) => {
+      .then(async ([bookList, projectList, settingsStatus, runList]) => {
+        if (!active) return;
+        const savedView = window.localStorage.getItem("ai-book-studio:view");
+        const savedBookId = window.localStorage.getItem("ai-book-studio:book");
+        const savedProjectId = window.localStorage.getItem("ai-book-studio:project");
+        const savedEpisodeId = window.localStorage.getItem("ai-book-studio:episode");
+        const restoredBook = savedBookId && bookList.some((item) => item.id === savedBookId)
+          ? await request<Book>(`/api/books/${savedBookId}`)
+          : null;
+        const restoredProject =
+          savedProjectId && projectList.some((item) => item.id === savedProjectId)
+            ? await request<Project>(`/api/projects/${savedProjectId}`)
+            : null;
+        const restoredEpisode =
+          restoredProject &&
+          savedEpisodeId &&
+          restoredProject.episodes?.some((item) => item.id === savedEpisodeId)
+            ? await request<Episode>(`/api/episodes/${savedEpisodeId}`)
+            : null;
+        const restoredBatch = restoredProject
+          ? await request<BatchRun | null>(
+              `/api/projects/${restoredProject.id}/batch`,
+            )
+          : null;
         if (!active) return;
         setBooks(bookList);
         setProjects(projectList);
         setSettings(settingsStatus);
         setRuns(runList);
+        setSelectedBook(restoredBook);
+        setSelectedProject(restoredProject);
+        setSelectedEpisode(restoredEpisode);
+        setBatch(restoredBatch);
+        if (
+          savedView &&
+          ["library", "projects", "prompts", "runs", "settings"].includes(savedView)
+        ) {
+          setView(savedView as View);
+        }
+        previousActiveRuns.current = new Map(
+          runList
+            .filter((run) => ["pending", "running"].includes(run.status))
+            .map((run) => [run.id, run]),
+        );
         setBackendOnline(true);
+        setWorkspaceRestored(true);
       })
       .catch((caught: unknown) => {
         if (!active) return;
@@ -373,46 +460,147 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (
-      !selectedProject ||
-      !batch ||
-      !["pending", "running"].includes(batch.status)
-    ) {
-      return;
-    }
-    const projectId = selectedProject.id;
+    const bookId = selectedBook?.id;
+    const projectId = selectedProject?.id;
     const episodeId = selectedEpisode?.id;
+    let polling = false;
     const interval = window.setInterval(() => {
-      Promise.all([
-        request<BatchRun | null>(`/api/projects/${projectId}/batch`),
-        request<Project>(`/api/projects/${projectId}`),
-        episodeId
-          ? request<Episode>(`/api/episodes/${episodeId}`)
-          : Promise.resolve(null),
-      ])
-        .then(([nextBatch, nextProject, nextEpisode]) => {
-          setBatch(nextBatch);
-          setSelectedProject(nextProject);
+      if (polling) return;
+      polling = true;
+      request<WorkflowRun[]>("/api/runs?limit=100")
+        .then(async (nextRuns) => {
+          const activeRuns = nextRuns.filter((run) =>
+            ["pending", "running"].includes(run.status),
+          );
+          const previous = previousActiveRuns.current;
+          const relevantRuns = [
+            ...activeRuns,
+            ...Array.from(previous.values()).filter(
+              (run) => !activeRuns.some((item) => item.id === run.id),
+            ),
+          ];
+          const refreshBook = Boolean(
+            bookId &&
+              relevantRuns.some(
+                (run) =>
+                  (run.scope_type === "book_analysis_batch" &&
+                    run.scope_id === bookId) ||
+                  run.book_id === bookId,
+              ),
+          );
+          const refreshProject = Boolean(
+            projectId &&
+              relevantRuns.some(
+                (run) =>
+                  (["project_generation", "project_batch"].includes(
+                    run.scope_type,
+                  ) &&
+                    run.scope_id === projectId) ||
+                  run.project_id === projectId,
+              ),
+          );
+          const refreshEpisode = Boolean(
+            episodeId &&
+              relevantRuns.some(
+                (run) =>
+                  (run.scope_type === "episode" &&
+                    run.scope_id === episodeId) ||
+                  (run.scope_type === "project_batch" &&
+                    run.scope_id === projectId),
+              ),
+          );
+          const [nextBook, nextProject, nextEpisode, nextBatch] =
+            await Promise.all([
+              refreshBook && bookId
+                ? request<Book>(`/api/books/${bookId}`)
+                : Promise.resolve(null),
+              refreshProject && projectId
+                ? request<Project>(`/api/projects/${projectId}`)
+                : Promise.resolve(null),
+              refreshEpisode && episodeId
+                ? request<Episode>(`/api/episodes/${episodeId}`)
+                : Promise.resolve(null),
+              refreshProject && projectId
+                ? request<BatchRun | null>(`/api/projects/${projectId}/batch`)
+                : Promise.resolve(null),
+            ]);
+          setRuns(nextRuns);
+          if (nextBook) setSelectedBook(nextBook);
+          if (nextProject) setSelectedProject(nextProject);
           if (nextEpisode) setSelectedEpisode(nextEpisode);
+          if (refreshProject) setBatch(nextBatch);
+          previousActiveRuns.current = new Map(
+            activeRuns.map((run) => [run.id, run]),
+          );
+          setBackendOnline(true);
         })
         .catch((caught: unknown) => {
-          setError(caught instanceof Error ? caught.message : "批次状态刷新失败");
+          setBackendOnline(false);
+          setError(caught instanceof Error ? caught.message : "任务状态刷新失败");
+        })
+        .finally(() => {
+          polling = false;
         });
-    }, 800);
+    }, 1000);
     return () => window.clearInterval(interval);
-  }, [batch, selectedEpisode?.id, selectedProject]);
+  }, [selectedBook?.id, selectedEpisode?.id, selectedProject?.id]);
 
-  const runAction = async (label: string, action: () => Promise<void>) => {
+  useEffect(() => {
+    if (!workspaceRestored) return;
+    window.localStorage.setItem("ai-book-studio:view", view);
+    if (selectedBook?.id) {
+      window.localStorage.setItem("ai-book-studio:book", selectedBook.id);
+    } else {
+      window.localStorage.removeItem("ai-book-studio:book");
+    }
+    if (selectedProject?.id) {
+      window.localStorage.setItem(
+        "ai-book-studio:project",
+        selectedProject.id,
+      );
+    } else {
+      window.localStorage.removeItem("ai-book-studio:project");
+    }
+    if (selectedEpisode?.id) {
+      window.localStorage.setItem(
+        "ai-book-studio:episode",
+        selectedEpisode.id,
+      );
+    } else {
+      window.localStorage.removeItem("ai-book-studio:episode");
+    }
+  }, [
+    selectedBook?.id,
+    selectedEpisode?.id,
+    selectedProject?.id,
+    view,
+    workspaceRestored,
+  ]);
+
+  const runAction = async (
+    label: string,
+    action: () => Promise<string | void>,
+  ) => {
     setBusy(label);
     setError("");
     setNotice("");
     try {
-      await action();
-      setNotice(`${label}完成`);
+      const message = await action();
+      setNotice(message || `${label}完成`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : `${label}失败`);
     } finally {
       setBusy("");
+    }
+  };
+
+  const registerRun = (run: WorkflowRun) => {
+    setRuns((current) => [
+      run,
+      ...current.filter((item) => item.id !== run.id),
+    ]);
+    if (["pending", "running"].includes(run.status)) {
+      previousActiveRuns.current.set(run.id, run);
     }
   };
 
@@ -475,21 +663,24 @@ export default function Home() {
 
   const analyzeBook = () =>
     selectedBook &&
-    runAction("拆书与知识入库", async () => {
-      await request(`/api/books/${selectedBook.id}/analyze`, { method: "POST" });
-      setSelectedBook(await request<Book>(`/api/books/${selectedBook.id}`));
-      await refresh();
+    runAction("启动拆书任务", async () => {
+      const run = await request<WorkflowRun>(
+        `/api/books/${selectedBook.id}/analyze`,
+        { method: "POST" },
+      );
+      registerRun(run);
+      return run.reused ? "已有拆书任务正在执行" : "拆书任务已进入后台";
     });
 
   const retryChapter = (sectionId: string) =>
     selectedBook &&
-    runAction("重跑章节拆书", async () => {
-      await request(
+    runAction("启动章节重跑", async () => {
+      const run = await request<WorkflowRun>(
         `/api/books/${selectedBook.id}/chapters/${sectionId}/analyze`,
         { method: "POST" },
       );
-      setSelectedBook(await request<Book>(`/api/books/${selectedBook.id}`));
-      await refresh();
+      registerRun(run);
+      return run.reused ? "已有拆书任务正在执行" : "章节重跑已进入后台";
     });
 
   const updateBookType = (bookType: BookType) =>
@@ -570,32 +761,23 @@ export default function Home() {
     desiredEpisodeCount: number | null,
   ) =>
     selectedProject &&
-    runAction("生成思维导图与专辑大纲", async () => {
-      const result = await request<{
-        project: Project;
-        mind_map: { status: string; error?: string };
-        album_outline: { status: string; error?: string };
-      }>(`/api/projects/${selectedProject.id}/generate-outline`, {
+    runAction("启动专辑规划任务", async () => {
+      const run = await request<WorkflowRun>(
+        `/api/projects/${selectedProject.id}/generate-outline`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           album_special_requirements: specialRequirements,
           desired_episode_count: desiredEpisodeCount,
         }),
-      });
-      setSelectedProject(result.project);
+        },
+      );
+      registerRun(run);
       setSelectedEpisode(null);
-      if (
-        result.mind_map.status !== "succeeded" ||
-        result.album_outline.status !== "succeeded"
-      ) {
-        throw new Error(
-          result.album_outline.error ||
-            result.mind_map.error ||
-            "部分内容生成失败，可再次重试",
-        );
-      }
-      await refresh();
+      return run.reused
+          ? "已有专辑规划任务正在执行"
+          : "思维导图与专辑大纲已进入后台生成";
     });
 
   const saveOutline = (episodes: Episode[]) =>
@@ -641,16 +823,16 @@ export default function Home() {
         { method: "POST" },
       );
       setBatch(result);
+      registerRun(result);
       setSelectedProject(
         await request<Project>(`/api/projects/${selectedProject.id}`),
       );
-      setNotice(`已启动 ${result.summary.total} 条声音，最多 5 条并行生产`);
-      await refresh();
+      return `已启动 ${result.summary.total} 条声音，最多 5 条并行生产`;
     });
 
   const generateEpisode = (fromStage: "outline" | "draft" | "final") =>
     selectedEpisode &&
-    runAction(fromStage === "outline" ? "生成整条声音" : `从${stageLabels[fromStage]}重跑`, async () => {
+    runAction(fromStage === "outline" ? "启动声音生成" : `启动${stageLabels[fromStage]}重跑`, async () => {
       const run = await request<WorkflowRun>(
         `/api/episodes/${selectedEpisode.id}/generate`,
         {
@@ -659,24 +841,8 @@ export default function Home() {
           body: JSON.stringify({ from_stage: fromStage }),
         },
       );
-      let current = run;
-      for (let attempt = 0; attempt < 300; attempt += 1) {
-        if (["succeeded", "failed", "cancelled"].includes(current.status)) break;
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        current = await request<WorkflowRun>(`/api/runs/${run.id}`);
-      }
-      if (current.status !== "succeeded") {
-        throw new Error(current.message || `生成任务${current.status}`);
-      }
-      setSelectedEpisode(
-        await request<Episode>(`/api/episodes/${selectedEpisode.id}`),
-      );
-      if (selectedProject) {
-        setSelectedProject(
-          await request<Project>(`/api/projects/${selectedProject.id}`),
-        );
-      }
-      await refresh();
+      registerRun(run);
+      return run.reused ? "这条声音正在生成" : "声音任务已进入后台";
     });
 
   const saveFinalVersion = async (content: string): Promise<boolean> => {
@@ -735,11 +901,41 @@ export default function Home() {
     return saved;
   };
 
+  const activeRuns = runs.filter((run) =>
+    ["pending", "running"].includes(run.status),
+  );
+  const activeTopRuns = activeRuns.filter((run) => !run.parent_run_id);
+  const selectedBookRun = selectedBook
+    ? activeTopRuns.find(
+        (run) =>
+          run.scope_type === "book_analysis_batch" &&
+          run.scope_id === selectedBook.id,
+      ) || null
+    : null;
+  const selectedProjectRun = selectedProject
+    ? activeTopRuns.find(
+        (run) =>
+          ["project_generation", "project_batch"].includes(run.scope_type) &&
+          run.scope_id === selectedProject.id,
+      ) || null
+    : null;
+  const selectedEpisodeRun = selectedEpisode
+    ? activeRuns.find(
+        (run) =>
+          run.scope_type === "episode" &&
+          run.scope_id === selectedEpisode.id,
+      ) || null
+    : null;
+
   const navItems: { key: View; label: string; hint: string }[] = [
     { key: "library", label: "书籍知识库", hint: `${books.length} 本` },
     { key: "projects", label: "内容项目", hint: `${projects.length} 个` },
     { key: "prompts", label: "提示词", hint: "4 个环节" },
-    { key: "runs", label: "运行记录", hint: busy ? "执行中" : "正常" },
+    {
+      key: "runs",
+      label: "运行记录",
+      hint: activeTopRuns.length ? `${activeTopRuns.length} 个执行中` : "正常",
+    },
     { key: "settings", label: "设置与同步", hint: settings?.provider || "—" },
   ];
 
@@ -837,6 +1033,8 @@ export default function Home() {
                   setSelectedBook(null);
                 }}
                 busy={Boolean(busy)}
+                activeRun={selectedBookRun}
+                onCancelRun={(id) => void cancelRun(id)}
               />
             ) : (
               <LibraryView books={books} onOpen={openBook} onUpload={uploadBook} />
@@ -864,6 +1062,9 @@ export default function Home() {
                 models={settings?.available_models || []}
                 onSaveFinal={saveFinalVersion}
                 busy={Boolean(busy)}
+                activeRun={selectedProjectRun}
+                episodeRun={selectedEpisodeRun}
+                onCancelRun={(id) => void cancelRun(id)}
               />
             ) : (
               <ProjectsView
@@ -1054,6 +1255,8 @@ function BookWorkspace({
   onCreateProject,
   models,
   busy,
+  activeRun,
+  onCancelRun,
 }: {
   book: Book;
   onBack: () => void;
@@ -1066,6 +1269,8 @@ function BookWorkspace({
   onCreateProject: () => void;
   models: ModelOption[];
   busy: boolean;
+  activeRun: WorkflowRun | null;
+  onCancelRun: (id: string) => void;
 }) {
   const structuralSections = (book.sections || []).filter(
     (section) => section.level <= 4,
@@ -1156,10 +1361,10 @@ function BookWorkspace({
             </button>
           )}
           {["ready_to_analyze", "analysis_partial", "analysis_partial_failed"].includes(book.status) && (
-            <button className="primary-button" disabled={busy} onClick={onAnalyze}>
+            <button className="primary-button" disabled={busy || Boolean(activeRun)} onClick={onAnalyze}>
               {["analysis_partial", "analysis_partial_failed"].includes(book.status)
-                ? "继续或重试章节拆书"
-                : "开始拆书与知识入库"}
+                ? activeRun ? "拆书任务执行中…" : "继续或重试章节拆书"
+                : activeRun ? "拆书任务执行中…" : "开始拆书与知识入库"}
             </button>
           )}
           {book.status === "analyzed" && (
@@ -1169,6 +1374,10 @@ function BookWorkspace({
           )}
         </div>
       </div>
+
+      {activeRun && (
+        <TaskProgressCard run={activeRun} onCancel={onCancelRun} />
+      )}
 
       <div className="stage-strip">
         {[
@@ -1272,7 +1481,7 @@ function BookWorkspace({
                         {!complete && (
                           <button
                             type="button"
-                            disabled={busy}
+                            disabled={busy || Boolean(activeRun)}
                             onClick={(event) => {
                               event.preventDefault();
                               onRetryChapter(section.id);
@@ -1580,6 +1789,9 @@ function ProjectWorkspace({
   models,
   onSaveFinal,
   busy,
+  activeRun,
+  episodeRun,
+  onCancelRun,
 }: {
   project: Project;
   episode: Episode | null;
@@ -1601,6 +1813,9 @@ function ProjectWorkspace({
   models: ModelOption[];
   onSaveFinal: (content: string) => Promise<boolean>;
   busy: boolean;
+  activeRun: WorkflowRun | null;
+  episodeRun: WorkflowRun | null;
+  onCancelRun: (id: string) => void;
 }) {
   const latestByStage = useMemo(() => {
     const map: Partial<Record<"outline" | "draft" | "final", ArtifactVersion>> = {};
@@ -1688,13 +1903,17 @@ function ProjectWorkspace({
         {project.status === "outline_review" && (
           <button
             className="primary-button"
-            disabled={busy || outlineDirty}
+            disabled={busy || outlineDirty || Boolean(activeRun)}
             onClick={onConfirm}
           >
             {outlineDirty ? "请先保存大纲修改" : "确认专辑大纲并进入生产"}
           </button>
         )}
       </div>
+
+      {activeRun && (
+        <TaskProgressCard run={activeRun} onCancel={onCancelRun} />
+      )}
 
       <details className="project-model-config">
         <summary>
@@ -1769,7 +1988,7 @@ function ProjectWorkspace({
             </label>
             <button
               className="primary-button"
-              disabled={busy}
+              disabled={busy || Boolean(activeRun)}
               onClick={() =>
                 onGenerateOutline(
                   specialRequirements,
@@ -1869,6 +2088,13 @@ function ProjectWorkspace({
             </div>
           ) : (
             <>
+              {episodeRun && (
+                <TaskProgressCard
+                  run={episodeRun}
+                  compact
+                  onCancel={onCancelRun}
+                />
+              )}
               <div className="editor-head">
                 <div>
                   <p className="eyebrow">声音 {String(episode.position).padStart(2, "0")}</p>
@@ -1883,13 +2109,13 @@ function ProjectWorkspace({
                   {retryStage && (
                     <button
                       className="primary-button"
-                      disabled={busy}
+                      disabled={busy || Boolean(episodeRun)}
                       onClick={() => onGenerate(retryStage)}
                     >
                       从失败的{stageLabels[retryStage]}重跑
                     </button>
                   )}
-                  <button className="quiet-button" disabled={busy} onClick={() => onGenerate("outline")}>
+                  <button className="quiet-button" disabled={busy || Boolean(episodeRun)} onClick={() => onGenerate("outline")}>
                     重新生成整条
                   </button>
                 </div>
@@ -1913,7 +2139,7 @@ function ProjectWorkspace({
                       {artifact && (
                         <footer>
                           <span>prompt {artifact.prompt_version}</span>
-                          <button disabled={busy} onClick={() => onGenerate(stage)}>
+                          <button disabled={busy || Boolean(episodeRun)} onClick={() => onGenerate(stage)}>
                             从这里重跑
                           </button>
                         </footer>
@@ -2183,6 +2409,118 @@ function OutlineEditor({
   );
 }
 
+function TaskProgressCard({
+  run,
+  onCancel,
+  compact = false,
+}: {
+  run: WorkflowRun;
+  onCancel: (id: string) => void;
+  compact?: boolean;
+}) {
+  const [outputs, setOutputs] = useState<RunOutput[]>([]);
+  const [outputError, setOutputError] = useState("");
+  const [clock, setClock] = useState(0);
+  const progress = run.progress_total
+    ? Math.round((run.progress_current / run.progress_total) * 100)
+    : run.status === "succeeded"
+      ? 100
+      : 0;
+  const started = run.started_at || run.created_at;
+  const end = run.finished_at
+    ? new Date(run.finished_at).getTime()
+    : clock || new Date(run.updated_at).getTime();
+  const elapsedSeconds = Math.max(
+    0,
+    Math.round((end - new Date(started).getTime()) / 1000),
+  );
+  const stageEntries = Object.entries(run.metadata_json?.stages || {});
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    request<{ outputs: RunOutput[] }>(`/api/runs/${run.id}/outputs`)
+      .then((result) => {
+        if (!active) return;
+        setOutputs(result.outputs);
+        setOutputError("");
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setOutputError(
+          caught instanceof Error ? caught.message : "阶段结果读取失败",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [run.id, run.updated_at]);
+
+  return (
+    <section className={compact ? "task-progress-card compact" : "task-progress-card"}>
+      <header>
+        <div>
+          <p className="eyebrow">后台持久任务</p>
+          <h3>{run.scope_label || "内容生成任务"}</h3>
+          <span>
+            当前：{workflowStageLabels[run.current_stage] || run.current_stage || "等待开始"}
+            {" · "}已运行 {elapsedSeconds} 秒
+          </span>
+        </div>
+        <strong>{progress}%</strong>
+      </header>
+      <div className="task-progress-track">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <div className="task-progress-meta">
+        <span>{run.message || "任务已经进入后台"}</span>
+        <span>
+          {run.progress_current} / {run.progress_total || "—"}
+        </span>
+      </div>
+      {stageEntries.length > 0 && (
+        <div className="task-stage-list">
+          {stageEntries.map(([stage, detail]) => (
+            <span className={`task-stage ${detail.status}`} key={stage}>
+              <i />
+              {workflowStageLabels[stage] || stage}
+              <em>{detail.status}</em>
+            </span>
+          ))}
+        </div>
+      )}
+      {outputs.length > 0 && (
+        <div className="task-outputs">
+          {outputs.map((output, index) => (
+            <details key={`${output.stage}-${output.id || index}`}>
+              <summary>
+                <strong>{output.label}</strong>
+                <span>
+                  {output.version ? `v${output.version}` : "已完成"}
+                  {output.model ? ` · ${output.model}` : ""}
+                </span>
+              </summary>
+              <pre>{output.content}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+      {outputError && <p className="task-output-error">{outputError}</p>}
+      {["pending", "running"].includes(run.status) && (
+        <footer>
+          <button className="text-button danger" onClick={() => onCancel(run.id)}>
+            取消任务
+          </button>
+        </footer>
+      )}
+    </section>
+  );
+}
+
 function RunsView({
   books,
   projects,
@@ -2201,6 +2539,8 @@ function RunsView({
       return `章节任务 · ${String(index + 1).padStart(2, "0")}`;
     }
     if (run.scope_type === "book_analysis_batch") return "全书拆书任务";
+    if (run.scope_type === "project_generation") return "专辑规划任务";
+    if (run.scope_type === "project_batch") return "整张专辑生产";
     return `声音任务 · ${String(index + 1).padStart(2, "0")}`;
   };
   const runModels = (run: WorkflowRun) => {
@@ -2213,16 +2553,35 @@ function RunsView({
     }
     return run.metadata_json?.model || run.metadata_json?.model_id || "";
   };
+  const activeTopRuns = runs.filter(
+    (run) =>
+      !run.parent_run_id && ["pending", "running"].includes(run.status),
+  );
   return (
     <div className="runs-layout">
       <section className="runs-summary">
         <span className="section-kicker">持久运行，不因关闭网页丢失状态</span>
-        <h2>{busy || "当前没有正在执行的任务"}</h2>
-        <p>每次生成都会记录输入快照、提示词版本、模型与产物版本。</p>
+        <h2>
+          {busy ||
+            (activeTopRuns.length
+              ? `${activeTopRuns.length} 个任务正在后台执行`
+              : "当前没有正在执行的任务")}
+        </h2>
+        <p>刷新网页后会自动找回任务；每个模型阶段完成后即可查看完整结果。</p>
         <div className="run-stats">
           <div><strong>{books.length}</strong><span>书籍</span></div>
           <div><strong>{projects.length}</strong><span>项目</span></div>
           <div><strong>{runs.filter((item) => item.status === "succeeded").length}</strong><span>成功运行</span></div>
+        </div>
+        <div className="runs-active-list">
+          {activeTopRuns.map((run) => (
+            <TaskProgressCard
+              key={run.id}
+              run={run}
+              compact
+              onCancel={onCancel}
+            />
+          ))}
         </div>
       </section>
       <section className="panel">
@@ -2232,8 +2591,18 @@ function RunsView({
             <div key={run.id}>
               <span className={run.status === "succeeded" ? "timeline-dot done" : "timeline-dot"} />
               <small>{runLabel(run, index)}</small>
-              <strong>{stageLabels[run.stage as keyof typeof stageLabels] || run.stage}</strong>
+              <strong>
+                {run.scope_label || "未命名任务"} ·{" "}
+                {workflowStageLabels[run.current_stage] ||
+                  stageLabels[run.stage as keyof typeof stageLabels] ||
+                  run.stage}
+              </strong>
               <p>{run.status} {run.message && `· ${run.message}`}</p>
+              {run.progress_total > 0 && (
+                <p>
+                  进度 {run.progress_current} / {run.progress_total}
+                </p>
+              )}
               {runModels(run) && <p className="run-models">{runModels(run)}</p>}
               {["pending", "running"].includes(run.status) && (
                 <button className="cancel-run" onClick={() => onCancel(run.id)}>取消</button>

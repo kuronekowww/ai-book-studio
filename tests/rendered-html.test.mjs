@@ -74,3 +74,21 @@ test("keeps the versioned prompt workbench in source", async () => {
   assert.match(styles, /\.prompt-editor-panel/);
   assert.match(styles, /\.prompt-meta-panel/);
 });
+
+test("keeps persistent workflow progress and workspace recovery in source", async () => {
+  const [page, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /\/api\/runs\?limit=100/);
+  assert.match(page, /ai-book-studio:view/);
+  assert.match(page, /ai-book-studio:book/);
+  assert.match(page, /ai-book-studio:project/);
+  assert.match(page, /ai-book-studio:episode/);
+  assert.match(page, /后台持久任务/);
+  assert.match(page, /TaskProgressCard/);
+  assert.match(page, /展开查看/);
+  assert.match(styles, /\.task-progress-card/);
+  assert.match(styles, /\.task-stage-list/);
+  assert.match(styles, /\.task-output/);
+});

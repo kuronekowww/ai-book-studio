@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -20,6 +19,7 @@ from .model_routing import ModelRoutingService
 from .obsidian import ObsidianSyncService
 from .prompt_config import PromptConfigurationService
 from .providers import ModelGenerationError, ModelProvider
+from .runs import RunService, TaskRegistry
 from .workflows import StageGenerationError, WorkflowService
 
 
@@ -44,6 +44,8 @@ batches = BatchService(
     ),
 )
 obsidian = ObsidianSyncService(database)
+runs = RunService(database)
+task_registry = TaskRegistry(runs)
 
 app = FastAPI(title="AI Book Studio API", version="0.1.0")
 app.add_middleware(
@@ -53,9 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-active_tasks: set[asyncio.Task[Any]] = set()
-
-
 class SectionUpdate(BaseModel):
     id: str
     parent_id: str | None = None
@@ -259,12 +258,6 @@ def prompt_preview_values(
     }, book_type
 
 
-def create_task(coroutine: Any) -> None:
-    task = asyncio.create_task(coroutine)
-    active_tasks.add(task)
-    task.add_done_callback(active_tasks.discard)
-
-
 async def execute_episode_run(
     run_id: str,
     episode_id: str,
@@ -273,7 +266,7 @@ async def execute_episode_run(
     stage_providers: dict[str, ModelProvider] | None = None,
     stage_prompt_locks: dict[str, dict[str, str]] | None = None,
 ) -> None:
-    current = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
+    current = runs.get(run_id)
     if not current or current["status"] == "cancelled":
         return
     task_provider = provider
@@ -296,14 +289,56 @@ async def execute_episode_run(
             task_provider = task_provider or model_manager.snapshot_for_run(
                 current["metadata_json"].get("model_id")
             ).provider
-    database.execute(
-        """
-        UPDATE workflow_runs
-        SET status = 'running', message = '', updated_at = ?
-        WHERE id = ?
-        """,
-        (now_iso(), run_id),
+    stage_order = ["outline", "draft", "final"]
+    target_stages = stage_order[stage_order.index(from_stage) :]
+    completed_stages = {
+        stage
+        for stage in target_stages
+        if runs.stage_status(run_id, stage) == "succeeded"
+    }
+    runs.mark_running(
+        run_id,
+        current_stage=next(
+            (stage for stage in target_stages if stage not in completed_stages),
+            target_stages[-1],
+        ),
+        message="正在生成声音文稿",
+        increment_attempt=True,
     )
+    runs.set_progress(
+        run_id,
+        current=len(completed_stages),
+        total=len(target_stages),
+    )
+
+    def report_stage(
+        stage: str,
+        status: str,
+        output: dict[str, Any] | None,
+        message: str | None,
+    ) -> None:
+        runs.set_stage(
+            run_id,
+            stage,
+            status,
+            message=message,
+            output=output,
+        )
+        completed = sum(
+            runs.stage_status(run_id, item) == "succeeded"
+            for item in target_stages
+        )
+        runs.set_progress(
+            run_id,
+            current=completed,
+            total=len(target_stages),
+            current_stage=stage,
+            message=message,
+        )
+
+    def cancelled() -> bool:
+        return runs.get(run_id)["status"] == "cancelled"
+
     try:
         await workflows.generate_episode(
             episode_id,
@@ -311,35 +346,257 @@ async def execute_episode_run(
             provider=task_provider,
             stage_providers=locked_stage_providers,
             stage_prompt_locks=locked_prompt_versions,
+            progress_callback=report_stage,
+            completed_stages=completed_stages,
+            cancelled=cancelled,
         )
+        if cancelled():
+            return
         batches.reconcile_episode_success(episode_id)
-        current = database.row("SELECT status FROM workflow_runs WHERE id = ?", (run_id,))
-        status = "cancelled" if current and current["status"] == "cancelled" else "succeeded"
-        database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = ?, message = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (status, "声音版本已生成" if status == "succeeded" else "用户已取消", now_iso(), run_id),
-        )
+        runs.finish(run_id, message="声音版本已生成")
     except StageGenerationError as error:
-        database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = 'failed', message = ?, error_stage = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (str(error)[:500], error.stage, now_iso(), run_id),
+        runs.fail(run_id, error, error_stage=error.stage)
+    except Exception as error:
+        runs.fail(run_id, error, error_stage=runs.get(run_id)["current_stage"])
+
+
+async def execute_project_generation_run(
+    run_id: str,
+    *,
+    mind_map_provider: ModelProvider | None = None,
+    album_outline_provider: ModelProvider | None = None,
+) -> None:
+    current = runs.get(run_id)
+    if current["status"] == "cancelled":
+        return
+    metadata = current.get("metadata_json") or {}
+    project_id = current["scope_id"]
+    model_ids = metadata.get("stage_model_ids") or {}
+    if mind_map_provider is None:
+        mind_map_provider = model_manager.snapshot_for_run(
+            model_ids.get("mind_map")
+        ).provider
+    if album_outline_provider is None:
+        album_outline_provider = model_manager.snapshot_for_run(
+            model_ids.get("album_outline")
+        ).provider
+    stage_order = [
+        "prepare_analysis",
+        "generate_mind_map",
+        "generate_album_outline",
+        "save_project_outline",
+    ]
+    completed_stages = {
+        stage
+        for stage in stage_order
+        if runs.stage_status(run_id, stage) == "succeeded"
+    }
+    if completed_stages == set(stage_order):
+        runs.finish(run_id, message="思维导图与专辑大纲已生成")
+        return
+    runs.mark_running(
+        run_id,
+        current_stage=next(
+            (stage for stage in stage_order if stage not in completed_stages),
+            stage_order[-1],
+        ),
+        message="正在生成思维导图与专辑大纲",
+        increment_attempt=True,
+    )
+    runs.set_progress(
+        run_id,
+        current=len(completed_stages),
+        total=len(stage_order),
+    )
+
+    def report_stage(
+        stage: str,
+        status: str,
+        output: dict[str, Any] | None,
+        message: str | None,
+    ) -> None:
+        runs.set_stage(
+            run_id,
+            stage,
+            status,
+            message=message,
+            output=output,
+        )
+        completed = sum(
+            runs.stage_status(run_id, item) == "succeeded"
+            for item in stage_order
+        )
+        runs.set_progress(
+            run_id,
+            current=completed,
+            total=len(stage_order),
+            current_stage=stage,
+            message=message,
+        )
+
+    def cancelled() -> bool:
+        return runs.get(run_id)["status"] == "cancelled"
+
+    try:
+        result = await workflows.generate_project_knowledge_outputs(
+            project_id,
+            str(metadata.get("album_special_requirements") or ""),
+            metadata.get("desired_episode_count"),
+            mind_map_provider=mind_map_provider,
+            album_outline_provider=album_outline_provider,
+            album_prompt_lock=metadata.get("album_prompt_lock"),
+            progress_callback=report_stage,
+            cancelled=cancelled,
+        )
+        if runs.get(run_id)["status"] == "cancelled":
+            return
+        if (
+            result["mind_map"]["status"] == "succeeded"
+            and result["album_outline"]["status"] == "succeeded"
+        ):
+            runs.finish(run_id, message="思维导图与专辑大纲已生成")
+        else:
+            runs.finish(
+                run_id,
+                status="partial_failed",
+                message=(
+                    result["album_outline"].get("error")
+                    or result["mind_map"].get("error")
+                    or "部分内容生成失败"
+                )[:500],
+            )
+    except Exception as error:
+        runs.fail(
+            run_id,
+            error,
+            error_stage=runs.get(run_id)["current_stage"],
+        )
+
+
+async def execute_book_analysis_run(
+    run_id: str,
+    *,
+    provider: ModelProvider | None = None,
+) -> None:
+    current = runs.get(run_id)
+    if current["status"] == "cancelled":
+        return
+    metadata = current.get("metadata_json") or {}
+    book_id = current["scope_id"]
+    task_provider = provider or model_manager.snapshot_for_run(
+        metadata.get("model_id")
+    ).provider
+    root_section_id = metadata.get("root_section_id")
+    book = database.row("SELECT * FROM books WHERE id = ?", (book_id,))
+    if not book:
+        runs.fail(run_id, "书籍不存在", error_stage="prepare_chapters")
+        return
+    runs.mark_running(
+        run_id,
+        current_stage="prepare_chapters",
+        message="正在准备拆书任务",
+        increment_attempt=True,
+    )
+
+    def report_stage(
+        stage: str,
+        status: str,
+        output: dict[str, Any] | None,
+        message: str | None,
+    ) -> None:
+        runs.set_stage(
+            run_id,
+            stage,
+            status,
+            message=message,
+            output=output,
+        )
+        runs.set_progress(
+            run_id,
+            current_stage=stage,
+            message=message,
+        )
+
+    def cancelled() -> bool:
+        return runs.get(run_id)["status"] == "cancelled"
+
+    try:
+        if book["book_type"] == "narrative":
+            if runs.stage_status(run_id, "analyze_chapters") != "succeeded":
+                report_stage(
+                    "prepare_chapters",
+                    "succeeded",
+                    {"book_type": "narrative"},
+                    "叙事类书籍输入已准备",
+                )
+                report_stage(
+                    "analyze_chapters",
+                    "running",
+                    None,
+                    "正在整理知识与人物关系",
+                )
+                result = await workflows.analyze_book(
+                    book_id,
+                    task_provider,
+                    parent_run_id=run_id,
+                    cancelled=cancelled,
+                )
+                if cancelled():
+                    return
+                report_stage(
+                    "analyze_chapters",
+                    "succeeded",
+                    {
+                        "artifact_type": "book_knowledge",
+                        "knowledge_count": result.get("knowledge_count", 0),
+                    },
+                    "书籍知识已生成",
+                )
+            report_stage(
+                "finalize_book",
+                "succeeded",
+                {"book_status": "analyzed"},
+                "书籍知识状态已更新",
+            )
+            runs.set_progress(run_id, current=1, total=1)
+            runs.finish(run_id, message="拆书与知识入库已完成")
+            return
+
+        if isinstance(root_section_id, str) and root_section_id:
+            result = await workflows.retry_chapter(
+                book_id,
+                root_section_id,
+                task_provider,
+                parent_run_id=run_id,
+                progress_callback=report_stage,
+                cancelled=cancelled,
+            )
+        else:
+            result = await workflows.analyze_book(
+                book_id,
+                task_provider,
+                parent_run_id=run_id,
+                progress_callback=report_stage,
+                cancelled=cancelled,
+            )
+        if runs.get(run_id)["status"] == "cancelled":
+            return
+        partial_count = len(result.get("partial_chapters") or [])
+        failed_count = len(result.get("failed_chapters") or [])
+        status = "partial_failed" if partial_count or failed_count else "succeeded"
+        runs.finish(
+            run_id,
+            status=status,
+            message=(
+                f"成功 {result.get('succeeded_count', 0)} 章，"
+                f"部分成功 {partial_count} 章，失败 {failed_count} 章"
+            ),
         )
     except Exception as error:
-        database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = 'failed', message = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (str(error)[:500], now_iso(), run_id),
+        runs.fail(
+            run_id,
+            error,
+            error_stage=runs.get(run_id)["current_stage"],
         )
 
 
@@ -354,7 +611,8 @@ async def resume_incomplete_runs() -> None:
         """
     )
     for run in incomplete_batches:
-        create_task(batches.run_batch(run["id"]))
+        runs.reset_for_resume(run["id"])
+        task_registry.spawn(run["id"], lambda run_id=run["id"]: batches.run_batch(run_id))
     incomplete_episodes = database.rows(
         """
         SELECT * FROM workflow_runs
@@ -365,7 +623,46 @@ async def resume_incomplete_runs() -> None:
         """
     )
     for run in incomplete_episodes:
-        create_task(execute_episode_run(run["id"], run["scope_id"], run["stage"]))
+        runs.reset_for_resume(run["id"])
+        task_registry.spawn(
+            run["id"],
+            lambda run=run: execute_episode_run(
+                run["id"], run["scope_id"], run["stage"]
+            ),
+        )
+    incomplete_projects = database.rows(
+        """
+        SELECT * FROM workflow_runs
+        WHERE scope_type = 'project_generation'
+          AND status IN ('pending', 'running')
+        ORDER BY created_at
+        """
+    )
+    for run in incomplete_projects:
+        runs.reset_for_resume(run["id"])
+        task_registry.spawn(
+            run["id"],
+            lambda run_id=run["id"]: execute_project_generation_run(run_id),
+        )
+    incomplete_books = database.rows(
+        """
+        SELECT * FROM workflow_runs
+        WHERE scope_type = 'book_analysis_batch'
+          AND status IN ('pending', 'running')
+        ORDER BY created_at
+        """
+    )
+    for run in incomplete_books:
+        runs.reset_for_resume(run["id"])
+        task_registry.spawn(
+            run["id"],
+            lambda run_id=run["id"]: execute_book_analysis_run(run_id),
+        )
+
+
+@app.on_event("shutdown")
+async def stop_background_tasks() -> None:
+    await task_registry.shutdown()
 
 
 @app.get("/health")
@@ -669,24 +966,78 @@ def confirm_sections(book_id: str) -> dict[str, Any]:
     return book_detail(book_id)
 
 
-@app.post("/api/books/{book_id}/analyze")
+@app.post("/api/books/{book_id}/analyze", status_code=202)
 async def analyze_book(book_id: str) -> dict[str, Any]:
     try:
         snapshot = model_routing.book_snapshot(book_id)
-        return await workflows.analyze_book(book_id, snapshot.provider)
+        chapter_count = database.row(
+            """
+            SELECT COUNT(*) AS count FROM sections
+            WHERE book_id = ? AND parent_id IS NULL
+              AND status = 'confirmed' AND analysis_enabled = 1
+            """,
+            (book_id,),
+        )
+        run, reused = runs.create(
+            scope_type="book_analysis_batch",
+            scope_id=book_id,
+            stage="book_analysis",
+            current_stage="prepare_chapters",
+            progress_total=int((chapter_count or {}).get("count") or 1),
+            metadata={"model_id": snapshot.run_model_id},
+        )
+        task_registry.spawn(
+            run["id"],
+            lambda: execute_book_analysis_run(
+                run["id"], provider=snapshot.provider
+            ),
+        )
+        run = runs.get(run["id"])
+        run["reused"] = reused
+        return run
     except KeyError as error:
         raise not_found("书籍") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@app.post("/api/books/{book_id}/chapters/{section_id}/analyze")
+@app.post(
+    "/api/books/{book_id}/chapters/{section_id}/analyze",
+    status_code=202,
+)
 async def retry_chapter(book_id: str, section_id: str) -> dict[str, Any]:
     try:
         snapshot = model_routing.book_snapshot(book_id)
-        return await workflows.retry_chapter(
-            book_id, section_id, snapshot.provider
+        root = database.row(
+            """
+            SELECT id FROM sections
+            WHERE id = ? AND book_id = ? AND parent_id IS NULL
+              AND status = 'confirmed' AND analysis_enabled = 1
+            """,
+            (section_id, book_id),
         )
+        if not root:
+            raise ValueError("章节不存在、未确认或未纳入拆书")
+        run, reused = runs.create(
+            scope_type="book_analysis_batch",
+            scope_id=book_id,
+            stage="book_analysis",
+            current_stage="prepare_chapters",
+            progress_total=1,
+            metadata={
+                "model_id": snapshot.run_model_id,
+                "root_section_id": section_id,
+            },
+        )
+        task_registry.spawn(
+            run["id"],
+            lambda: execute_book_analysis_run(
+                run["id"], provider=snapshot.provider
+            ),
+        )
+        run = runs.get(run["id"])
+        run["reused"] = reused
+        return run
     except KeyError as error:
         raise not_found("书籍") from error
     except ValueError as error:
@@ -735,7 +1086,7 @@ def project_detail(project_id: str) -> dict[str, Any]:
         raise not_found("项目") from error
 
 
-@app.post("/api/projects/{project_id}/generate-outline")
+@app.post("/api/projects/{project_id}/generate-outline", status_code=202)
 async def generate_project_outline(
     project_id: str, payload: ProjectGenerationPayload
 ) -> dict[str, Any]:
@@ -743,18 +1094,36 @@ async def generate_project_outline(
         snapshots = model_routing.project_stage_snapshots(
             project_id, ("mind_map", "album_outline")
         )
-        result = await workflows.generate_project_knowledge_outputs(
-            project_id,
-            payload.album_special_requirements,
-            payload.desired_episode_count,
-            mind_map_provider=snapshots["mind_map"].provider,
-            album_outline_provider=snapshots["album_outline"].provider,
-            album_prompt_lock=prompt_configuration.lock_stage(
-                "album_outline", project_id
+        album_prompt_lock = prompt_configuration.lock_stage(
+            "album_outline", project_id
+        )
+        run, reused = runs.create(
+            scope_type="project_generation",
+            scope_id=project_id,
+            stage="full",
+            current_stage="prepare_analysis",
+            progress_total=4,
+            metadata={
+                "album_special_requirements": payload.album_special_requirements,
+                "desired_episode_count": payload.desired_episode_count,
+                "stage_model_ids": {
+                    stage: snapshot.run_model_id
+                    for stage, snapshot in snapshots.items()
+                },
+                "album_prompt_lock": album_prompt_lock,
+            },
+        )
+        task_registry.spawn(
+            run["id"],
+            lambda: execute_project_generation_run(
+                run["id"],
+                mind_map_provider=snapshots["mind_map"].provider,
+                album_outline_provider=snapshots["album_outline"].provider,
             ),
         )
-        result["project"].update(model_routing.project_config(project_id))
-        return result
+        run = runs.get(run["id"])
+        run["reused"] = reused
+        return run
     except KeyError as error:
         raise not_found("项目") from error
     except (ValueError, ModelGenerationError) as error:
@@ -830,7 +1199,10 @@ async def generate_all(project_id: str) -> dict[str, Any]:
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if batch["status"] == "pending":
-        create_task(batches.run_batch(batch["id"]))
+        task_registry.spawn(
+            batch["id"],
+            lambda: batches.run_batch(batch["id"]),
+        )
     return batch
 
 
@@ -871,7 +1243,7 @@ def save_manual_final(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@app.post("/api/episodes/{episode_id}/generate")
+@app.post("/api/episodes/{episode_id}/generate", status_code=202)
 async def generate_episode(
     episode_id: str, payload: GeneratePayload
 ) -> dict[str, Any]:
@@ -882,8 +1254,6 @@ async def generate_episode(
     )
     if not episode:
         raise not_found("声音")
-    run_id = uuid.uuid4().hex
-    now = now_iso()
     snapshots = model_routing.episode_stage_snapshots(episode["project_id"])
     stage_model_ids = {
         stage: snapshot.run_model_id for stage, snapshot in snapshots.items()
@@ -891,31 +1261,22 @@ async def generate_episode(
     stage_prompt_locks = prompt_configuration.lock_episode_stages(
         episode["project_id"]
     )
-    database.execute(
-        """
-        INSERT INTO workflow_runs
-          (id, scope_type, scope_id, stage, status, message, metadata_json,
-           created_at, updated_at)
-        VALUES (?, 'episode', ?, ?, 'pending', '', ?, ?, ?)
-        """,
-        (
-            run_id,
-            episode_id,
-            payload.from_stage,
-            json.dumps(
-                {
-                    "stage_model_ids": stage_model_ids,
-                    "stage_prompt_locks": stage_prompt_locks,
-                },
-                ensure_ascii=False,
-            ),
-            now,
-            now,
-        ),
+    stage_order = ["outline", "draft", "final"]
+    run, reused = runs.create(
+        scope_type="episode",
+        scope_id=episode_id,
+        stage=payload.from_stage,
+        current_stage=payload.from_stage,
+        progress_total=len(stage_order[stage_order.index(payload.from_stage) :]),
+        metadata={
+            "stage_model_ids": stage_model_ids,
+            "stage_prompt_locks": stage_prompt_locks,
+        },
     )
-    create_task(
-        execute_episode_run(
-            run_id,
+    task_registry.spawn(
+        run["id"],
+        lambda: execute_episode_run(
+            run["id"],
             episode_id,
             payload.from_stage,
             stage_providers={
@@ -923,44 +1284,267 @@ async def generate_episode(
                 for stage, snapshot in snapshots.items()
             },
             stage_prompt_locks=stage_prompt_locks,
-        )
+        ),
     )
-    return database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
+    run = runs.get(run["id"])
+    run["reused"] = reused
+    return run
+
+
+def _decorate_run(run: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(run)
+    if run["scope_type"] == "book_analysis_batch":
+        book = database.row(
+            "SELECT title FROM books WHERE id = ?", (run["scope_id"],)
+        )
+        decorated["scope_label"] = (book or {}).get("title") or "书籍拆解"
+    elif run["scope_type"] in {"project_generation", "project_batch"}:
+        project = database.row(
+            "SELECT title FROM projects WHERE id = ?", (run["scope_id"],)
+        )
+        decorated["scope_label"] = (project or {}).get("title") or "内容项目"
+    elif run["scope_type"] == "episode":
+        episode = database.row(
+            "SELECT title, project_id FROM episodes WHERE id = ?",
+            (run["scope_id"],),
+        )
+        decorated["scope_label"] = (episode or {}).get("title") or "声音文稿"
+        decorated["project_id"] = (episode or {}).get("project_id")
+    elif run["scope_type"] == "chapter_analysis":
+        section = database.row(
+            "SELECT title, book_id FROM sections WHERE id = ?",
+            (run["scope_id"],),
+        )
+        decorated["scope_label"] = (section or {}).get("title") or "章节拆书"
+        decorated["book_id"] = (section or {}).get("book_id")
+    return decorated
 
 
 @app.get("/api/runs")
-def list_runs() -> list[dict[str, Any]]:
-    return database.rows(
-        "SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT 100"
-    )
+def list_runs(
+    active: bool = False,
+    scope_type: str | None = None,
+    scope_id: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    return [
+        _decorate_run(run)
+        for run in runs.list(
+            active_only=active,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            limit=limit,
+        )
+    ]
 
 
 @app.get("/api/runs/{run_id}")
 def run_detail(run_id: str) -> dict[str, Any]:
-    run = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
-    if not run:
+    try:
+        run = runs.get(run_id)
+    except KeyError:
         raise not_found("运行记录")
-    return run
+    detail = _decorate_run(run)
+    children = database.rows(
+        """
+        SELECT * FROM workflow_runs
+        WHERE parent_run_id = ? ORDER BY position, created_at
+        """,
+        (run_id,),
+    )
+    if children:
+        detail["children"] = [_decorate_run(child) for child in children]
+    return detail
+
+
+def _stage_output_content(
+    run: dict[str, Any],
+    stage: str,
+    reference: dict[str, Any],
+) -> dict[str, Any] | None:
+    artifact_type = reference.get("artifact_type")
+    if artifact_type == "episode_artifact":
+        artifact = database.row(
+            """
+            SELECT id, episode_id, stage, version, content, provider, model,
+                   author_type, created_at
+            FROM artifact_versions WHERE id = ?
+            """,
+            (reference.get("artifact_id"),),
+        )
+        return (
+            {
+                "stage": stage,
+                "artifact_type": artifact_type,
+                "label": {
+                    "outline": "声音细纲",
+                    "draft": "声音初稿",
+                    "final": "声音终稿",
+                }.get(artifact["stage"], artifact["stage"]),
+                **artifact,
+            }
+            if artifact
+            else None
+        )
+    if artifact_type == "chapter_analysis":
+        analysis = database.row(
+            """
+            SELECT analysis.id, analysis.root_section_id, analysis.version,
+                   analysis.status, analysis.rendered_markdown AS content,
+                   analysis.provider, analysis.model, analysis.created_at,
+                   section.title
+            FROM chapter_analyses analysis
+            JOIN sections section ON section.id = analysis.root_section_id
+            WHERE analysis.id = ?
+            """,
+            (reference.get("analysis_id"),),
+        )
+        return (
+            {
+                "stage": stage,
+                "artifact_type": artifact_type,
+                "label": f"章节拆书 · {analysis['title']}",
+                **analysis,
+            }
+            if analysis
+            else None
+        )
+    if artifact_type == "mind_map":
+        project = database.row(
+            "SELECT book_ids FROM projects WHERE id = ?", (run["scope_id"],)
+        )
+        book_id = project["book_ids"][0] if project and project["book_ids"] else ""
+        mind_map = database.row(
+            """
+            SELECT id, version, content, provider, model, created_at
+            FROM mind_maps WHERE book_id = ? AND version = ?
+            """,
+            (book_id, reference.get("version")),
+        )
+        return (
+            {
+                "stage": stage,
+                "artifact_type": artifact_type,
+                "label": "思维导图",
+                **mind_map,
+            }
+            if mind_map
+            else None
+        )
+    if artifact_type == "project_outline":
+        episodes = database.rows(
+            """
+            SELECT position, title, content_type, content_framework,
+                   section_identifier
+            FROM episodes WHERE project_id = ? ORDER BY position
+            """,
+            (run["scope_id"],),
+        )
+        content = "\n\n".join(
+            (
+                f"第{episode['position']}集：{episode['title']}\n"
+                f"{episode['content_framework']}\n"
+                f"内容索引：{episode['section_identifier']}"
+            )
+            for episode in episodes
+        )
+        return {
+            "stage": stage,
+            "artifact_type": artifact_type,
+            "label": "专辑大纲",
+            "content": content,
+            "episode_count": len(episodes),
+        }
+    if artifact_type == "book_knowledge":
+        items = database.rows(
+            """
+            SELECT id, kind, title, body
+            FROM knowledge_items
+            WHERE book_id = ? AND status = 'active'
+            ORDER BY created_at, id
+            """,
+            (run["scope_id"],),
+        )
+        for item in items:
+            item["source_content_indexes"] = [
+                source["content_index"]
+                for source in database.rows(
+                    """
+                    SELECT content_index FROM knowledge_item_sources
+                    WHERE knowledge_item_id = ? ORDER BY source_order
+                    """,
+                    (item["id"],),
+                )
+            ]
+        content = "\n\n".join(
+            (
+                f"## {item['kind']} · {item['title']}\n"
+                f"{item['body']}\n"
+                f"原文索引：{', '.join(item['source_content_indexes'])}"
+            )
+            for item in items
+        )
+        return {
+            "stage": stage,
+            "artifact_type": artifact_type,
+            "label": "书籍知识资产",
+            "content": content,
+            "knowledge_count": len(items),
+        }
+    return None
+
+
+@app.get("/api/runs/{run_id}/outputs")
+def run_outputs(run_id: str) -> dict[str, Any]:
+    try:
+        parent = runs.get(run_id)
+    except KeyError:
+        raise not_found("运行记录")
+    related = [parent, *database.rows(
+        "SELECT * FROM workflow_runs WHERE parent_run_id = ? ORDER BY position",
+        (run_id,),
+    )]
+    outputs: list[dict[str, Any]] = []
+    for related_run in related:
+        stages = (related_run.get("metadata_json") or {}).get("stages") or {}
+        for stage, stage_data in stages.items():
+            reference = (
+                stage_data.get("output")
+                if isinstance(stage_data, dict)
+                else None
+            )
+            if not isinstance(reference, dict):
+                continue
+            materialized = _stage_output_content(
+                related_run, str(stage), reference
+            )
+            if materialized:
+                outputs.append(materialized)
+    return {"run_id": run_id, "outputs": outputs}
 
 
 @app.post("/api/runs/{run_id}/cancel")
 def cancel_run(run_id: str) -> dict[str, Any]:
-    run = database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
-    if not run:
+    try:
+        run = runs.get(run_id)
+    except KeyError:
         raise not_found("运行记录")
     if run["scope_type"] == "project_batch":
         return batches.cancel_batch(run_id)
-    if run["status"] in {"succeeded", "failed", "cancelled"}:
+    if run["status"] in {"succeeded", "partial_failed", "failed", "cancelled"}:
         return run
+    cancelled = runs.cancel(run_id)
+    now = now_iso()
     database.execute(
         """
         UPDATE workflow_runs
-        SET status = 'cancelled', message = '用户已取消', updated_at = ?
-        WHERE id = ?
+        SET status = 'cancelled', message = '父任务已取消',
+            finished_at = ?, heartbeat_at = ?, updated_at = ?
+        WHERE parent_run_id = ? AND status IN ('pending', 'running')
         """,
-        (now_iso(), run_id),
+        (now, now, now, run_id),
     )
-    return database.row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
+    return cancelled
 
 
 @app.post("/api/obsidian/sync")

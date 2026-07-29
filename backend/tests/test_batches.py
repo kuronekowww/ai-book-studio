@@ -60,6 +60,9 @@ class TrackingWorkflows:
         *,
         stage_providers=None,
         stage_prompt_locks=None,
+        progress_callback=None,
+        completed_stages=None,
+        cancelled=None,
     ):
         if stage_providers:
             self.stage_provider_models.append(
@@ -76,6 +79,21 @@ class TrackingWorkflows:
             await asyncio.sleep(0.01)
             if episode_id == self.failing_id:
                 raise StageGenerationError("draft", RuntimeError("模拟模型失败"))
+            stages = ["outline", "draft", "final"]
+            for stage in stages[stages.index(from_stage) :]:
+                if stage in (completed_stages or set()):
+                    continue
+                if progress_callback:
+                    progress_callback(
+                        stage,
+                        "succeeded",
+                        {
+                            "artifact_type": "episode_artifact",
+                            "artifact_id": f"{episode_id}-{stage}",
+                            "version": 1,
+                        },
+                        f"{stage}已生成",
+                    )
             self.database.execute(
                 "UPDATE episodes SET status = 'review' WHERE id = ?",
                 (episode_id,),

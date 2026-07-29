@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from .db import Database, now_iso
 from .providers import ModelProvider
+from .runs import RunService
 from .workflows import StageGenerationError, WorkflowService
 
 
@@ -25,6 +26,7 @@ class BatchService:
         self.workflows = workflows
         self.concurrency = concurrency
         self.provider_resolver = provider_resolver
+        self.runs = RunService(database)
 
     def create_batch(
         self,
@@ -101,16 +103,19 @@ class BatchService:
         self.database.execute(
             """
             INSERT INTO workflow_runs
-              (id, scope_type, scope_id, stage, status, message,
+              (id, scope_type, scope_id, stage, current_stage, status, message,
                parent_run_id, error_stage, position, metadata_json,
+               progress_current, progress_total, heartbeat_at,
                created_at, updated_at)
-            VALUES (?, 'project_batch', ?, 'full', 'pending', '',
-                    NULL, '', 0, ?, ?, ?)
+            VALUES (?, 'project_batch', ?, 'full', 'episode_generation',
+                    'pending', '', NULL, '', 0, ?, 0, ?, ?, ?, ?)
             """,
             (
                 batch_id,
                 project_id,
                 json.dumps(metadata, ensure_ascii=False),
+                len(episodes),
+                created_at,
                 created_at,
                 created_at,
             ),
@@ -126,6 +131,9 @@ class BatchService:
                     from_stage,
                     batch_id,
                     episode["position"],
+                    len(("outline", "draft", "final")[
+                        ("outline", "draft", "final").index(from_stage) :
+                    ]),
                     created_at,
                     created_at,
                 )
@@ -133,13 +141,37 @@ class BatchService:
         self.database.executemany(
             """
             INSERT INTO workflow_runs
-              (id, scope_type, scope_id, stage, status, message,
+              (id, scope_type, scope_id, stage, current_stage, status, message,
                parent_run_id, error_stage, position, metadata_json,
+               progress_current, progress_total, heartbeat_at,
                created_at, updated_at)
-            VALUES (?, 'episode', ?, ?, 'pending', '',
-                    ?, '', ?, '{}', ?, ?)
+            VALUES (?, 'episode', ?, ?, ?, 'pending', '',
+                    ?, '', ?, '{}', 0, ?, ?, ?, ?)
             """,
-            child_rows,
+            [
+                (
+                    child_id,
+                    episode_id,
+                    from_stage,
+                    from_stage,
+                    parent_id,
+                    position,
+                    total,
+                    created_at,
+                    created_at,
+                    updated_at,
+                )
+                for (
+                    child_id,
+                    episode_id,
+                    from_stage,
+                    parent_id,
+                    position,
+                    total,
+                    created_at,
+                    updated_at,
+                ) in child_rows
+            ],
         )
         self.database.execute(
             "UPDATE projects SET status = 'producing', updated_at = ? WHERE id = ?",
@@ -189,13 +221,11 @@ class BatchService:
                     batch["metadata_json"].get("model_id")
                 )
 
-        self.database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = 'running', message = '正在生产声音终稿', updated_at = ?
-            WHERE id = ?
-            """,
-            (now_iso(), batch_id),
+        self.runs.mark_running(
+            batch_id,
+            current_stage="episode_generation",
+            message="正在生产声音终稿",
+            increment_attempt=True,
         )
         self.database.execute(
             """
@@ -243,18 +273,88 @@ class BatchService:
                     (now_iso(), child["id"]),
                 )
                 try:
+                    stage_order = ["outline", "draft", "final"]
+                    target_stages = stage_order[stage_order.index(child["stage"]) :]
+                    completed_stages = {
+                        stage
+                        for stage in target_stages
+                        if self.runs.stage_status(child["id"], stage)
+                        == "succeeded"
+                    }
+                    self.runs.mark_running(
+                        child["id"],
+                        current_stage=next(
+                            (
+                                stage
+                                for stage in target_stages
+                                if stage not in completed_stages
+                            ),
+                            target_stages[-1],
+                        ),
+                        message="正在生成",
+                        increment_attempt=True,
+                    )
+                    self.runs.set_progress(
+                        child["id"],
+                        current=len(completed_stages),
+                        total=len(target_stages),
+                    )
+
+                    def report_stage(
+                        stage: str,
+                        status: str,
+                        output: dict[str, Any] | None,
+                        message: str | None,
+                    ) -> None:
+                        self.runs.set_stage(
+                            child["id"],
+                            stage,
+                            status,
+                            message=message,
+                            output=output,
+                        )
+                        completed = sum(
+                            self.runs.stage_status(child["id"], item)
+                            == "succeeded"
+                            for item in target_stages
+                        )
+                        self.runs.set_progress(
+                            child["id"],
+                            current=completed,
+                            total=len(target_stages),
+                            current_stage=stage,
+                            message=message,
+                        )
+
+                    def cancelled() -> bool:
+                        current_parent = self.database.row(
+                            "SELECT status FROM workflow_runs WHERE id = ?",
+                            (batch_id,),
+                        )
+                        return (
+                            not current_parent
+                            or current_parent["status"] == "cancelled"
+                        )
+
+                    workflow_progress_kwargs = {
+                        "progress_callback": report_stage,
+                        "completed_stages": completed_stages,
+                        "cancelled": cancelled,
+                    }
                     if locked_stage_providers:
                         await self.workflows.generate_episode(
                             child["scope_id"],
                             child["stage"],
                             stage_providers=locked_stage_providers,
                             **prompt_kwargs,
+                            **workflow_progress_kwargs,
                         )
                     elif task_provider is None:
                         await self.workflows.generate_episode(
                             child["scope_id"],
                             child["stage"],
                             **prompt_kwargs,
+                            **workflow_progress_kwargs,
                         )
                     else:
                         await self.workflows.generate_episode(
@@ -262,16 +362,14 @@ class BatchService:
                             child["stage"],
                             provider=task_provider,
                             **prompt_kwargs,
+                            **workflow_progress_kwargs,
                         )
-                    self.database.execute(
-                        """
-                        UPDATE workflow_runs
-                        SET status = 'succeeded', message = '声音终稿已生成',
-                            updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (now_iso(), child["id"]),
-                    )
+                    if cancelled():
+                        self._mark_child_cancelled(child["id"])
+                    else:
+                        self.runs.finish(
+                            child["id"], message="声音终稿已生成"
+                        )
                 except StageGenerationError as error:
                     self._mark_child_failed(child["id"], error.stage, str(error))
                 except Exception as error:
@@ -280,6 +378,8 @@ class BatchService:
                         (child["scope_id"],),
                     )
                     self._mark_child_failed(child["id"], child["stage"], str(error))
+                finally:
+                    self._update_parent_progress(batch_id)
 
         await asyncio.gather(*(worker(child) for child in children))
         self._finish_batch(batch_id, batch["scope_id"])
@@ -287,23 +387,29 @@ class BatchService:
     def _mark_child_failed(
         self, run_id: str, stage: str, message: str
     ) -> None:
-        self.database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = 'failed', message = ?, error_stage = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (message[:500], stage, now_iso(), run_id),
-        )
+        self.runs.fail(run_id, message, error_stage=stage)
 
     def _mark_child_cancelled(self, run_id: str) -> None:
-        self.database.execute(
+        self.runs.cancel(run_id)
+
+    def _update_parent_progress(self, batch_id: str) -> None:
+        counts = self.database.row(
             """
-            UPDATE workflow_runs
-            SET status = 'cancelled', message = '批次已取消', updated_at = ?
-            WHERE id = ?
+            SELECT COUNT(*) AS total,
+              SUM(
+                CASE WHEN status IN
+                  ('succeeded', 'failed', 'partial_failed', 'cancelled')
+                THEN 1 ELSE 0 END
+              ) AS completed
+            FROM workflow_runs WHERE parent_run_id = ?
             """,
-            (now_iso(), run_id),
+            (batch_id,),
+        ) or {"total": 0, "completed": 0}
+        self.runs.set_progress(
+            batch_id,
+            current=int(counts["completed"] or 0),
+            total=int(counts["total"] or 0),
+            current_stage="episode_generation",
         )
 
     def _finish_batch(self, batch_id: str, project_id: str) -> None:
@@ -346,19 +452,10 @@ class BatchService:
             project_status = "review"
             message = f"{counts['completed']} 条声音终稿已生成"
         self.database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = ?, message = ?, metadata_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                batch_status,
-                message,
-                json.dumps(metadata, ensure_ascii=False),
-                now_iso(),
-                batch_id,
-            ),
+            "UPDATE workflow_runs SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata, ensure_ascii=False), batch_id),
         )
+        self.runs.finish(batch_id, status=batch_status, message=message)
         self.database.execute(
             "UPDATE projects SET status = ?, updated_at = ? WHERE id = ?",
             (project_status, now_iso(), project_id),
@@ -410,21 +507,15 @@ class BatchService:
             raise KeyError(batch_id)
         if batch["status"] not in ACTIVE_STATUSES:
             return self.batch_detail(batch_id)
+        self.runs.cancel(batch_id)
         self.database.execute(
             """
             UPDATE workflow_runs
-            SET status = 'cancelled', message = '用户已取消', updated_at = ?
-            WHERE id = ?
-            """,
-            (now_iso(), batch_id),
-        )
-        self.database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = 'cancelled', message = '批次已取消', updated_at = ?
+            SET status = 'cancelled', message = '批次已取消',
+                finished_at = ?, heartbeat_at = ?, updated_at = ?
             WHERE parent_run_id = ? AND status = 'pending'
             """,
-            (now_iso(), batch_id),
+            (now_iso(), now_iso(), now_iso(), batch_id),
         )
         return self.batch_detail(batch_id)
 

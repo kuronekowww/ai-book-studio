@@ -5,6 +5,7 @@ import json
 import re
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 from .chapter_analysis import (
@@ -25,11 +26,15 @@ from .providers import (
     ModelOutputTruncatedError,
     ModelProvider,
 )
+from .runs import RunService
 
 
 CHAPTER_COMPRESSION_CHUNK_CHARS = 5_000
 CHAPTER_COMPRESSION_MIN_CHARS = 600
 BOOK_ANALYSIS_INPUT_MAX_CHARS = 100_000
+StageProgressCallback = Callable[
+    [str, str, dict[str, Any] | None, str | None], None
+]
 
 
 def clean_excerpt(text: str, limit: int = 360) -> str:
@@ -84,7 +89,13 @@ class WorkflowService:
         self.prompts = prompt_configuration or PromptConfigurationService(database)
 
     async def analyze_book(
-        self, book_id: str, provider: ModelProvider | None = None
+        self,
+        book_id: str,
+        provider: ModelProvider | None = None,
+        *,
+        parent_run_id: str | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         task_provider = provider or self.provider
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
@@ -92,7 +103,11 @@ class WorkflowService:
             raise KeyError(book_id)
         if book["book_type"] == "non_narrative":
             return await self._analyze_non_narrative(
-                book, provider=task_provider
+                book,
+                provider=task_provider,
+                parent_run_id=parent_run_id,
+                progress_callback=progress_callback,
+                cancelled=cancelled,
             )
         sections = self.database.rows(
             """
@@ -222,12 +237,30 @@ class WorkflowService:
         book: dict[str, Any],
         only_root_id: str | None = None,
         provider: ModelProvider | None = None,
+        *,
+        parent_run_id: str | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         task_provider = provider or self.provider
+        run_service = RunService(self.database)
         book_id = book["id"]
         fragment_set = self.evidence.ensure_current_fragment_set(book_id)
         roots = self._chapter_roots(book_id)
-        if only_root_id:
+        existing_parent = (
+            run_service.get(parent_run_id) if parent_run_id else None
+        )
+        locked_root_ids = (
+            (existing_parent.get("metadata_json") or {}).get("root_section_ids")
+            if existing_parent
+            else None
+        )
+        if isinstance(locked_root_ids, list) and locked_root_ids:
+            locked_set = {
+                item for item in locked_root_ids if isinstance(item, str)
+            }
+            roots = [root for root in roots if root["id"] in locked_set]
+        elif only_root_id:
             roots = [root for root in roots if root["id"] == only_root_id]
         else:
             pending_roots: list[dict[str, Any]] = []
@@ -261,70 +294,158 @@ class WorkflowService:
                     "chapter_count": 0,
                     "succeeded_count": 0,
                     "failed_chapters": [],
-                    "parent_run_id": None,
+                    "parent_run_id": parent_run_id,
                 }
             raise ValueError("没有可拆书的已确认一级章节，请先检查章节范围")
         all_sections = self.database.rows(
             "SELECT * FROM sections WHERE book_id = ? ORDER BY position", (book_id,)
         )
-        parent_run_id = uuid.uuid4().hex
-        started = now_iso()
-        self.database.execute(
-            """
-            INSERT INTO workflow_runs
-              (id, scope_type, scope_id, stage, status, message,
-               metadata_json, created_at, updated_at)
-            VALUES (?, 'book_analysis_batch', ?, 'book_analysis', 'running', '',
-                    ?, ?, ?)
-            """,
-            (
+        external_parent = parent_run_id is not None
+        if parent_run_id is None:
+            parent, _ = run_service.create(
+                scope_type="book_analysis_batch",
+                scope_id=book_id,
+                stage="book_analysis",
+                current_stage="analyze_chapters",
+                progress_total=len(roots),
+                metadata={
+                    "chapter_count": len(roots),
+                    "provider": task_provider.name,
+                    "model": task_provider.model,
+                    "root_section_ids": [root["id"] for root in roots],
+                    "fragment_set_id": fragment_set["id"],
+                },
+                reuse_active=False,
+            )
+            parent_run_id = parent["id"]
+            run_service.mark_running(
                 parent_run_id,
-                book_id,
-                json.dumps(
-                    {
-                        "chapter_count": len(roots),
-                        "provider": task_provider.name,
-                        "model": task_provider.model,
-                    },
-                    ensure_ascii=False,
-                ),
-                started,
-                started,
-            ),
-        )
+                current_stage="analyze_chapters",
+                message="正在逐章拆书",
+            )
+        else:
+            run_service.merge_metadata(
+                parent_run_id,
+                {
+                    "chapter_count": len(roots),
+                    "provider": task_provider.name,
+                    "model": task_provider.model,
+                    "root_section_ids": [root["id"] for root in roots],
+                    "fragment_set_id": fragment_set["id"],
+                },
+            )
+            run_service.set_progress(
+                parent_run_id,
+                total=len(roots),
+                current_stage="analyze_chapters",
+                message="正在逐章拆书",
+            )
+        if progress_callback:
+            progress_callback(
+                "prepare_chapters",
+                "succeeded",
+                {
+                    "chapter_count": len(roots),
+                    "fragment_set_id": fragment_set["id"],
+                },
+                f"已锁定 {len(roots)} 个一级章节",
+            )
+            progress_callback(
+                "analyze_chapters",
+                "running",
+                None,
+                "正在逐章拆书",
+            )
         semaphore = asyncio.Semaphore(5)
 
         async def analyze_root(
             root: dict[str, Any],
         ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
-            child_run_id = uuid.uuid4().hex
-            now = now_iso()
-            self.database.execute(
+            existing_child = self.database.row(
                 """
-                INSERT INTO workflow_runs
-                  (id, scope_type, scope_id, stage, status, message,
-                   parent_run_id, position, metadata_json, created_at, updated_at)
-                VALUES (?, 'chapter_analysis', ?, 'book_analysis', 'pending', '',
-                        ?, ?, ?, ?, ?)
+                SELECT * FROM workflow_runs
+                WHERE parent_run_id = ? AND scope_type = 'chapter_analysis'
+                  AND scope_id = ?
+                ORDER BY created_at DESC LIMIT 1
                 """,
-                (
-                    child_run_id,
-                    root["id"],
-                    parent_run_id,
-                    root["position"],
-                    json.dumps(
-                        {
-                            "book_id": book_id,
-                            "chapter_title": root["title"],
-                            "provider": task_provider.name,
-                            "model": task_provider.model,
-                        },
-                        ensure_ascii=False,
-                    ),
-                    now,
-                    now,
-                ),
+                (parent_run_id, root["id"]),
             )
+            if existing_child:
+                child_run_id = existing_child["id"]
+            else:
+                child, _ = run_service.create(
+                    scope_type="chapter_analysis",
+                    scope_id=root["id"],
+                    stage="book_analysis",
+                    current_stage="book_analysis",
+                    progress_total=1,
+                    metadata={
+                        "book_id": book_id,
+                        "chapter_title": root["title"],
+                        "provider": task_provider.name,
+                        "model": task_provider.model,
+                    },
+                    parent_run_id=parent_run_id,
+                    position=root["position"],
+                    reuse_active=False,
+                )
+                child_run_id = child["id"]
+
+            latest_analysis = self.database.row(
+                """
+                SELECT * FROM chapter_analyses
+                WHERE root_section_id = ? AND fragment_set_id = ?
+                ORDER BY version DESC LIMIT 1
+                """,
+                (root["id"], fragment_set["id"]),
+            )
+            child_state = run_service.get(child_run_id)
+            if (
+                latest_analysis
+                and latest_analysis["status"] in {"succeeded", "partial"}
+                and child_state["status"] in {
+                    "pending",
+                    "running",
+                    "succeeded",
+                    "partial_failed",
+                }
+            ):
+                status = latest_analysis["status"]
+                if child_state["status"] in {"pending", "running"}:
+                    run_service.set_stage(
+                        child_run_id,
+                        "book_analysis",
+                        "succeeded" if status == "succeeded" else "partial_failed",
+                        output={
+                            "artifact_type": "chapter_analysis",
+                            "analysis_id": latest_analysis["id"],
+                            "version": latest_analysis["version"],
+                        },
+                    )
+                    run_service.set_progress(child_run_id, current=1, total=1)
+                    run_service.finish(
+                        child_run_id,
+                        status=(
+                            "succeeded"
+                            if status == "succeeded"
+                            else "partial_failed"
+                        ),
+                        message=(
+                            "已恢复章节拆书结果"
+                            if status == "succeeded"
+                            else "已恢复部分成功章节"
+                        ),
+                    )
+                return root, {
+                    "analysis_id": latest_analysis["id"],
+                    "card_count": int(latest_analysis["valid_item_count"]),
+                    "status": status,
+                    "invalid_item_count": int(
+                        latest_analysis["invalid_item_count"]
+                    ),
+                }, ""
+            if child_state["status"] in {"failed", "cancelled"}:
+                return root, None, child_state["message"] or child_state["status"]
             try:
                 fragments = self.evidence.chapter_fragments(
                     fragment_set["id"], root["id"]
@@ -336,13 +457,17 @@ class WorkflowService:
                     fragment_set_id=fragment_set["id"],
                 )
                 async with semaphore:
-                    self.database.execute(
-                        "UPDATE workflow_runs SET status = 'running', updated_at = ? WHERE id = ?",
-                        (now_iso(), child_run_id),
+                    run_service.mark_running(
+                        child_run_id,
+                        current_stage="book_analysis",
+                        message=f"正在拆解《{root['title']}》",
+                        increment_attempt=True,
                     )
                     raw = await task_provider.generate(
                         PROMPTS["book_analysis"], chapter_source.source
                     )
+                if cancelled and cancelled():
+                    raise asyncio.CancelledError
                 try:
                     parsed = parse_json_object(raw)
                 except json.JSONDecodeError as original_error:
@@ -419,30 +544,37 @@ class WorkflowService:
                     if analysis_status == "partial"
                     else f"已生成 {len(cards)} 条知识资产"
                 )
-                self.database.execute(
-                    """
-                    UPDATE workflow_runs
-                    SET status = ?, message = ?, metadata_json = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        run_status,
-                        message,
-                        json.dumps(
-                            {
-                                "book_id": book_id,
-                                "chapter_title": root["title"],
-                                "analysis_status": analysis_status,
-                                "valid_item_count": len(cards),
-                                "invalid_item_count": validation.invalid_item_count,
-                                "validation_issues": validation.issues,
-                                "response_chars": len(raw),
-                            },
-                            ensure_ascii=False,
-                        ),
-                        now_iso(),
-                        child_run_id,
-                    ),
+                run_service.merge_metadata(
+                    child_run_id,
+                    {
+                        "book_id": book_id,
+                        "chapter_title": root["title"],
+                        "analysis_status": analysis_status,
+                        "valid_item_count": len(cards),
+                        "invalid_item_count": validation.invalid_item_count,
+                        "validation_issues": validation.issues,
+                        "response_chars": len(raw),
+                    },
+                )
+                run_service.set_stage(
+                    child_run_id,
+                    "book_analysis",
+                    run_status,
+                    message=message,
+                    output={
+                        "artifact_type": "chapter_analysis",
+                        "analysis_id": analysis_id,
+                        "version": self.database.row(
+                            "SELECT version FROM chapter_analyses WHERE id = ?",
+                            (analysis_id,),
+                        )["version"],
+                    },
+                )
+                run_service.set_progress(child_run_id, current=1, total=1)
+                run_service.finish(
+                    child_run_id,
+                    status=run_status,
+                    message=message,
                 )
                 return root, {
                     "analysis_id": analysis_id,
@@ -463,22 +595,45 @@ class WorkflowService:
                     category = error.category
                     diagnostics.update(error.diagnostics)
                 diagnostics["error_category"] = category
-                self.database.execute(
-                    """
-                    UPDATE workflow_runs
-                    SET status = 'failed', message = ?, error_stage = 'book_analysis',
-                        metadata_json = ?, updated_at = ? WHERE id = ?
-                    """,
-                    (
-                        str(error)[:500],
-                        json.dumps(diagnostics, ensure_ascii=False),
-                        now_iso(),
-                        child_run_id,
-                    ),
+                run_service.merge_metadata(child_run_id, diagnostics)
+                run_service.fail(
+                    child_run_id,
+                    error,
+                    error_stage="book_analysis",
                 )
                 return root, None, str(error)
 
-        results = await asyncio.gather(*(analyze_root(root) for root in roots))
+        async def analyze_and_report(
+            root: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
+            result = await analyze_root(root)
+            counts = self.database.row(
+                """
+                SELECT COUNT(*) AS total,
+                  SUM(
+                    CASE WHEN status IN
+                      ('succeeded', 'partial_failed', 'failed', 'cancelled')
+                    THEN 1 ELSE 0 END
+                  ) AS completed
+                FROM workflow_runs WHERE parent_run_id = ?
+                """,
+                (parent_run_id,),
+            ) or {"total": len(roots), "completed": 0}
+            run_service.set_progress(
+                parent_run_id,
+                current=int(counts["completed"] or 0),
+                total=int(counts["total"] or len(roots)),
+                current_stage="analyze_chapters",
+                message=(
+                    f"已完成 {int(counts['completed'] or 0)} / "
+                    f"{int(counts['total'] or len(roots))} 章"
+                ),
+            )
+            return result
+
+        results = await asyncio.gather(
+            *(analyze_and_report(root) for root in roots)
+        )
         failed = [
             {"section_id": root["id"], "title": root["title"], "error": error}
             for root, result, error in results
@@ -519,21 +674,54 @@ class WorkflowService:
             "UPDATE books SET status = ?, updated_at = ? WHERE id = ?",
             (status, now_iso(), book_id),
         )
-        self.database.execute(
-            """
-            UPDATE workflow_runs
-            SET status = ?, message = ?, updated_at = ? WHERE id = ?
-            """,
-            (
-                "partial_failed" if failed or partial else "succeeded",
-                (
-                    f"成功 {len(succeeded)} 章，部分成功 {len(partial)} 章，"
-                    f"失败 {len(failed)} 章"
-                ),
-                now_iso(),
-                parent_run_id,
-            ),
+        summary_message = (
+            f"成功 {len(succeeded)} 章，部分成功 {len(partial)} 章，"
+            f"失败 {len(failed)} 章"
         )
+        analysis_stage_status = (
+            "partial_failed" if failed or partial else "succeeded"
+        )
+        run_service.set_stage(
+            parent_run_id,
+            "analyze_chapters",
+            analysis_stage_status,
+            message=summary_message,
+            output={
+                "artifact_type": "chapter_analysis_batch",
+                "succeeded_count": len(succeeded),
+                "partial_count": len(partial),
+                "failed_count": len(failed),
+            },
+        )
+        if progress_callback:
+            progress_callback(
+                "analyze_chapters",
+                analysis_stage_status,
+                {
+                    "succeeded_count": len(succeeded),
+                    "partial_count": len(partial),
+                    "failed_count": len(failed),
+                },
+                summary_message,
+            )
+            progress_callback(
+                "finalize_book",
+                "running",
+                None,
+                "正在汇总书籍知识状态",
+            )
+            progress_callback(
+                "finalize_book",
+                "succeeded",
+                {"book_status": status},
+                "书籍知识状态已更新",
+            )
+        if not external_parent:
+            run_service.finish(
+                parent_run_id,
+                status=analysis_stage_status,
+                message=summary_message,
+            )
         count = self.database.row(
             """
             SELECT COUNT(*) AS count FROM knowledge_items
@@ -851,6 +1039,10 @@ class WorkflowService:
         book_id: str,
         root_section_id: str,
         provider: ModelProvider | None = None,
+        *,
+        parent_run_id: str | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))
         if not book:
@@ -868,7 +1060,12 @@ class WorkflowService:
         if not root:
             raise ValueError("章节不存在、未确认或未纳入拆书")
         return await self._analyze_non_narrative(
-            book, root_section_id, provider or self.provider
+            book,
+            root_section_id,
+            provider or self.provider,
+            parent_run_id=parent_run_id,
+            progress_callback=progress_callback,
+            cancelled=cancelled,
         )
 
     async def _extract_character_relationships(
@@ -1413,6 +1610,8 @@ class WorkflowService:
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
         album_prompt_lock: dict[str, str] | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
         mind_provider = mind_map_provider or fallback_provider
@@ -1429,6 +1628,13 @@ class WorkflowService:
         )
         if not book:
             raise ValueError("项目关联书籍不存在")
+        if progress_callback:
+            progress_callback(
+                "prepare_analysis",
+                "running",
+                None,
+                "正在准备完整拆书稿",
+            )
         mind_facts, mind_compressed = await self._book_analysis_input(
             book["id"], mind_provider
         )
@@ -1441,6 +1647,18 @@ class WorkflowService:
         else:
             album_facts, album_compressed = await self._book_analysis_input(
                 book["id"], album_provider
+            )
+        if cancelled and cancelled():
+            raise asyncio.CancelledError
+        if progress_callback:
+            progress_callback(
+                "prepare_analysis",
+                "succeeded",
+                {
+                    "mind_map_compressed": mind_compressed,
+                    "album_outline_compressed": album_compressed,
+                },
+                "拆书稿已准备",
             )
         requirements = special_requirements.strip()
         count_text = (
@@ -1524,6 +1742,13 @@ class WorkflowService:
             if reusable_mind_map:
                 mind_result: str | Exception | None = None
             else:
+                if progress_callback:
+                    progress_callback(
+                        "generate_mind_map",
+                        "running",
+                        None,
+                        "正在生成思维导图",
+                    )
                 (mind_result,) = await asyncio.gather(
                     mind_provider.generate(PROMPTS["mind_map"], mind_source),
                     return_exceptions=True,
@@ -1531,16 +1756,38 @@ class WorkflowService:
             album_result: str | Exception | None = None
         elif reusable_mind_map:
             mind_result: str | Exception | None = None
+            if progress_callback:
+                progress_callback(
+                    "generate_album_outline",
+                    "running",
+                    None,
+                    "正在生成专辑大纲",
+                )
             (album_result,) = await asyncio.gather(
                 album_provider.generate(album_prompt.prompt, album_prompt.source),
                 return_exceptions=True,
             )
         else:
+            if progress_callback:
+                progress_callback(
+                    "generate_mind_map",
+                    "running",
+                    None,
+                    "正在生成思维导图",
+                )
+                progress_callback(
+                    "generate_album_outline",
+                    "running",
+                    None,
+                    "正在生成专辑大纲",
+                )
             mind_result, album_result = await asyncio.gather(
                 mind_provider.generate(PROMPTS["mind_map"], mind_source),
                 album_provider.generate(album_prompt.prompt, album_prompt.source),
                 return_exceptions=True,
             )
+        if cancelled and cancelled():
+            raise asyncio.CancelledError
         response: dict[str, Any] = {
             "compressed": mind_compressed or album_compressed,
             "mind_map": {"status": "failed"},
@@ -1552,9 +1799,29 @@ class WorkflowService:
                 "version": reusable_mind_map["version"],
                 "reused": True,
             }
+            if progress_callback:
+                progress_callback(
+                    "generate_mind_map",
+                    "succeeded",
+                    {
+                        "artifact_type": "mind_map",
+                        "version": reusable_mind_map["version"],
+                        "reused": True,
+                    },
+                    "已复用思维导图",
+                )
         elif isinstance(mind_result, Exception):
             response["mind_map"]["error"] = str(mind_result)
+            if progress_callback:
+                progress_callback(
+                    "generate_mind_map",
+                    "failed",
+                    None,
+                    str(mind_result),
+                )
         else:
+            if cancelled and cancelled():
+                raise asyncio.CancelledError
             current = self.database.row(
                 "SELECT COALESCE(MAX(version), 0) AS version FROM mind_maps WHERE book_id = ?",
                 (book["id"],),
@@ -1577,10 +1844,26 @@ class WorkflowService:
                 ),
             )
             response["mind_map"] = {"status": "succeeded", "version": version}
+            if progress_callback:
+                progress_callback(
+                    "generate_mind_map",
+                    "succeeded",
+                    {"artifact_type": "mind_map", "version": version},
+                    "思维导图已生成",
+                )
         if isinstance(album_result, Exception):
             response["album_outline"]["error"] = str(album_result)
+            if progress_callback:
+                progress_callback(
+                    "generate_album_outline",
+                    "failed",
+                    None,
+                    str(album_result),
+                )
         else:
             try:
+                if cancelled and cancelled():
+                    raise asyncio.CancelledError
                 if reusable_album_data is not None:
                     album_data = reusable_album_data
                     response["album_outline"]["reused_draft"] = True
@@ -1604,6 +1887,22 @@ class WorkflowService:
                             album_draft_signature,
                             project_id,
                         ),
+                    )
+                if progress_callback:
+                    progress_callback(
+                        "generate_album_outline",
+                        "succeeded",
+                        {
+                            "artifact_type": "album_outline_draft",
+                            "reused": reusable_album_data is not None,
+                        },
+                        "专辑大纲模型输出已生成",
+                    )
+                    progress_callback(
+                        "save_project_outline",
+                        "running",
+                        None,
+                        "正在校验并保存专辑大纲",
                     )
                 episodes, notice = self._validate_album_outline(
                     album_data, book, desired_episode_count
@@ -1636,8 +1935,37 @@ class WorkflowService:
                     "episode_count": len(episodes),
                     "notice": notice,
                 }
+                if progress_callback:
+                    progress_callback(
+                        "save_project_outline",
+                        "succeeded",
+                        {
+                            "artifact_type": "project_outline",
+                            "project_id": project_id,
+                            "episode_count": len(episodes),
+                        },
+                        f"已生成 {len(episodes)} 集专辑大纲",
+                    )
             except Exception as error:
                 response["album_outline"]["error"] = str(error)
+                if progress_callback:
+                    failed_stage = (
+                        "save_project_outline"
+                        if self.database.row(
+                            """
+                            SELECT album_outline_draft_json FROM projects
+                            WHERE id = ?
+                            """,
+                            (project_id,),
+                        ).get("album_outline_draft_json")
+                        else "generate_album_outline"
+                    )
+                    progress_callback(
+                        failed_stage,
+                        "failed",
+                        None,
+                        str(error),
+                    )
         response["project"] = self.project_detail(project_id)
         return response
 
@@ -2006,6 +2334,9 @@ class WorkflowService:
         *,
         stage_providers: dict[str, ModelProvider] | None = None,
         stage_prompt_locks: dict[str, dict[str, str]] | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        completed_stages: set[str] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
@@ -2014,11 +2345,17 @@ class WorkflowService:
         stages = ["outline", "draft", "final"]
         start = stages.index(from_stage)
         for stage in stages[start:]:
+            if stage in (completed_stages or set()):
+                continue
+            if cancelled and cancelled():
+                return self.episode_detail(episode_id)
             task_provider = (
                 stage_providers.get(stage, fallback_provider)
                 if stage_providers
                 else fallback_provider
             )
+            if progress_callback:
+                progress_callback(stage, "running", None, f"正在生成{stage}")
             self.database.execute(
                 "UPDATE episodes SET status = ? WHERE id = ?",
                 (f"generating_{stage}", episode_id),
@@ -2041,12 +2378,16 @@ class WorkflowService:
                     prompt_snapshot.prompt, prompt_snapshot.source
                 )
             except Exception as error:
+                if progress_callback:
+                    progress_callback(stage, "failed", None, str(error))
                 self.database.execute(
                     "UPDATE episodes SET status = 'failed' WHERE id = ?",
                     (episode_id,),
                 )
                 raise StageGenerationError(stage, error) from error
-            self._save_artifact(
+            if cancelled and cancelled():
+                return self.episode_detail(episode_id)
+            artifact = self._save_artifact(
                 episode_id,
                 stage,
                 content,
@@ -2057,6 +2398,17 @@ class WorkflowService:
                 prompt_version_id=prompt_snapshot.prompt_version_id,
                 prompt_system_version_id=prompt_snapshot.system_version_id,
             )
+            if progress_callback:
+                progress_callback(
+                    stage,
+                    "succeeded",
+                    {
+                        "artifact_type": "episode_artifact",
+                        "artifact_id": artifact["id"],
+                        "version": artifact["version"],
+                    },
+                    f"{stage}已生成",
+                )
         self.database.execute(
             "UPDATE episodes SET status = 'review' WHERE id = ?",
             (episode_id,),
@@ -2076,7 +2428,7 @@ class WorkflowService:
         input_snapshot: str = "",
         prompt_version_id: str | None = None,
         prompt_system_version_id: str | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         current = self.database.row(
             """
             SELECT COALESCE(MAX(version), 0) AS version
@@ -2086,6 +2438,8 @@ class WorkflowService:
             (episode_id, stage),
         )
         version = int(current["version"]) + 1 if current else 1
+        artifact_id = uuid.uuid4().hex
+        created_at = now_iso()
         self.database.execute(
             """
             INSERT INTO artifact_versions
@@ -2095,7 +2449,7 @@ class WorkflowService:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                uuid.uuid4().hex,
+                artifact_id,
                 episode_id,
                 stage,
                 version,
@@ -2107,9 +2461,20 @@ class WorkflowService:
                 model or self.provider.model,
                 author_type,
                 input_snapshot,
-                now_iso(),
+                created_at,
             ),
         )
+        return {
+            "id": artifact_id,
+            "episode_id": episode_id,
+            "stage": stage,
+            "version": version,
+            "content": content,
+            "provider": provider or self.provider.name,
+            "model": model or self.provider.model,
+            "author_type": author_type,
+            "created_at": created_at,
+        }
 
     def save_manual_final(self, episode_id: str, content: str) -> dict[str, Any]:
         if not self.database.row("SELECT id FROM episodes WHERE id = ?", (episode_id,)):
