@@ -1,5 +1,16 @@
 # Findings & Decisions
 
+## Phase 33 Baseline
+
+- 最新运行 `471f0d1b9f5b43f4b8ad9d33d2ce2137` 使用 DeepSeek V4 Pro；
+  `MODULE_001` 分配 1 集、`MODULE_002` 分配 2 集，但模型都输出 15 集。
+- 当前有效用户模板来自全局 v1，仍包含“把全书拆书稿编排成一张专辑”和
+  `期望集数：{{desired_episode_count}}`；系统模板虽已模块化，但不会覆盖用户正文中的
+  全书语义。
+- 工作流把 `desired_episode_count` 渲染成“目标 15、允许 13 至 17、本次规划 17”，
+  同时在 `module_brief` 写入局部 1/2，形成直接冲突。
+- 用户批准保留全局提示词历史，通过运行时局部数量隔离和一次内部纠偏解决。
+
 ## Phase 32 Baseline
 
 - 当前运行 `559bbaff9bf742de84a9e46b5dd07209` 已正确保存
