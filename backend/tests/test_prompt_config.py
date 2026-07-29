@@ -50,6 +50,11 @@ def test_prompt_defaults_are_initialized_idempotently(tmp_path) -> None:
     assert database.row(
         "SELECT COUNT(*) AS count FROM prompt_versions WHERE scope = 'system'"
     )["count"] == 4
+    album = service.effective("album_outline")
+    assert album["system_version"] == "2026-07-29.1"
+    assert "module_source" in album["allowed_placeholders"]
+    assert "只输出以下 Markdown 结构" in album["protected_suffix"]
+    assert "knowledge_item_id" in album["protected_suffix"]
 
 
 def test_prompt_template_validation_and_single_pass_rendering() -> None:
@@ -77,6 +82,16 @@ def test_prompt_template_validation_and_single_pass_rendering() -> None:
             assert expected in str(error)
         else:
             raise AssertionError(f"无效模板应被拒绝：{invalid}")
+
+    album = PROMPT_TEMPLATE_SPECS["album_outline"]
+    validate_user_template(album, "旧模板仍可用\n{{book_analysis}}")
+    validate_user_template(album, "新模板\n{{chapter_catalog}}\n{{module_source}}")
+    try:
+        validate_user_template(album, "没有材料占位符")
+    except ValueError as error:
+        assert "章节目录或模块材料" in str(error)
+    else:
+        raise AssertionError("专辑模板必须保留至少一个材料占位符")
 
 
 def test_global_and_project_prompt_versions_inherit_and_restore(tmp_path) -> None:

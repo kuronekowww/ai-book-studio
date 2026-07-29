@@ -195,6 +195,25 @@ class EpisodeContextBuilder:
             if any(section is None for section in sections):
                 raise ValueError("声音关联的原文块不存在")
             typed = [section for section in sections if section]
+            if any(section.get("parent_id") is None for section in typed):
+                chapter_books = {
+                    section["book_id"]
+                    for section in typed
+                    if section.get("parent_id") is None
+                }
+                if any(
+                    self.database.row(
+                        """
+                        SELECT id FROM chapter_analyses
+                        WHERE book_id = ? LIMIT 1
+                        """,
+                        (book_id,),
+                    )
+                    for book_id in chapter_books
+                ):
+                    raise ValueError(
+                        "当前声音尚未匹配具体知识资产和原文块，请先执行来源匹配"
+                    )
             typed.sort(key=lambda item: (item["book_id"], item["position"]))
             return {
                 "knowledge_items": [],

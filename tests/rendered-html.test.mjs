@@ -88,6 +88,12 @@ test("keeps persistent workflow progress and workspace recovery in source", asyn
   assert.match(page, /后台持久任务/);
   assert.match(page, /TaskProgressCard/);
   assert.match(page, /展开查看/);
+  assert.match(page, /准备轻量章节目录/);
+  assert.match(page, /设计全书知识模块/);
+  assert.match(page, /分模块生成专辑大纲/);
+  assert.match(page, /匹配本集原文/);
+  assert.match(page, /来源章节/);
+  assert.match(page, /重跑此模块/);
   assert.match(styles, /\.task-progress-card/);
   assert.match(styles, /\.task-stage-list/);
   assert.match(styles, /\.task-output/);

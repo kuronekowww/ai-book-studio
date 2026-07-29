@@ -280,7 +280,9 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert generated["album_outline"]["status"] == "succeeded"
     assert generated["project"]["album_special_requirements"] == "突出社会结构"
     assert mind_provider.calls == ["mind_map"]
-    assert album_provider.calls == ["album_outline"]
+    assert album_provider.calls[0] == "album_module_plan"
+    assert album_provider.calls.count("album_outline") == 3
+    assert album_provider.calls[-1] == "album_outline_structure"
     saved_map = database.row(
         "SELECT model FROM mind_maps WHERE book_id = ? ORDER BY version DESC LIMIT 1",
         (book_id,),
@@ -288,19 +290,24 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert saved_map["model"] == "mind-model"
     assert "期望 3 集" in generated["project"]["episode_count_notice"]
     episode = generated["project"]["episodes"][0]
-    assert episode["knowledge_item_ids"]
-    assert episode["source_content_indexes"]
+    assert episode["knowledge_item_ids"] == []
+    assert episode["source_content_indexes"] == []
     assert "听众钩子：" in episode["content_framework"]
-    assert episode["section_identifier"].startswith("章节：")
+    assert episode["section_identifier"].startswith("[CHAPTER_")
+    root = database.row(
+        "SELECT * FROM sections WHERE id = ?", (episode["source_section_ids"][0],)
+    )
+    assert root["parent_id"] is None
+    produced = asyncio.run(
+        service.generate_episode(episode["id"], provider=DemoProvider())
+    )
+    assert produced["knowledge_item_ids"]
+    assert produced["source_content_indexes"]
     bundle = service.contexts.evidence_bundle(episode["id"])
     assert bundle["knowledge_items"]
     assert bundle["direct_fragments"]
     context = service.contexts.build(episode["id"], "outline")
     assert "# 直接原文证据" in context.source
-    assert bundle["direct_fragments"][0]["content_index"] in context.source
-    assert set(episode["source_content_indexes"]) == {
-        item["content_index"] for item in bundle["direct_fragments"]
-    }
 
 
 def test_album_outline_requires_hook_and_two_to_four_key_points(tmp_path) -> None:

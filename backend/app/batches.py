@@ -124,6 +124,20 @@ class BatchService:
         child_rows: list[tuple[Any, ...]] = []
         for episode in episodes:
             from_stage = self._first_missing_stage(episode["id"])
+            target_stages = list(
+                ("outline", "draft", "final")[
+                    ("outline", "draft", "final").index(from_stage) :
+                ]
+            )
+            source_links = self.database.row(
+                """
+                SELECT COUNT(*) AS count FROM episode_knowledge_items
+                WHERE episode_id = ?
+                """,
+                (episode["id"],),
+            )
+            if not source_links or not int(source_links["count"]):
+                target_stages.insert(0, "match_episode_sources")
             child_rows.append(
                 (
                     uuid.uuid4().hex,
@@ -131,9 +145,7 @@ class BatchService:
                     from_stage,
                     batch_id,
                     episode["position"],
-                    len(("outline", "draft", "final")[
-                        ("outline", "draft", "final").index(from_stage) :
-                    ]),
+                    len(target_stages),
                     created_at,
                     created_at,
                 )
@@ -275,6 +287,15 @@ class BatchService:
                 try:
                     stage_order = ["outline", "draft", "final"]
                     target_stages = stage_order[stage_order.index(child["stage"]) :]
+                    source_links = self.database.row(
+                        """
+                        SELECT COUNT(*) AS count FROM episode_knowledge_items
+                        WHERE episode_id = ?
+                        """,
+                        (child["scope_id"],),
+                    )
+                    if not source_links or not int(source_links["count"]):
+                        target_stages = ["match_episode_sources", *target_stages]
                     completed_stages = {
                         stage
                         for stage in target_stages

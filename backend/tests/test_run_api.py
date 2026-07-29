@@ -173,3 +173,57 @@ def test_project_generation_returns_202_before_background_work_finishes(
         assert duplicate.status_code == 202
         assert duplicate.json()["id"] == run["id"]
         assert duplicate.json()["reused"] is True
+
+
+def test_album_module_output_is_visible_and_failed_module_can_retry(
+    tmp_path, monkeypatch
+) -> None:
+    main = load_main(tmp_path, monkeypatch)
+    _, project_id, _ = seed_project(main)
+
+    async def paused_project_run(run_id: str, **_kwargs) -> None:
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(main, "execute_project_generation_run", paused_project_run)
+    run, _ = main.runs.create(
+        scope_type="project_generation",
+        scope_id=project_id,
+        stage="full",
+        current_stage="expand_album_modules",
+        progress_total=6,
+        reuse_active=False,
+    )
+    main.runs.finish(
+        run["id"], status="partial_failed", message="一个模块失败"
+    )
+    artifact = main.workflows.album_planning.artifacts.upsert(
+        run_id=run["id"],
+        project_id=project_id,
+        artifact_type="module_outline",
+        module_key="MODULE_002",
+        position=2,
+        content="",
+        status="failed",
+        error_message="网关超时",
+    )
+
+    with TestClient(main.app) as client:
+        outputs = client.get(f"/api/runs/{run['id']}/outputs")
+        assert outputs.status_code == 200
+        module = outputs.json()["outputs"][0]
+        assert module["module_key"] == "MODULE_002"
+        assert module["status"] == "failed"
+        assert module["error_message"] == "网关超时"
+
+        retried = client.post(
+            f"/api/runs/{run['id']}/modules/MODULE_002/retry"
+        )
+        assert retried.status_code == 202
+        assert retried.json()["status"] in {"pending", "running"}
+        assert (
+            main.database.row(
+                "SELECT status FROM album_planning_artifacts WHERE id = ?",
+                (artifact["id"],),
+            )["status"]
+            == "pending"
+        )

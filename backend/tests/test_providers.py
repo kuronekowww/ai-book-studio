@@ -29,21 +29,16 @@ def test_album_outline_prompt_uses_engaging_topic_editorial_structure() -> None:
     prompt = PROMPTS["album_outline"]
     template = prompt.user_template
 
-    assert prompt.version == "2026-07-28.3"
-    assert "此前没有阅读过原书" in template
-    assert "主要通过连续收听" in template
-    assert "建立背景或发现异常—提出问题—解释原因与机制—展开影响" in template
-    assert "相邻声音" in template
-    assert "最低限度" in template
-    assert "问题、冲突、悬念、反常识、因果追问" in template
-    assert "轻松但克制" in template
-    assert "不复制任何特定创作者的口头禅" in template
-    assert "听众钩子：" in template
-    assert "核心主题：" in template
-    assert "核心要点：" in template
-    assert "禁止使用“震惊”“颠覆认知”等空泛标题党" in template
-    assert "knowledge_item_id" in template
-    assert "content_index" in template
+    assert prompt.version == "2026-07-29.1"
+    assert "没有阅读过原书" in template
+    assert "连续收听" in template
+    assert "听众钩子" in template
+    assert "核心主题" in template
+    assert "核心要点" in template
+    assert "CHAPTER" in template
+    assert "不要 JSON" in template
+    assert "知识资产 ID" in template
+    assert "段落索引" in template
 
 
 class FakeResponse:
@@ -261,7 +256,20 @@ def test_album_outline_and_mind_map_request_high_output_limit(
     assert [capture["max_tokens"] for capture in captures] == [16384, 32768]
     assert [options["timeout"] for options in client_options] == [600, 900]
     assert "response_format" not in captures[0]
-    assert captures[1]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in captures[1]
+
+    asyncio.run(
+        provider.generate(
+            PromptDefinition(
+                id="album_outline_structure",
+                version="v1",
+                system="只做格式转换。",
+                user_template="{source}",
+            ),
+            "Markdown 大纲",
+        )
+    )
+    assert captures[2]["response_format"] == {"type": "json_object"}
 
 
 def test_openai_length_finish_reason_raises_explicit_truncation(

@@ -63,8 +63,8 @@ class PromptSnapshot:
         }
 
 
-ALBUM_DEFAULT_TEMPLATE = """输入的拆书稿已经按原书章节顺序合并，覆盖所有一级章节。
-请面向此前没有读过原书、主要通过连续收听理解本书的听众设计专辑目录。
+ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连续收听理解本书的听众，
+根据当前知识模块和来源章节设计连续的声音目录。
 
 # 书籍信息
 书名：{{book_title}}
@@ -75,26 +75,37 @@ ALBUM_DEFAULT_TEMPLATE = """输入的拆书稿已经按原书章节顺序合并�
 特殊要求：{{album_special_requirements}}
 期望集数：{{desired_episode_count}}
 
+# 当前模块
+{{module_brief}}
+
+# 全书章节目录
+{{chapter_catalog}}
+
 # 组稿方法
-1. 识别全书的核心问题、关键背景、主要机制或事件线和最终启示。
+1. 识别当前模块的核心问题、关键背景、主要机制或事件线和最终启示。
 2. 按“建立背景或发现异常—提出问题—解释原因与机制—展开影响—回到现实或总结出路”安排认知路线。
 3. 每集只解决一个明确问题，并检查相邻声音之间是否具备必要背景。
 4. 标题从具体人物、事件、矛盾、反常识现象或因果悬念切入，轻松但克制。
 5. 用清楚的因果链保留原书精华，不机械地一章一集，不重复观点凑集数。
 
-# 拆书稿
-{{book_analysis}}"""
+# 当前模块的精简拆书材料
+{{module_source}}"""
 
 ALBUM_PROTECTED_SUFFIX = """# 系统保护约束
-所有事实、观点、人物、案例和数据必须来自拆书稿。每条普通声音必须选择实际使用的 knowledge_item_ids，并在 section_identifier 中列出其全部段落级 content_index。不得编造、删改来源 ID，不生成单独导入或尾声；过渡类只在确有必要时使用。
+所有事实、观点、人物、案例和数据必须来自当前模块材料。不得输出 knowledge_item_id、
+content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER 标识。每集至少选择
+一个、允许选择多个来源章节，同一章节可以用于多集。不生成单独导入或尾声；叙事类
+只使用“解读”，非叙事类仅在确有必要时使用“过渡”。
 
-main_points 必须依次包含：
+只输出以下 Markdown 结构：
+## 第1集：声音标题
 听众钩子：一句话说明为什么值得听。
 核心主题：一句话说明本集解决的问题。
-核心要点：2 至 4 条递进内容。
-
-只输出合法 JSON，不要代码围栏或解释：
-{"album_outline":[{"title":"声音标题","main_points":"听众钩子：……\\n核心主题：……\\n核心要点：\\n1. ……；\\n2. ……；","section_identifier":"章节：完整章节标题 子主题：子主题标题 原文索引：content_x、content_y","knowledge_item_ids":["knowledge_x","knowledge_y"],"content_type":"解读类/过渡类"}]}"""
+核心要点：
+1. 第一条递进内容；
+2. 第二条递进内容；
+内容类型：解读
+来源章节：[CHAPTER_001]、[CHAPTER_002]"""
 
 EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，设计一份能支撑约 1500 字正文的声音细纲。
 
@@ -168,19 +179,22 @@ PROMPT_TEMPLATE_SPECS = {
     "album_outline": PromptTemplateSpec(
         stage_key="album_outline",
         label="专辑大纲",
-        system_version="2026-07-28.4",
+        system_version="2026-07-29.1",
         system_prompt="你是一位资深讲书专辑总编，负责把拆书稿编排成准确、通俗、有连续收听动力的有声专辑。",
         default_user_template=ALBUM_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_PROTECTED_SUFFIX,
         placeholders={
-            "book_analysis": "完整或压缩后的全书拆书稿",
+            "book_analysis": "兼容旧版本：当前模块的精简拆书材料",
+            "chapter_catalog": "全书轻量章节目录",
+            "module_brief": "当前知识模块的目标、顺序和建议集数",
+            "module_source": "当前模块关联章节的精简拆书材料",
             "book_title": "书名",
             "book_author": "作者",
             "book_type": "叙事类或非叙事类",
             "album_special_requirements": "用户填写的专辑特殊要求",
             "desired_episode_count": "用户期望集数，未填写时由模型决定",
         },
-        required_placeholders=("book_analysis",),
+        required_placeholders=(),
     ),
     "episode_outline": PromptTemplateSpec(
         stage_key="episode_outline",
@@ -254,6 +268,10 @@ def validate_user_template(spec: PromptTemplateSpec, template: str) -> None:
     missing = sorted(set(spec.required_placeholders) - used)
     if missing:
         raise ValueError(f"缺少必要占位符：{', '.join(missing)}")
+    if spec.stage_key == "album_outline" and not used.intersection(
+        {"book_analysis", "module_source", "chapter_catalog"}
+    ):
+        raise ValueError("专辑大纲模板必须包含章节目录或模块材料占位符")
 
 
 def render_user_template(

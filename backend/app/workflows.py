@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
+from .album_planning import AlbumModule, AlbumPlanningService
 from .chapter_analysis import (
     build_chapter_source,
     content_index,
@@ -87,6 +88,7 @@ class WorkflowService:
         self.evidence = EvidenceService(database)
         self.contexts = EpisodeContextBuilder(database)
         self.prompts = prompt_configuration or PromptConfigurationService(database)
+        self.album_planning = AlbumPlanningService(database)
 
     async def analyze_book(
         self,
@@ -1610,6 +1612,597 @@ class WorkflowService:
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
         album_prompt_lock: dict[str, str] | None = None,
+        planning_run_id: str | None = None,
+        retry_module_key: str | None = None,
+        progress_callback: StageProgressCallback | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        fallback_provider = provider or self.provider
+        mind_provider = mind_map_provider or fallback_provider
+        album_provider = album_outline_provider or fallback_provider
+        project = self.database.row(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        )
+        if not project:
+            raise KeyError(project_id)
+        if not project["book_ids"]:
+            raise ValueError("项目没有关联书籍")
+        book = self.database.row(
+            "SELECT * FROM books WHERE id = ?", (project["book_ids"][0],)
+        )
+        if not book:
+            raise ValueError("项目关联书籍不存在")
+
+        def report(
+            stage: str,
+            status: str,
+            output: dict[str, Any] | None,
+            message: str,
+        ) -> None:
+            if progress_callback:
+                progress_callback(stage, status, output, message)
+
+        def check_cancelled() -> None:
+            if cancelled and cancelled():
+                raise asyncio.CancelledError
+
+        entries: list[Any]
+        key_map: dict[str, str]
+        report(
+            "prepare_chapter_catalog",
+            "running",
+            None,
+            "正在准备轻量章节目录",
+        )
+        entries, key_map = self.album_planning.build_chapter_catalog(book["id"])
+        catalog = self.album_planning.render_catalog(entries)
+        if planning_run_id:
+            self.album_planning.artifacts.upsert(
+                run_id=planning_run_id,
+                project_id=project_id,
+                artifact_type="chapter_catalog",
+                source_chapter_ids=list(key_map.values()),
+                content=json.dumps(
+                    {
+                        "catalog_markdown": catalog,
+                        "chapter_key_map": key_map,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        check_cancelled()
+        report(
+            "prepare_chapter_catalog",
+            "succeeded",
+            {
+                "artifact_type": "album_planning_artifact",
+                "planning_artifact_type": "chapter_catalog",
+                "chapter_count": len(entries),
+            },
+            f"已准备 {len(entries)} 个一级章节",
+        )
+
+        response: dict[str, Any] = {
+            "compressed": False,
+            "mind_map": {"status": "failed"},
+            "album_outline": {"status": "failed"},
+        }
+        existing_episode = self.database.row(
+            "SELECT id FROM episodes WHERE project_id = ? LIMIT 1",
+            (project_id,),
+        )
+        reusable_mind_map = (
+            self.database.row(
+                """
+                SELECT * FROM mind_maps
+                WHERE book_id = ? ORDER BY version DESC LIMIT 1
+                """,
+                (book["id"],),
+            )
+            if not existing_episode
+            else None
+        )
+        if reusable_mind_map:
+            response["mind_map"] = {
+                "status": "succeeded",
+                "version": reusable_mind_map["version"],
+                "reused": True,
+            }
+            report(
+                "generate_mind_map",
+                "succeeded",
+                {
+                    "artifact_type": "mind_map",
+                    "version": reusable_mind_map["version"],
+                    "reused": True,
+                },
+                "已复用思维导图",
+            )
+        else:
+            report("generate_mind_map", "running", None, "正在生成思维导图")
+            try:
+                mind_facts, compressed = await self._book_analysis_input(
+                    book["id"], mind_provider
+                )
+                check_cancelled()
+                mind_source = (
+                    f"# 书籍信息\n书名：{book['title']}\n"
+                    f"作者：{book['author'] or '未填写'}\n\n# 拆书稿\n{mind_facts}"
+                )
+                mind_result = await mind_provider.generate(
+                    PROMPTS["mind_map"], mind_source
+                )
+                check_cancelled()
+                current = self.database.row(
+                    """
+                    SELECT COALESCE(MAX(version), 0) AS version
+                    FROM mind_maps WHERE book_id = ?
+                    """,
+                    (book["id"],),
+                )
+                version = int(current["version"]) + 1 if current else 1
+                self.database.execute(
+                    """
+                    INSERT INTO mind_maps
+                      (id, book_id, version, content, provider, model, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        book["id"],
+                        version,
+                        mind_result.strip(),
+                        mind_provider.name,
+                        mind_provider.model,
+                        now_iso(),
+                    ),
+                )
+                response["compressed"] = compressed
+                response["mind_map"] = {"status": "succeeded", "version": version}
+                report(
+                    "generate_mind_map",
+                    "succeeded",
+                    {"artifact_type": "mind_map", "version": version},
+                    "思维导图已生成",
+                )
+            except Exception as error:
+                response["mind_map"] = {
+                    "status": "failed",
+                    "error": str(error),
+                }
+                report(
+                    "generate_mind_map",
+                    "failed",
+                    None,
+                    str(error),
+                )
+
+        requirements = special_requirements.strip()
+        count_text = (
+            str(desired_episode_count)
+            if desired_episode_count is not None
+            else "未指定，由模型根据内容自行决定"
+        )
+        report(
+            "design_album_modules",
+            "running",
+            None,
+            "正在设计全书知识模块",
+        )
+        module_plan_artifact = (
+            self.album_planning.artifacts.get(
+                planning_run_id, "module_plan"
+            )
+            if planning_run_id
+            else None
+        )
+        try:
+            if module_plan_artifact and module_plan_artifact["status"] == "succeeded":
+                module_plan_markdown = module_plan_artifact["content"]
+            else:
+                module_plan_source = (
+                    f"# 书籍信息\n书名：{book['title']}\n"
+                    f"作者：{book['author'] or '未填写'}\n"
+                    f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
+                    f"# 专辑特殊要求\n{requirements or '无'}\n\n"
+                    f"# 期望集数\n{count_text}\n\n"
+                    f"# 轻量章节目录\n{catalog}"
+                )
+                module_plan_markdown = await album_provider.generate(
+                    PROMPTS["album_module_plan"], module_plan_source
+                )
+                check_cancelled()
+            modules = self.album_planning.parse_module_plan(
+                module_plan_markdown, set(key_map)
+            )
+            modules = self.album_planning.split_oversized_modules(
+                modules, entries
+            )
+            if planning_run_id:
+                self.album_planning.artifacts.upsert(
+                    run_id=planning_run_id,
+                    project_id=project_id,
+                    artifact_type="module_plan",
+                    source_chapter_ids=list(key_map.values()),
+                    content=module_plan_markdown,
+                )
+            report(
+                "design_album_modules",
+                "succeeded",
+                {
+                    "artifact_type": "album_planning_artifact",
+                    "planning_artifact_type": "module_plan",
+                    "module_count": len(modules),
+                },
+                f"已设计 {len(modules)} 个知识模块",
+            )
+        except Exception as error:
+            if planning_run_id:
+                self.album_planning.artifacts.mark_failed(
+                    run_id=planning_run_id,
+                    project_id=project_id,
+                    artifact_type="module_plan",
+                    module_key="",
+                    position=0,
+                    source_chapter_ids=list(key_map.values()),
+                    error=error,
+                )
+            report("design_album_modules", "failed", None, str(error))
+            response["album_outline"]["error"] = str(error)
+            response["project"] = self.project_detail(project_id)
+            return response
+
+        report(
+            "expand_album_modules",
+            "running",
+            {"module_count": len(modules), "completed": 0, "failed": 0},
+            f"正在展开 {len(modules)} 个专辑模块",
+        )
+        limiter = asyncio.Semaphore(2)
+        run_service = RunService(self.database)
+        completed_modules = 0
+        failed_modules = 0
+
+        async def expand(module: AlbumModule) -> tuple[AlbumModule, str | Exception]:
+            nonlocal completed_modules, failed_modules
+            existing = (
+                self.album_planning.artifacts.get(
+                    planning_run_id, "module_outline", module.key
+                )
+                if planning_run_id
+                else None
+            )
+            if existing and existing["status"] == "succeeded":
+                completed_modules += 1
+                return module, existing["content"]
+            if (
+                existing
+                and existing["status"] == "failed"
+                and retry_module_key
+                and module.key != retry_module_key
+            ):
+                failed_modules += 1
+                return module, RuntimeError(
+                    existing["error_message"] or "模块尚未成功"
+                )
+            child_run: dict[str, Any] | None = None
+            if planning_run_id:
+                child_run, _ = run_service.create(
+                    scope_type="project_album_module",
+                    scope_id=f"{project_id}:{module.key}",
+                    stage="album_outline",
+                    current_stage="expand_album_module",
+                    progress_total=1,
+                    metadata={
+                        "module_key": module.key,
+                        "module_title": module.title,
+                        "chapter_keys": list(module.chapter_keys),
+                    },
+                    parent_run_id=planning_run_id,
+                    position=module.position,
+                    reuse_active=False,
+                )
+                run_service.mark_running(
+                    child_run["id"],
+                    current_stage="expand_album_module",
+                    message=f"正在生成{module.title}",
+                    increment_attempt=True,
+                )
+            try:
+                async with limiter:
+                    check_cancelled()
+                    module_source = self.album_planning.render_module_source(
+                        entries, module.chapter_keys
+                    )
+                    module_brief = (
+                        f"模块标题：{module.title}\n"
+                        f"听众问题：{module.listener_question}\n"
+                        f"建议声音数：{module.suggested_episode_count}\n"
+                        "来源章节："
+                        + "、".join(f"[{key}]" for key in module.chapter_keys)
+                    )
+                    snapshot = self.prompts.snapshot(
+                        "album_outline",
+                        {
+                            "book_analysis": module_source,
+                            "chapter_catalog": catalog,
+                            "module_brief": module_brief,
+                            "module_source": module_source,
+                            "book_title": book["title"],
+                            "book_author": book["author"] or "未填写",
+                            "book_type": (
+                                "叙事类"
+                                if book["book_type"] == "narrative"
+                                else "非叙事类"
+                            ),
+                            "album_special_requirements": requirements or "无",
+                            "desired_episode_count": count_text,
+                        },
+                        project_id=project_id,
+                        locked=album_prompt_lock,
+                        prompt_id="album_outline",
+                        book_type=book["book_type"],
+                    )
+                    markdown = await album_provider.generate(
+                        snapshot.prompt, snapshot.source
+                    )
+                    check_cancelled()
+                    markdown = self.album_planning.validate_module_outline(
+                        markdown, set(module.chapter_keys)
+                    )
+                if planning_run_id:
+                    self.album_planning.artifacts.upsert(
+                        run_id=planning_run_id,
+                        project_id=project_id,
+                        artifact_type="module_outline",
+                        module_key=module.key,
+                        position=module.position,
+                        source_chapter_ids=[
+                            key_map[key] for key in module.chapter_keys
+                        ],
+                        content=markdown,
+                    )
+                if child_run:
+                    run_service.set_stage(
+                        child_run["id"],
+                        "expand_album_module",
+                        "succeeded",
+                        output={
+                            "artifact_type": "album_planning_artifact",
+                            "planning_artifact_type": "module_outline",
+                            "module_key": module.key,
+                        },
+                    )
+                    run_service.finish(
+                        child_run["id"], message=f"{module.title}已生成"
+                    )
+                completed_modules += 1
+                report(
+                    "expand_album_modules",
+                    "running",
+                    {
+                        "module_count": len(modules),
+                        "completed": completed_modules,
+                        "failed": failed_modules,
+                    },
+                    f"已完成 {completed_modules}/{len(modules)} 个模块",
+                )
+                return module, markdown
+            except Exception as error:
+                failed_modules += 1
+                if planning_run_id:
+                    self.album_planning.artifacts.mark_failed(
+                        run_id=planning_run_id,
+                        project_id=project_id,
+                        artifact_type="module_outline",
+                        module_key=module.key,
+                        position=module.position,
+                        source_chapter_ids=[
+                            key_map[key] for key in module.chapter_keys
+                        ],
+                        error=error,
+                    )
+                if child_run:
+                    run_service.fail(
+                        child_run["id"],
+                        error,
+                        error_stage="expand_album_module",
+                    )
+                report(
+                    "expand_album_modules",
+                    "running",
+                    {
+                        "module_count": len(modules),
+                        "completed": completed_modules,
+                        "failed": failed_modules,
+                    },
+                    f"{module.title}生成失败，正在继续后续模块",
+                )
+                return module, error
+
+        expanded = await asyncio.gather(*(expand(module) for module in modules))
+        errors = [
+            (module, result)
+            for module, result in expanded
+            if isinstance(result, Exception)
+        ]
+        if errors:
+            message = (
+                f"成功 {len(modules) - len(errors)} 个模块，"
+                f"失败 {len(errors)} 个模块；可单独重跑失败模块"
+            )
+            report(
+                "expand_album_modules",
+                "failed",
+                {
+                    "module_count": len(modules),
+                    "completed": len(modules) - len(errors),
+                    "failed": len(errors),
+                    "failed_modules": [module.key for module, _ in errors],
+                },
+                message,
+            )
+            response["album_outline"]["error"] = message
+            response["album_outline"]["failed_modules"] = [
+                module.key for module, _ in errors
+            ]
+            response["project"] = self.project_detail(project_id)
+            return response
+        report(
+            "expand_album_modules",
+            "succeeded",
+            {
+                "module_count": len(modules),
+                "completed": len(modules),
+                "failed": 0,
+            },
+            f"{len(modules)} 个模块已全部生成",
+        )
+
+        combined = "\n\n".join(
+            str(result) for _, result in expanded
+        )
+        if planning_run_id:
+            self.album_planning.artifacts.upsert(
+                run_id=planning_run_id,
+                project_id=project_id,
+                artifact_type="combined_outline",
+                source_chapter_ids=list(key_map.values()),
+                content=combined,
+            )
+        report(
+            "structure_album_outline",
+            "running",
+            None,
+            "正在整理专辑大纲页面数据",
+        )
+        try:
+            structured_artifact = (
+                self.album_planning.artifacts.get(
+                    planning_run_id, "structured_outline"
+                )
+                if planning_run_id
+                else None
+            )
+            if structured_artifact and structured_artifact["status"] == "succeeded":
+                structured_raw = structured_artifact["content"]
+            else:
+                structure_source = (
+                    "# 合法章节标识\n"
+                    + "、".join(f"[{key}]" for key in key_map)
+                    + "\n\n# 已完成 Markdown 专辑大纲\n"
+                    + combined
+                )
+                structured_raw = await album_provider.generate(
+                    PROMPTS["album_outline_structure"], structure_source
+                )
+                check_cancelled()
+            try:
+                structured = parse_json_object(structured_raw)
+            except json.JSONDecodeError:
+                repaired = await album_provider.generate(
+                    PROMPTS["json_repair"], structured_raw
+                )
+                structured = parse_json_object(repaired)
+                structured_raw = repaired
+            episodes, notice = self.album_planning.validate_structured_outline(
+                structured,
+                entries,
+                book_type=book["book_type"],
+                desired_episode_count=desired_episode_count,
+            )
+            if planning_run_id:
+                self.album_planning.artifacts.upsert(
+                    run_id=planning_run_id,
+                    project_id=project_id,
+                    artifact_type="structured_outline",
+                    source_chapter_ids=list(key_map.values()),
+                    content=structured_raw,
+                )
+            report(
+                "structure_album_outline",
+                "succeeded",
+                {
+                    "artifact_type": "album_planning_artifact",
+                    "planning_artifact_type": "structured_outline",
+                    "episode_count": len(episodes),
+                },
+                f"已整理 {len(episodes)} 集页面数据",
+            )
+        except Exception as error:
+            if planning_run_id:
+                self.album_planning.artifacts.mark_failed(
+                    run_id=planning_run_id,
+                    project_id=project_id,
+                    artifact_type="structured_outline",
+                    module_key="",
+                    position=0,
+                    source_chapter_ids=list(key_map.values()),
+                    error=error,
+                )
+            report("structure_album_outline", "failed", None, str(error))
+            response["album_outline"]["error"] = str(error)
+            response["project"] = self.project_detail(project_id)
+            return response
+
+        report(
+            "save_project_outline",
+            "running",
+            None,
+            "正在保存章节级专辑大纲",
+        )
+        self._save_generated_album(project_id, episodes)
+        active_prompt = self.prompts.effective("album_outline", project_id)
+        self.database.execute(
+            """
+            UPDATE projects
+            SET album_special_requirements = ?, desired_episode_count = ?,
+                episode_count_notice = ?, status = 'outline_review',
+                album_prompt_version_id = ?,
+                album_prompt_system_version_id = ?,
+                album_outline_draft_json = '',
+                album_outline_draft_signature = '',
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                requirements,
+                desired_episode_count,
+                notice,
+                active_prompt["prompt_version_id"],
+                active_prompt["system_version_id"],
+                now_iso(),
+                project_id,
+            ),
+        )
+        response["album_outline"] = {
+            "status": "succeeded",
+            "episode_count": len(episodes),
+            "notice": notice,
+        }
+        report(
+            "save_project_outline",
+            "succeeded",
+            {
+                "artifact_type": "project_outline",
+                "project_id": project_id,
+                "episode_count": len(episodes),
+            },
+            f"已生成 {len(episodes)} 集专辑大纲",
+        )
+        response["project"] = self.project_detail(project_id)
+        return response
+
+    async def _generate_project_knowledge_outputs_legacy(
+        self,
+        project_id: str,
+        special_requirements: str = "",
+        desired_episode_count: int | None = None,
+        provider: ModelProvider | None = None,
+        *,
+        mind_map_provider: ModelProvider | None = None,
+        album_outline_provider: ModelProvider | None = None,
+        album_prompt_lock: dict[str, str] | None = None,
         progress_callback: StageProgressCallback | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
@@ -2342,20 +2935,67 @@ class WorkflowService:
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:
             raise KeyError(episode_id)
-        stages = ["outline", "draft", "final"]
-        start = stages.index(from_stage)
-        for stage in stages[start:]:
+        creative_stages = ["outline", "draft", "final"]
+        start = creative_stages.index(from_stage)
+        stages = creative_stages[start:]
+        existing_links = self.database.row(
+            """
+            SELECT COUNT(*) AS count FROM episode_knowledge_items
+            WHERE episode_id = ?
+            """,
+            (episode_id,),
+        )
+        if not existing_links or not int(existing_links["count"]):
+            stages = ["match_episode_sources", *stages]
+        for stage in stages:
             if stage in (completed_stages or set()):
                 continue
             if cancelled and cancelled():
                 return self.episode_detail(episode_id)
             task_provider = (
-                stage_providers.get(stage, fallback_provider)
+                stage_providers.get(
+                    "outline" if stage == "match_episode_sources" else stage,
+                    fallback_provider,
+                )
                 if stage_providers
                 else fallback_provider
             )
             if progress_callback:
-                progress_callback(stage, "running", None, f"正在生成{stage}")
+                progress_callback(
+                    stage,
+                    "running",
+                    None,
+                    (
+                        "正在匹配本集原文"
+                        if stage == "match_episode_sources"
+                        else f"正在生成{stage}"
+                    ),
+                )
+            if stage == "match_episode_sources":
+                try:
+                    selected = await self._match_episode_sources(
+                        episode_id, task_provider
+                    )
+                except Exception as error:
+                    if progress_callback:
+                        progress_callback(stage, "failed", None, str(error))
+                    self.database.execute(
+                        "UPDATE episodes SET status = 'failed' WHERE id = ?",
+                        (episode_id,),
+                    )
+                    raise StageGenerationError(stage, error) from error
+                if progress_callback:
+                    progress_callback(
+                        stage,
+                        "succeeded",
+                        {
+                            "artifact_type": "episode_source_match",
+                            "episode_id": episode_id,
+                            "knowledge_count": len(selected),
+                        },
+                        f"已匹配 {len(selected)} 条知识资产",
+                    )
+                continue
             self.database.execute(
                 "UPDATE episodes SET status = ? WHERE id = ?",
                 (f"generating_{stage}", episode_id),
@@ -2414,6 +3054,101 @@ class WorkflowService:
             (episode_id,),
         )
         return self.episode_detail(episode_id)
+
+    async def _match_episode_sources(
+        self, episode_id: str, provider: ModelProvider
+    ) -> list[str]:
+        existing = self.database.rows(
+            """
+            SELECT knowledge_item_id FROM episode_knowledge_items
+            WHERE episode_id = ? ORDER BY position
+            """,
+            (episode_id,),
+        )
+        if existing:
+            return [item["knowledge_item_id"] for item in existing]
+        episode = self.database.row(
+            "SELECT * FROM episodes WHERE id = ?", (episode_id,)
+        )
+        if not episode:
+            raise KeyError(episode_id)
+        project = self.database.row(
+            "SELECT * FROM projects WHERE id = ?", (episode["project_id"],)
+        )
+        if not project or not project["book_ids"]:
+            raise ValueError("声音所属项目没有有效来源书籍")
+        chapter_ids = list(dict.fromkeys(episode["source_section_ids"]))
+        if not chapter_ids:
+            raise ValueError("当前声音没有来源章节")
+        placeholders = ",".join("?" for _ in chapter_ids)
+        candidates = self.database.rows(
+            f"""
+            SELECT DISTINCT item.id, item.kind, item.title, item.body
+            FROM knowledge_items item
+            JOIN knowledge_item_sources source
+              ON source.knowledge_item_id = item.id
+            JOIN source_fragment_set_members member
+              ON member.content_index = source.content_index
+            JOIN source_fragment_sets fragment_set
+              ON fragment_set.id = member.fragment_set_id
+            WHERE item.book_id IN ({",".join("?" for _ in project["book_ids"])})
+              AND item.status = 'active'
+              AND item.source_scheme = 'paragraph_evidence_v1'
+              AND fragment_set.status = 'current'
+              AND member.root_section_id IN ({placeholders})
+            ORDER BY member.book_position, item.created_at, item.id
+            """,
+            (*project["book_ids"], *chapter_ids),
+        )
+        if not candidates:
+            raise ValueError("所选来源章节下没有可用知识资产，请先检查拆书结果")
+        catalog = "\n\n".join(
+            (
+                f"[{item['id']}] {item['kind']} · {item['title']}\n"
+                f"{clean_excerpt(item['body'], 320)}"
+            )
+            for item in candidates
+        )
+        source = (
+            f"# 当前声音\n标题：{episode['title']}\n"
+            f"内容框架：\n{episode['content_framework']}\n\n"
+            f"# 候选知识资产\n{catalog}"
+        )
+        raw = await provider.generate(PROMPTS["episode_source_match"], source)
+        try:
+            data = parse_json_object(raw)
+        except json.JSONDecodeError:
+            repaired = await provider.generate(PROMPTS["json_repair"], raw)
+            data = parse_json_object(repaired)
+        selected = data.get("knowledge_item_ids")
+        if not isinstance(selected, list) or not selected:
+            raise ValueError("没有匹配到能够支撑当前声音的知识资产")
+        selected_ids = list(
+            dict.fromkeys(
+                str(item).strip() for item in selected if str(item).strip()
+            )
+        )
+        candidate_ids = {item["id"] for item in candidates}
+        unknown = [item for item in selected_ids if item not in candidate_ids]
+        if unknown:
+            raise ValueError("来源匹配返回了所选章节范围之外的知识资产")
+        with self.database.connect() as connection:
+            connection.execute(
+                "DELETE FROM episode_knowledge_items WHERE episode_id = ?",
+                (episode_id,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO episode_knowledge_items
+                  (episode_id, knowledge_item_id, position, role)
+                VALUES (?, ?, ?, 'primary')
+                """,
+                [
+                    (episode_id, knowledge_id, position)
+                    for position, knowledge_id in enumerate(selected_ids, start=1)
+                ],
+            )
+        return selected_ids
 
     def _save_artifact(
         self,
@@ -2567,7 +3302,19 @@ class WorkflowService:
             )
         ]
         episode["source_content_indexes"] = self._episode_content_indexes(episode)
-        episode["evidence"] = self.contexts.evidence_bundle(episode_id)
+        try:
+            episode["evidence"] = self.contexts.evidence_bundle(episode_id)
+            episode["source_match_pending"] = False
+        except ValueError as error:
+            if "尚未匹配具体知识资产" not in str(error):
+                raise
+            episode["evidence"] = {
+                "knowledge_items": [],
+                "direct_fragments": [],
+                "auxiliary_fragments": [],
+                "legacy_sections": [],
+            }
+            episode["source_match_pending"] = True
         return episode
 
     def _episode_content_indexes(
@@ -2588,7 +3335,25 @@ class WorkflowService:
             return list(
                 dict.fromkeys(row["content_index"] for row in rows)
             )
+        source_ids = episode.get("source_section_ids", [])
+        if source_ids:
+            placeholders = ",".join("?" for _ in source_ids)
+            root = self.database.row(
+                f"""
+                SELECT section.book_id
+                FROM sections section
+                WHERE section.id IN ({placeholders})
+                  AND section.parent_id IS NULL
+                LIMIT 1
+                """,
+                tuple(source_ids),
+            )
+            if root and self.database.row(
+                "SELECT id FROM chapter_analyses WHERE book_id = ? LIMIT 1",
+                (root["book_id"],),
+            ):
+                return []
         return [
             content_index(section_id)
-            for section_id in episode.get("source_section_ids", [])
+            for section_id in source_ids
         ]

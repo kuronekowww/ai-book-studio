@@ -265,6 +265,11 @@ type RunOutput = {
   model?: string;
   created_at?: string;
   episode_count?: number;
+  planning_artifact_type?: string;
+  module_key?: string;
+  status?: string;
+  error_message?: string;
+  position?: number;
 };
 
 type BatchChild = WorkflowRun & {
@@ -301,11 +306,13 @@ const statusLabels: Record<string, string> = {
   generating_outline: "生成细纲",
   generating_draft: "生成初稿",
   generating_final: "口语化调整",
+  matching_sources: "匹配本集原文",
   failed: "生成失败",
   completed: "已完成",
 };
 
 const stageLabels = {
+  match_episode_sources: "匹配本集原文",
   outline: "声音细纲",
   draft: "声音初稿",
   final: "声音终稿",
@@ -316,8 +323,13 @@ const workflowStageLabels: Record<string, string> = {
   analyze_chapters: "逐章拆书",
   finalize_book: "汇总书籍知识",
   prepare_analysis: "准备完整拆书稿",
+  prepare_chapter_catalog: "准备轻量章节目录",
   generate_mind_map: "生成思维导图",
-  generate_album_outline: "生成专辑大纲",
+  design_album_modules: "设计全书知识模块",
+  expand_album_modules: "分模块生成专辑大纲",
+  structure_album_outline: "整理专辑大纲页面数据",
+  expand_album_module: "生成当前模块大纲",
+  match_episode_sources: "匹配本集原文",
   save_project_outline: "校验并保存专辑大纲",
   episode_generation: "批量生产声音",
   book_analysis: "章节拆书",
@@ -845,6 +857,16 @@ export default function Home() {
       return run.reused ? "这条声音正在生成" : "声音任务已进入后台";
     });
 
+  const retryAlbumModule = (runId: string, moduleKey: string) =>
+    runAction("重跑专辑模块", async () => {
+      const run = await request<WorkflowRun>(
+        `/api/runs/${runId}/modules/${moduleKey}/retry`,
+        { method: "POST" },
+      );
+      registerRun(run);
+      return `${moduleKey} 已重新进入后台生成`;
+    });
+
   const saveFinalVersion = async (content: string): Promise<boolean> => {
     if (!selectedEpisode) return false;
     let saved = false;
@@ -917,7 +939,14 @@ export default function Home() {
         (run) =>
           ["project_generation", "project_batch"].includes(run.scope_type) &&
           run.scope_id === selectedProject.id,
-      ) || null
+      ) ||
+        runs.find(
+          (run) =>
+            run.scope_type === "project_generation" &&
+            run.scope_id === selectedProject.id &&
+            run.status === "partial_failed",
+        ) ||
+        null
     : null;
   const selectedEpisodeRun = selectedEpisode
     ? activeRuns.find(
@@ -1065,6 +1094,9 @@ export default function Home() {
                 activeRun={selectedProjectRun}
                 episodeRun={selectedEpisodeRun}
                 onCancelRun={(id) => void cancelRun(id)}
+                onRetryModule={(runId, moduleKey) =>
+                  void retryAlbumModule(runId, moduleKey)
+                }
               />
             ) : (
               <ProjectsView
@@ -1082,6 +1114,9 @@ export default function Home() {
               runs={runs}
               busy={busy}
               onCancel={(id) => void cancelRun(id)}
+              onRetryModule={(runId, moduleKey) =>
+                void retryAlbumModule(runId, moduleKey)
+              }
             />
           )}
 
@@ -1792,6 +1827,7 @@ function ProjectWorkspace({
   activeRun,
   episodeRun,
   onCancelRun,
+  onRetryModule,
 }: {
   project: Project;
   episode: Episode | null;
@@ -1816,6 +1852,7 @@ function ProjectWorkspace({
   activeRun: WorkflowRun | null;
   episodeRun: WorkflowRun | null;
   onCancelRun: (id: string) => void;
+  onRetryModule: (runId: string, moduleKey: string) => void;
 }) {
   const latestByStage = useMemo(() => {
     const map: Partial<Record<"outline" | "draft" | "final", ArtifactVersion>> = {};
@@ -1866,8 +1903,14 @@ function ProjectWorkspace({
   const activeChild = episode ? batchByEpisode.get(episode.id) : undefined;
   const retryStage =
     activeChild?.status === "failed" &&
-    ["outline", "draft", "final"].includes(activeChild.error_stage || "")
-      ? activeChild.error_stage as "outline" | "draft" | "final"
+    ["match_episode_sources", "outline", "draft", "final"].includes(
+      activeChild.error_stage || "",
+    )
+      ? (
+          activeChild.error_stage === "match_episode_sources"
+            ? "outline"
+            : activeChild.error_stage
+        ) as "outline" | "draft" | "final"
       : null;
 
   const confirmLeave = () =>
@@ -1912,7 +1955,11 @@ function ProjectWorkspace({
       </div>
 
       {activeRun && (
-        <TaskProgressCard run={activeRun} onCancel={onCancelRun} />
+        <TaskProgressCard
+          run={activeRun}
+          onCancel={onCancelRun}
+          onRetryModule={onRetryModule}
+        />
       )}
 
       <details className="project-model-config">
@@ -1959,7 +2006,7 @@ function ProjectWorkspace({
           <div>
             <p className="eyebrow">模型编排</p>
             <h3>生成思维导图与专辑大纲</h3>
-            <p>留空时，模型根据完整拆书稿的内容量自行决定专辑结构和集数。</p>
+            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；留空时由模型根据内容结构决定集数。</p>
             <div className="model-summary">
               <span>
                 思维导图 · {project.effective_models?.mind_map.label || "—"}
@@ -2339,7 +2386,7 @@ function OutlineEditor({
     );
     if (invalid) {
       setValidationError(
-        `第 ${invalid.position} 条声音需要填写标题、主要内容、内容索引并关联原文块。`,
+        `第 ${invalid.position} 条声音需要填写标题、主要内容并关联来源章节。`,
       );
       return;
     }
@@ -2350,7 +2397,7 @@ function OutlineEditor({
   return (
     <div className="outline-editor">
       <div className="editor-help">
-        确认前请审核标题、类型、风格和声音内容框架。生产时三个阶段都会重新带入关联原文。
+        确认前请审核标题、类型、声音内容框架和来源章节。生产细纲前，系统会在这些章节内匹配具体知识资产与原文块。
       </div>
       {validationError && <div className="outline-validation">{validationError}</div>}
       {draft.map((item, index) => (
@@ -2374,24 +2421,24 @@ function OutlineEditor({
             }
           />
           <label className="outline-identifier">
-            <span>内容索引</span>
-            <textarea
-              aria-label={`第 ${index + 1} 条声音内容索引`}
-              value={item.section_identifier || ""}
-              placeholder="章节：完整章节标题 子主题：子主题标题"
-              onChange={(event) =>
-                update(item.id, { section_identifier: event.target.value })
-              }
-            />
-          </label>
-          <div className="outline-source-indexes">
-            <span>原文索引</span>
-            <div>
-              {(item.source_content_indexes || []).map((sourceIndex) => (
-                <code key={sourceIndex}>{sourceIndex}</code>
-              ))}
+            <span>来源章节</span>
+            <div className="outline-chapter-tags">
+              {(item.section_identifier || "")
+                .split("、")
+                .filter(Boolean)
+                .map((chapter) => <code key={chapter}>{chapter}</code>)}
             </div>
-          </div>
+          </label>
+          {(item.source_content_indexes || []).length > 0 && (
+            <div className="outline-source-indexes">
+              <span>原文索引</span>
+              <div>
+                {item.source_content_indexes.map((sourceIndex) => (
+                  <code key={sourceIndex}>{sourceIndex}</code>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="form-row">
             <select value={item.content_type} onChange={(event) => update(item.id, { content_type: event.target.value })}>
               <option>解读</option><option>过渡</option><option>故事</option>
@@ -2412,10 +2459,12 @@ function OutlineEditor({
 function TaskProgressCard({
   run,
   onCancel,
+  onRetryModule,
   compact = false,
 }: {
   run: WorkflowRun;
   onCancel: (id: string) => void;
+  onRetryModule?: (runId: string, moduleKey: string) => void;
   compact?: boolean;
 }) {
   const [outputs, setOutputs] = useState<RunOutput[]>([]);
@@ -2500,11 +2549,27 @@ function TaskProgressCard({
               <summary>
                 <strong>{output.label}</strong>
                 <span>
-                  {output.version ? `v${output.version}` : "已完成"}
+                  {output.status === "failed"
+                    ? "生成失败"
+                    : output.version
+                      ? `v${output.version}`
+                      : "已完成"}
                   {output.model ? ` · ${output.model}` : ""}
                 </span>
               </summary>
-              <pre>{output.content}</pre>
+              <pre>{output.content || output.error_message || "等待重跑"}</pre>
+              {output.status === "failed" &&
+                output.module_key &&
+                onRetryModule && (
+                  <footer>
+                    <button
+                      className="quiet-button"
+                      onClick={() => onRetryModule(run.id, output.module_key!)}
+                    >
+                      重跑此模块
+                    </button>
+                  </footer>
+                )}
             </details>
           ))}
         </div>
@@ -2527,12 +2592,14 @@ function RunsView({
   runs,
   busy,
   onCancel,
+  onRetryModule,
 }: {
   books: Book[];
   projects: Project[];
   runs: WorkflowRun[];
   busy: string;
   onCancel: (id: string) => void;
+  onRetryModule: (runId: string, moduleKey: string) => void;
 }) {
   const runLabel = (run: WorkflowRun, index: number) => {
     if (run.scope_type === "chapter_analysis") {
@@ -2580,6 +2647,7 @@ function RunsView({
               run={run}
               compact
               onCancel={onCancel}
+              onRetryModule={onRetryModule}
             />
           ))}
         </div>
@@ -2643,6 +2711,14 @@ function promptDraftIssues(
   if (unknown.length) issues.push(`未知占位符：${unknown.join("、")}`);
   const missing = config.required_placeholders.filter((name) => !used.has(name));
   if (missing.length) issues.push(`缺少必要占位符：${missing.join("、")}`);
+  if (
+    config.stage_key === "album_outline" &&
+    !["book_analysis", "module_source", "chapter_catalog"].some((name) =>
+      used.has(name),
+    )
+  ) {
+    issues.push("专辑大纲必须保留章节目录或模块材料占位符");
+  }
   return issues;
 }
 
@@ -2961,6 +3037,12 @@ function PromptSettingsView({
               </div>
               {dirty && <em>未保存</em>}
             </header>
+            {selectedStage === "album_outline" && (
+              <div className="editor-help">
+                该模板用于分模块创作 Markdown 大纲。系统会保护章节标识和输出结构，
+                再通过内部步骤转换为页面数据；此处不需要要求模型输出 JSON、知识资产 ID 或原文索引。
+              </div>
+            )}
             <textarea
               ref={editorRef}
               value={draft}

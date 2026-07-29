@@ -266,6 +266,28 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS album_planning_artifacts (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  artifact_type TEXT NOT NULL,
+  module_key TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  source_chapter_ids_json TEXT NOT NULL DEFAULT '[]',
+  content TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  error_message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(run_id, artifact_type, module_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_album_planning_project_created
+  ON album_planning_artifacts(project_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_album_planning_run_position
+  ON album_planning_artifacts(run_id, position);
+
 """
 
 
@@ -496,6 +518,7 @@ JSON_COLUMNS = {
     "model_overrides_json",
     "allowed_placeholders_json",
     "required_placeholders_json",
+    "source_chapter_ids_json",
 }
 
 

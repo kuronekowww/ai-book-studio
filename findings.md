@@ -1,5 +1,25 @@
 # Findings & Decisions
 
+## Phase 31 Baseline
+
+- 已批准设计：`docs/superpowers/specs/2026-07-29-lightweight-album-planning-design.md`。
+- 已批准实施计划：`docs/superpowers/plans/2026-07-29-lightweight-album-planning-implementation.md`。
+- 当前专辑流程仍由 `WorkflowService.generate_project_knowledge_outputs` 把约 9.3 万字符拆书稿一次交给模型，并要求直接输出含知识资产 ID 的严格 JSON。
+- Kimi K3 小输入可用，但当前全书大请求会长时间运行后返回空文本；Claude 同类请求会由网关在 600 秒附近返回 504。
+- 新流程必须保持现有思维导图、历史项目、项目级模型覆盖和提示词版本兼容。
+- 专辑审核阶段只保存一级章节范围；`episode_knowledge_items` 延迟到声音细纲前的 `match_episode_sources` 阶段写入。
+- 开发按已提交的八任务实施计划推进，先做数据库和纯后端服务，再接编排、声音来源匹配和前端。
+- 新增规划服务可以直接读取 `chapter_analyses.structured_json`，无需解析渲染 Markdown；
+ 轻量目录天然可排除知识资产 ID、段落索引和长论据。
+- 章节键按当前纳入拆书的一级章节顺序生成，并在每次运行的目录产物中保存键到
+  `section_id` 的映射，因此模型不接触数据库 ID，后端仍可准确恢复来源。
+- 《当代中国社会分层》真实 Kimi K3 验收中，25 章轻量目录为 12,171 字符，模块模型
+  生成 12 个模块并完整覆盖 `CHAPTER_001` 至 `CHAPTER_025`。
+- 首模块跨两个一级章节，实际模块材料只有 413 字符；Kimi 生成 5 集合法 Markdown，
+  每集只含章节标识，内部结构化调用随后成功恢复 5 条页面数据。
+- 真实验收三段调用总耗时约 9 分钟，说明 Kimi 路由可用但延迟较高；模块即时持久化、
+  两路并发和单模块重跑是必要的产品能力。
+
 ## Phase 30 Diagnostics
 
 - 前端只在页面首次挂载时读取一次 `/api/runs`，运行记录页没有持续轮询。

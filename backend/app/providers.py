@@ -112,66 +112,89 @@ class DemoProvider:
             return source
         if prompt.id == "mind_map":
             return "# 测试书\n- 核心知识\n  - 主要观点\n  - 关键案例"
+        creative_source = source.split("# 系统保护约束", 1)[0]
+        module_match = re.search(
+            r"# 当前模块\s*(.*?)(?=\n# 全书章节目录|\Z)",
+            creative_source,
+            flags=re.S,
+        )
+        chapter_key_source = (
+            module_match.group(1) if module_match else creative_source
+        )
+        chapter_keys = list(
+            dict.fromkeys(re.findall(r"CHAPTER_\d{3}", chapter_key_source))
+        )
+        if prompt.id == "album_module_plan":
+            chunks = [
+                chapter_keys[position : position + 3]
+                for position in range(0, len(chapter_keys), 3)
+            ]
+            return "\n\n".join(
+                (
+                    f"## 模块{position}：理解第{position}组问题\n"
+                    "听众问题：这些章节共同解释了什么？\n"
+                    "认知顺序：从现象进入，再解释原因和影响。\n"
+                    f"来源章节：{'、'.join(f'[{key}]' for key in keys)}\n"
+                    f"建议声音数：{max(1, min(4, len(keys) + 1))}"
+                )
+                for position, keys in enumerate(chunks, start=1)
+            )
         if prompt.id == "album_outline":
-            if unique_knowledge_ids:
-                asset_indexes: dict[str, list[str]] = {}
-                for position, knowledge_id in enumerate(unique_knowledge_ids):
-                    start = source.find(knowledge_id)
-                    next_id = (
-                        unique_knowledge_ids[position + 1]
-                        if position + 1 < len(unique_knowledge_ids)
-                        else ""
-                    )
-                    end = source.find(next_id, start + len(knowledge_id)) if next_id else -1
-                    segment = source[start:end if end >= 0 else None]
-                    asset_indexes[knowledge_id] = list(
-                        dict.fromkeys(
-                            re.findall(r"content_[0-9a-f]{8,40}", segment)
-                        )
-                    )
-                outline = [
+            selected = chapter_keys[:3] or ["CHAPTER_001"]
+            return "\n\n".join(
+                (
+                    f"## 第{position}集：为什么第{position}个问题值得追问？\n"
+                    "听众钩子：一个看似熟悉的现象，背后可能是另一套机制。\n"
+                    "核心主题：解释原书在这一部分提出的关键问题。\n"
+                    "核心要点：\n"
+                    "1. 从具体现象进入；\n"
+                    "2. 梳理作者的解释机制；\n"
+                    "3. 说明它对现实理解的意义。\n"
+                    "内容类型：解读\n"
+                    f"来源章节：[{key}]"
+                )
+                for position, key in enumerate(selected, start=1)
+            )
+        if prompt.id == "album_outline_structure":
+            blocks = re.split(r"(?=^##\s+第?\d+\s*集)", source, flags=re.M)
+            outline = []
+            for block in blocks:
+                title_match = re.search(
+                    r"^##\s+第?\d+\s*集[：:]\s*(.+)$", block, re.M
+                )
+                keys = list(dict.fromkeys(re.findall(r"CHAPTER_\d{3}", block)))
+                if not title_match or not keys:
+                    continue
+                hook = re.search(r"^听众钩子[：:]\s*(.+)$", block, re.M)
+                theme = re.search(r"^核心主题[：:]\s*(.+)$", block, re.M)
+                points = re.search(
+                    r"^核心要点[：:]\s*(.*?)(?=^内容类型[：:]|\Z)",
+                    block,
+                    re.M | re.S,
+                )
+                content_type = re.search(r"^内容类型[：:]\s*(.+)$", block, re.M)
+                outline.append(
                     {
-                        "title": f"声音 {position}",
+                        "title": title_match.group(1).strip(),
                         "main_points": (
-                            "听众钩子：一个熟悉现象为什么会产生意外结果？\n"
-                            "核心主题：解释这一知识资产要解决的关键问题。\n"
-                            "核心要点：\n"
-                            "1. 从具体现象进入；\n"
-                            "2. 梳理作者的解释机制；\n"
-                            "3. 说明它对现实理解的意义。"
+                            f"听众钩子：{hook.group(1).strip() if hook else ''}\n"
+                            f"核心主题：{theme.group(1).strip() if theme else ''}\n"
+                            f"核心要点：\n{points.group(1).strip() if points else ''}"
                         ),
-                        "section_identifier": (
-                            "章节：测试章节 子主题：核心知识 原文索引："
-                            + "、".join(
-                                asset_indexes.get(knowledge_id)
-                                or unique_indexes[:1]
-                            )
+                        "chapter_keys": keys,
+                        "content_type": (
+                            content_type.group(1).strip()
+                            if content_type
+                            else "解读"
                         ),
-                        "knowledge_item_ids": [knowledge_id],
-                        "content_type": "解读类",
                     }
-                    for position, knowledge_id in enumerate(
-                        unique_knowledge_ids[:12], start=1
-                    )
-                ]
-            else:
-                outline = [
-                    {
-                        "title": f"声音 {position}",
-                        "main_points": (
-                            "听众钩子：这段原文为什么值得第一次接触本书的听众关注？\n"
-                            "核心主题：解释该原文内容提出的关键问题。\n"
-                            "核心要点：\n"
-                            "1. 呈现具体现象；\n"
-                            "2. 梳理原因与机制；\n"
-                            "3. 说明现实影响。"
-                        ),
-                        "section_identifier": index,
-                        "content_type": "解读类",
-                    }
-                    for position, index in enumerate(unique_indexes[:12], start=1)
-                ]
+                )
             return json.dumps({"album_outline": outline}, ensure_ascii=False)
+        if prompt.id == "episode_source_match":
+            return json.dumps(
+                {"knowledge_item_ids": unique_knowledge_ids[:8]},
+                ensure_ascii=False,
+            )
         if prompt.id == "character_relationships":
             return (
                 '{"relationships":[{"characters":["人物甲","人物乙"],'
@@ -230,7 +253,8 @@ class OpenAICompatibleProvider:
         structured_output = prompt.id in {
             "book_analysis",
             "json_repair",
-            "album_outline",
+            "album_outline_structure",
+            "episode_source_match",
         }
         high_output = prompt.id in {
             "book_analysis",
@@ -238,6 +262,8 @@ class OpenAICompatibleProvider:
             "chapter_compression",
             "mind_map",
             "album_outline",
+            "album_module_plan",
+            "album_outline_structure",
         }
         payload: dict[str, object] = {
             "model": self.settings.model,
@@ -252,14 +278,14 @@ class OpenAICompatibleProvider:
         }
         if high_output:
             payload["max_tokens"] = (
-                32768 if prompt.id == "album_outline" else 16384
+                32768 if prompt.id in {"album_outline", "album_module_plan"} else 16384
             )
         if structured_output:
             payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         timeout_seconds = (
             900
-            if prompt.id == "album_outline"
+            if prompt.id in {"album_outline", "album_module_plan"}
             else 600
             if prompt.id == "mind_map"
             else 300
@@ -366,7 +392,7 @@ class AnthropicProvider:
         }
         timeout_seconds = (
             900
-            if prompt.id == "album_outline"
+            if prompt.id in {"album_outline", "album_module_plan"}
             else 600
             if prompt.id == "mind_map"
             else 300

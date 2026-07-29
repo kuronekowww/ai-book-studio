@@ -161,6 +161,15 @@ def prompt_preview_values(
 ) -> tuple[dict[str, str], str]:
     values = {
         "book_analysis": "# 第一章 示例拆书稿\n\n## 子主题\n示例观点与原文索引。",
+        "chapter_catalog": "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题",
+        "module_brief": (
+            "模块标题：示例知识模块\n听众问题：这个模块解决什么问题？\n"
+            "来源章节：[CHAPTER_001]\n建议声音数：3"
+        ),
+        "module_source": (
+            "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题\n"
+            "子主题：示例子主题\n主要观点：示例观点"
+        ),
         "book_title": "示例书名",
         "book_author": "示例作者",
         "book_type": "非叙事类",
@@ -220,6 +229,31 @@ def prompt_preview_values(
             values["book_analysis"] = "\n\n".join(
                 item["rendered_markdown"] for item in analyses
             )
+            try:
+                entries, _ = workflows.album_planning.build_chapter_catalog(
+                    book["id"]
+                )
+                values["chapter_catalog"] = (
+                    workflows.album_planning.render_catalog(entries)
+                )
+                preview_entries = entries[: min(3, len(entries))]
+                values["module_source"] = (
+                    workflows.album_planning.render_module_source(
+                        entries,
+                        [entry.chapter_key for entry in preview_entries],
+                    )
+                )
+                values["module_brief"] = (
+                    "模块标题：预览知识模块\n"
+                    "听众问题：这些章节共同解决什么问题？\n"
+                    "来源章节："
+                    + "、".join(
+                        f"[{entry.chapter_key}]" for entry in preview_entries
+                    )
+                    + "\n建议声音数：3至5"
+                )
+            except ValueError:
+                pass
     if stage_key != "album_outline":
         episode = (
             database.row(
@@ -291,6 +325,15 @@ async def execute_episode_run(
             ).provider
     stage_order = ["outline", "draft", "final"]
     target_stages = stage_order[stage_order.index(from_stage) :]
+    source_links = database.row(
+        """
+        SELECT COUNT(*) AS count FROM episode_knowledge_items
+        WHERE episode_id = ?
+        """,
+        (episode_id,),
+    )
+    if not source_links or not int(source_links["count"]):
+        target_stages = ["match_episode_sources", *target_stages]
     completed_stages = {
         stage
         for stage in target_stages
@@ -381,9 +424,11 @@ async def execute_project_generation_run(
             model_ids.get("album_outline")
         ).provider
     stage_order = [
-        "prepare_analysis",
+        "prepare_chapter_catalog",
         "generate_mind_map",
-        "generate_album_outline",
+        "design_album_modules",
+        "expand_album_modules",
+        "structure_album_outline",
         "save_project_outline",
     ]
     completed_stages = {
@@ -445,6 +490,8 @@ async def execute_project_generation_run(
             mind_map_provider=mind_map_provider,
             album_outline_provider=album_outline_provider,
             album_prompt_lock=metadata.get("album_prompt_lock"),
+            planning_run_id=run_id,
+            retry_module_key=metadata.get("retry_module_key"),
             progress_callback=report_stage,
             cancelled=cancelled,
         )
@@ -1101,8 +1148,8 @@ async def generate_project_outline(
             scope_type="project_generation",
             scope_id=project_id,
             stage="full",
-            current_stage="prepare_analysis",
-            progress_total=4,
+            current_stage="prepare_chapter_catalog",
+            progress_total=6,
             metadata={
                 "album_special_requirements": payload.album_special_requirements,
                 "desired_episode_count": payload.desired_episode_count,
@@ -1262,12 +1309,22 @@ async def generate_episode(
         episode["project_id"]
     )
     stage_order = ["outline", "draft", "final"]
+    target_stages = stage_order[stage_order.index(payload.from_stage) :]
+    source_links = database.row(
+        """
+        SELECT COUNT(*) AS count FROM episode_knowledge_items
+        WHERE episode_id = ?
+        """,
+        (episode_id,),
+    )
+    if not source_links or not int(source_links["count"]):
+        target_stages = ["match_episode_sources", *target_stages]
     run, reused = runs.create(
         scope_type="episode",
         scope_id=episode_id,
         stage=payload.from_stage,
         current_stage=payload.from_stage,
-        progress_total=len(stage_order[stage_order.index(payload.from_stage) :]),
+        progress_total=len(target_stages),
         metadata={
             "stage_model_ids": stage_model_ids,
             "stage_prompt_locks": stage_prompt_locks,
@@ -1431,6 +1488,43 @@ def _stage_output_content(
             if mind_map
             else None
         )
+    if artifact_type == "album_planning_artifact":
+        planning_type = reference.get("planning_artifact_type")
+        module_key = str(reference.get("module_key") or "")
+        artifact = database.row(
+            """
+            SELECT * FROM album_planning_artifacts
+            WHERE run_id = ? AND artifact_type = ? AND module_key = ?
+            """,
+            (run["id"], planning_type, module_key),
+        )
+        if not artifact:
+            return None
+        labels = {
+            "chapter_catalog": "轻量章节目录",
+            "module_plan": "全书知识模块",
+            "module_outline": "模块专辑大纲",
+            "combined_outline": "合并 Markdown 大纲",
+            "structured_outline": "结构化专辑大纲",
+        }
+        content = artifact["content"]
+        if planning_type == "chapter_catalog":
+            try:
+                content = json.loads(content).get("catalog_markdown", content)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        return {
+            "stage": stage,
+            "artifact_type": artifact_type,
+            "planning_artifact_type": planning_type,
+            "module_key": artifact["module_key"],
+            "label": labels.get(planning_type, "专辑规划产物"),
+            "content": content,
+            "status": artifact["status"],
+            "error_message": artifact["error_message"],
+            "position": artifact["position"],
+            "created_at": artifact["created_at"],
+        }
     if artifact_type == "project_outline":
         episodes = database.rows(
             """
@@ -1520,7 +1614,109 @@ def run_outputs(run_id: str) -> dict[str, Any]:
             )
             if materialized:
                 outputs.append(materialized)
+    if parent["scope_type"] == "project_generation":
+        existing_planning = {
+            (
+                output.get("planning_artifact_type"),
+                output.get("module_key", ""),
+            )
+            for output in outputs
+        }
+        labels = {
+            "chapter_catalog": "轻量章节目录",
+            "module_plan": "全书知识模块",
+            "module_outline": "模块专辑大纲",
+            "combined_outline": "合并 Markdown 大纲",
+            "structured_outline": "结构化专辑大纲",
+        }
+        for artifact in database.rows(
+            """
+            SELECT * FROM album_planning_artifacts
+            WHERE run_id = ? ORDER BY position, created_at
+            """,
+            (run_id,),
+        ):
+            key = (artifact["artifact_type"], artifact["module_key"])
+            if key in existing_planning:
+                continue
+            content = artifact["content"]
+            if artifact["artifact_type"] == "chapter_catalog":
+                try:
+                    content = json.loads(content).get("catalog_markdown", content)
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            outputs.append(
+                {
+                    "stage": artifact["artifact_type"],
+                    "artifact_type": "album_planning_artifact",
+                    "planning_artifact_type": artifact["artifact_type"],
+                    "module_key": artifact["module_key"],
+                    "label": labels.get(
+                        artifact["artifact_type"], "专辑规划产物"
+                    ),
+                    "content": content,
+                    "status": artifact["status"],
+                    "error_message": artifact["error_message"],
+                    "position": artifact["position"],
+                    "created_at": artifact["created_at"],
+                }
+            )
     return {"run_id": run_id, "outputs": outputs}
+
+
+@app.post("/api/runs/{run_id}/modules/{module_key}/retry", status_code=202)
+async def retry_album_module(run_id: str, module_key: str) -> dict[str, Any]:
+    try:
+        run = runs.get(run_id)
+    except KeyError:
+        raise not_found("运行记录")
+    if run["scope_type"] != "project_generation":
+        raise HTTPException(status_code=400, detail="该任务不是专辑规划任务")
+    artifact = database.row(
+        """
+        SELECT * FROM album_planning_artifacts
+        WHERE run_id = ? AND artifact_type = 'module_outline'
+          AND module_key = ?
+        """,
+        (run_id, module_key),
+    )
+    if not artifact:
+        raise not_found("专辑模块")
+    if artifact["status"] != "failed":
+        raise HTTPException(status_code=400, detail="只有失败模块可以单独重跑")
+    metadata = dict(run.get("metadata_json") or {})
+    metadata["retry_module_key"] = module_key
+    stages = dict(metadata.get("stages") or {})
+    for stage in (
+        "expand_album_modules",
+        "structure_album_outline",
+        "save_project_outline",
+    ):
+        stages.pop(stage, None)
+    metadata["stages"] = stages
+    now = now_iso()
+    database.execute(
+        """
+        UPDATE album_planning_artifacts
+        SET status = 'pending', error_message = '', updated_at = ?
+        WHERE id = ?
+        """,
+        (now, artifact["id"]),
+    )
+    database.execute(
+        """
+        UPDATE workflow_runs
+        SET status = 'pending', current_stage = 'expand_album_modules',
+            message = '正在重跑失败模块', error_stage = '',
+            finished_at = NULL, metadata_json = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (json.dumps(metadata, ensure_ascii=False), now, run_id),
+    )
+    task_registry.spawn(
+        run_id, lambda: execute_project_generation_run(run_id)
+    )
+    return runs.get(run_id)
 
 
 @app.post("/api/runs/{run_id}/cancel")
