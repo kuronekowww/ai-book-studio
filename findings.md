@@ -1,5 +1,15 @@
 # Findings & Decisions
 
+## Phase 32 Baseline
+
+- 当前运行 `559bbaff9bf742de84a9e46b5dd07209` 已正确保存
+  `desired_episode_count=15`，并非前端漏传。
+- 该运行的模块规划生成 15 个知识模块，但每个模块仍建议 3 至 5 集，建议集数合计约
+  56；根因是全专辑目标没有被转成模块级预算。
+- 当前模块校验只检查 Markdown 字段和章节标识，最终校验只生成集数偏差提醒，两层
+  都没有阻止超量结果。
+- 用户已批准：独立目标总集数字段一旦填写，就作为精确硬约束；未填写时保持模型自由。
+
 ## Phase 31 Baseline
 
 - 已批准设计：`docs/superpowers/specs/2026-07-29-lightweight-album-planning-design.md`。
