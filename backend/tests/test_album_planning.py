@@ -138,6 +138,7 @@ def test_catalog_is_stable_lightweight_and_complete(tmp_path) -> None:
 
     entries, key_map = service.build_chapter_catalog(book_id)
     markdown = service.render_catalog(entries)
+    planning_analysis = service.render_planning_analysis(entries)
 
     assert len(entries) == 25
     assert entries[0].chapter_key == "CHAPTER_001"
@@ -147,6 +148,13 @@ def test_catalog_is_stable_lightweight_and_complete(tmp_path) -> None:
     assert "子主题 25" in markdown
     assert "knowledge_" not in markdown
     assert "content_" not in markdown
+    assert "观点 1" in planning_analysis
+    assert "观点 25" in planning_analysis
+    assert planning_analysis.index("[CHAPTER_001]") < planning_analysis.index(
+        "[CHAPTER_025]"
+    )
+    assert "knowledge_" not in planning_analysis
+    assert "content_" not in planning_analysis
 
 
 def test_module_plan_allows_multiple_chapters_and_rejects_omissions() -> None:
@@ -216,6 +224,81 @@ def test_structured_outline_keeps_chapter_level_sources_and_allows_reuse() -> No
     assert episodes[1]["source_section_ids"] == ["section-1"]
     assert episodes[0]["knowledge_item_ids"] == []
     assert episodes[0]["source_content_indexes"] == []
+
+
+def test_structured_outline_keeps_and_validates_module_key() -> None:
+    entries = [
+        ChapterPlanningEntry(
+            chapter_key=f"CHAPTER_{position:03d}",
+            section_id=f"section-{position}",
+            title=f"第{position}章",
+            theme="主题",
+            subtopic_titles=("子主题",),
+            concise_points=("观点",),
+            position=position,
+        )
+        for position in range(1, 3)
+    ]
+    modules = [
+        AlbumModule(
+            key="MODULE_001",
+            title="第一个模块",
+            listener_question="为什么？",
+            chapter_keys=("CHAPTER_001",),
+            suggested_episode_count=1,
+            position=1,
+        ),
+        AlbumModule(
+            key="MODULE_002",
+            title="第二个模块",
+            listener_question="怎么办？",
+            chapter_keys=("CHAPTER_002",),
+            suggested_episode_count=1,
+            position=2,
+        ),
+    ]
+    main_points = (
+        "听众钩子：为什么值得听？\n"
+        "核心主题：解释一个问题。\n"
+        "核心要点：\n1. 现象；\n2. 机制。"
+    )
+    episodes, _ = AlbumPlanningService.validate_structured_outline(
+        {
+            "album_outline": [
+                {
+                    "title": "第一集",
+                    "main_points": main_points,
+                    "module_key": "MODULE_001",
+                    "chapter_keys": ["CHAPTER_001"],
+                    "content_type": "解读",
+                }
+            ]
+        },
+        entries,
+        modules=modules,
+        book_type="non_narrative",
+        desired_episode_count=None,
+    )
+    assert episodes[0]["module_key"] == "MODULE_001"
+
+    with pytest.raises(ValueError, match="所属模块之外"):
+        AlbumPlanningService.validate_structured_outline(
+            {
+                "album_outline": [
+                    {
+                        "title": "越界声音",
+                        "main_points": main_points,
+                        "module_key": "MODULE_001",
+                        "chapter_keys": ["CHAPTER_002"],
+                        "content_type": "解读",
+                    }
+                ]
+            },
+            entries,
+            modules=modules,
+            book_type="non_narrative",
+            desired_episode_count=None,
+        )
 
 
 def test_oversized_module_splits_without_losing_or_reordering_chapters() -> None:

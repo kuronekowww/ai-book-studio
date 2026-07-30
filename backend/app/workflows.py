@@ -1620,6 +1620,8 @@ class WorkflowService:
         episode_word_count_max: int = DEFAULT_EPISODE_WORD_COUNT_MAX,
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
+        mind_map_prompt_lock: dict[str, str] | None = None,
+        module_plan_prompt_lock: dict[str, str] | None = None,
         album_prompt_lock: dict[str, str] | None = None,
         planning_run_id: str | None = None,
         retry_module_key: str | None = None,
@@ -1671,6 +1673,7 @@ class WorkflowService:
         )
         entries, key_map = self.album_planning.build_chapter_catalog(book["id"])
         catalog = self.album_planning.render_catalog(entries)
+        planning_analysis = self.album_planning.render_planning_analysis(entries)
         if planning_run_id:
             self.album_planning.artifacts.upsert(
                 run_id=planning_run_id,
@@ -1740,12 +1743,26 @@ class WorkflowService:
                     book["id"], mind_provider
                 )
                 check_cancelled()
-                mind_source = (
-                    f"# 书籍信息\n书名：{book['title']}\n"
-                    f"作者：{book['author'] or '未填写'}\n\n# 拆书稿\n{mind_facts}"
+                mind_snapshot = self.prompts.snapshot(
+                    "mind_map",
+                    {
+                        "full_book_analysis": mind_facts,
+                        "book_analysis": mind_facts,
+                        "book_title": book["title"],
+                        "book_author": book["author"] or "未填写",
+                        "book_type": (
+                            "叙事类"
+                            if book["book_type"] == "narrative"
+                            else "非叙事类"
+                        ),
+                    },
+                    project_id=project_id,
+                    locked=mind_map_prompt_lock,
+                    prompt_id="mind_map",
+                    book_type=book["book_type"],
                 )
                 mind_result = await mind_provider.generate(
-                    PROMPTS["mind_map"], mind_source
+                    mind_snapshot.prompt, mind_snapshot.source
                 )
                 check_cancelled()
                 current = self.database.row(
@@ -1823,18 +1840,32 @@ class WorkflowService:
             if module_plan_artifact and module_plan_artifact["status"] == "succeeded":
                 module_plan_markdown = module_plan_artifact["content"]
             else:
-                module_plan_source = (
-                    f"# 书籍信息\n书名：{book['title']}\n"
-                    f"作者：{book['author'] or '未填写'}\n"
-                    f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
-                    f"# 专辑特殊要求\n{requirements or '无'}\n\n"
-                    f"# 期望集数\n{count_text}\n\n"
-                    f"# 允许浮动范围\n{count_range_text}\n\n"
-                    f"# 每集目标字数\n{episode_word_count_range}\n\n"
-                    f"# 轻量章节目录\n{catalog}"
+                module_plan_snapshot = self.prompts.snapshot(
+                    "album_module_plan",
+                    {
+                        "planning_book_analysis": planning_analysis,
+                        "book_analysis": planning_analysis,
+                        "chapter_catalog": catalog,
+                        "book_title": book["title"],
+                        "book_author": book["author"] or "未填写",
+                        "book_type": (
+                            "叙事类"
+                            if book["book_type"] == "narrative"
+                            else "非叙事类"
+                        ),
+                        "album_special_requirements": requirements or "无",
+                        "desired_episode_count": (
+                            f"{count_text}；允许范围：{count_range_text}"
+                        ),
+                        "episode_word_count_range": episode_word_count_range,
+                    },
+                    project_id=project_id,
+                    locked=module_plan_prompt_lock,
+                    prompt_id="album_module_plan",
+                    book_type=book["book_type"],
                 )
                 module_plan_markdown = await album_provider.generate(
-                    PROMPTS["album_module_plan"], module_plan_source
+                    module_plan_snapshot.prompt, module_plan_snapshot.source
                 )
                 check_cancelled()
             modules = self.album_planning.parse_module_plan(
@@ -1912,6 +1943,21 @@ class WorkflowService:
 
         async def expand(module: AlbumModule) -> tuple[AlbumModule, str | Exception]:
             nonlocal completed_modules, failed_modules
+            module_source = self.album_planning.render_module_source(
+                entries, module.chapter_keys
+            )
+            if planning_run_id:
+                self.album_planning.artifacts.upsert(
+                    run_id=planning_run_id,
+                    project_id=project_id,
+                    artifact_type="module_source",
+                    module_key=module.key,
+                    position=module.position,
+                    source_chapter_ids=[
+                        key_map[key] for key in module.chapter_keys
+                    ],
+                    content=module_source,
+                )
             existing = (
                 self.album_planning.artifacts.get(
                     planning_run_id, "module_outline", module.key
@@ -1973,9 +2019,6 @@ class WorkflowService:
             try:
                 async with limiter:
                     check_cancelled()
-                    module_source = self.album_planning.render_module_source(
-                        entries, module.chapter_keys
-                    )
                     module_brief = (
                         f"模块标题：{module.title}\n"
                         f"听众问题：{module.listener_question}\n"
@@ -1999,6 +2042,7 @@ class WorkflowService:
                             "book_analysis": module_source,
                             "chapter_catalog": catalog,
                             "module_brief": module_brief,
+                            "module_book_analysis": module_source,
                             "module_source": module_source,
                             "book_title": book["title"],
                             "book_author": book["author"] or "未填写",
@@ -2174,9 +2218,18 @@ class WorkflowService:
             f"{len(modules)} 个模块已全部生成",
         )
 
-        combined = "\n\n".join(
-            str(result) for _, result in expanded
-        )
+        combined_parts: list[str] = []
+        for module, result in expanded:
+            annotated = re.sub(
+                r"(^##\s+第?\d+\s*集[：:].*$\n?)",
+                lambda match: (
+                    f"{match.group(1)}模块标识：{module.key}\n"
+                ),
+                str(result),
+                flags=re.M,
+            )
+            combined_parts.append(annotated)
+        combined = "\n\n".join(combined_parts)
         if planning_run_id:
             self.album_planning.artifacts.upsert(
                 run_id=planning_run_id,
@@ -2225,6 +2278,7 @@ class WorkflowService:
                 entries,
                 book_type=book["book_type"],
                 desired_episode_count=desired_episode_count,
+                modules=modules,
                 expected_episode_count=(
                     episode_budget.selected_count
                     if episode_budget
@@ -2279,7 +2333,9 @@ class WorkflowService:
             None,
             "正在保存章节级专辑大纲",
         )
-        self._save_generated_album(project_id, episodes)
+        self._save_generated_album(
+            project_id, episodes, planning_run_id=planning_run_id or ""
+        )
         active_prompt = self.prompts.effective("album_outline", project_id)
         self.database.execute(
             """
@@ -2907,15 +2963,20 @@ class WorkflowService:
         return episodes, notice
 
     def _save_generated_album(
-        self, project_id: str, episodes: list[dict[str, Any]]
+        self,
+        project_id: str,
+        episodes: list[dict[str, Any]],
+        *,
+        planning_run_id: str = "",
     ) -> None:
         self.database.execute("DELETE FROM episodes WHERE project_id = ?", (project_id,))
         self.database.executemany(
             """
             INSERT INTO episodes
               (id, project_id, position, title, content_type, style,
-               content_framework, section_identifier, status, source_section_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
+               content_framework, section_identifier, planning_run_id,
+               module_key, status, source_section_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'outline_review', ?)
             """,
             [
                 (
@@ -2927,6 +2988,8 @@ class WorkflowService:
                     item["style"],
                     item["content_framework"],
                     item["section_identifier"],
+                    planning_run_id,
+                    item.get("module_key", ""),
                     json.dumps(item["source_section_ids"], ensure_ascii=False),
                 )
                 for item in episodes

@@ -11,6 +11,8 @@ from .prompts import PromptDefinition
 
 
 CONFIGURABLE_PROMPT_STAGES = (
+    "mind_map",
+    "album_module_plan",
     "album_outline",
     "episode_outline",
     "episode_draft",
@@ -31,6 +33,7 @@ class PromptTemplateSpec:
     protected_suffix: str
     placeholders: dict[str, str]
     required_placeholders: tuple[str, ...]
+    required_one_of: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,62 @@ class PromptSnapshot:
         }
 
 
+MIND_MAP_DEFAULT_TEMPLATE = """请根据全书拆书稿，为此前没有读过原书的听众设计一份
+循序渐进、通俗易懂的 Markdown 思维导图。
+
+# 书籍信息
+书名：{{book_title}}
+作者：{{book_author}}
+书籍类型：{{book_type}}
+
+# 全书拆书稿
+{{full_book_analysis}}
+
+# 设计方法
+1. 先识别全书的核心问题和内容性质，再按金字塔结构组织知识。
+2. 建立章节之间的因果、递进、并列或对照关系，避免按目录机械摘抄。
+3. 第二层分支标明来源一级章节，优先使用原书中的表述。
+4. 末梢可以增加用户视角的总结句，但不得编造原书没有的事实。"""
+
+MIND_MAP_PROTECTED_SUFFIX = """# 系统保护约束
+所有知识、事实、人物、案例和数据只能来自输入拆书稿。只输出完整 Markdown 思维导图，
+不得输出分析过程、JSON、Mermaid、数据库 ID 或段落索引。"""
+
+ALBUM_MODULE_PLAN_DEFAULT_TEMPLATE = """请根据覆盖全书的策划版拆书稿和章节目录，
+为未读过原书的听众设计完整、连续的知识模块。
+
+# 书籍信息
+书名：{{book_title}}
+作者：{{book_author}}
+书籍类型：{{book_type}}
+
+# 专辑要求
+特殊要求：{{album_special_requirements}}
+目标集数与允许范围：{{desired_episode_count}}
+每集目标字数：{{episode_word_count_range}}
+
+# 全书章节目录
+{{chapter_catalog}}
+
+# 策划版全书拆书稿
+{{planning_book_analysis}}
+
+# 模块设计方法
+1. 覆盖全部一级章节，按听众理解顺序组织模块。
+2. 每个模块解决一个清楚的听众问题，并说明与前后模块的认知关系。
+3. 结合目标集数控制模块数量，必要时合并相邻且高度相关的章节。
+4. 此处只设计知识模块，不展开每一集。"""
+
+ALBUM_MODULE_PLAN_PROTECTED_SUFFIX = """# 系统保护约束
+不得遗漏或编造 CHAPTER 标识，不得增加输入材料之外的事实。只输出以下 Markdown 结构，
+不要输出 JSON、逐集大纲、数据库 ID、知识资产 ID 或段落索引：
+
+## 模块N：模块标题
+听众问题：这个模块为未读听众解决什么问题？
+认知顺序：如何承接前后模块。
+来源章节：[CHAPTER_001]、[CHAPTER_002]
+建议声音数：数字"""
+
 ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连续收听理解本书的听众，
 根据当前知识模块和来源章节设计连续的声音目录。
 
@@ -90,8 +149,8 @@ ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连�
 5. 标题从具体人物、事件、矛盾、反常识现象或因果悬念切入，轻松但克制。
 6. 用清楚的因果链保留原书精华，不机械地一章一集，不重复观点凑集数。
 
-# 当前模块的精简拆书材料
-{{module_source}}"""
+# 当前模块详细拆书稿
+{{module_book_analysis}}"""
 
 ALBUM_PROTECTED_SUFFIX = """# 系统保护约束
 所有事实、观点、人物、案例和数据必须来自当前模块材料。不得输出 knowledge_item_id、
@@ -101,6 +160,10 @@ content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER �
 如果“当前模块”中包含“本模块分配集数”，必须严格输出该数量的声音条目。
 当前调用只处理一个知识模块。即使用户模板仍出现“全书”“整张专辑”或“全专辑集数”
 等旧措辞，也不得扩展到其他模块；唯一数量约束是当前模块分配集数。
+
+# 当前模块任务（系统强制注入）
+{{module_brief}}
+
 本项目的每集目标字数是：{{episode_word_count_range}}
 该范围优先于用户模板中的“约 1500 字”等旧篇幅要求。每集只解决一个中心问题，
 通常使用 2 至 4 个递进要点；禁止把多个能够独立成集的大主题压成一集全景概述。
@@ -115,7 +178,8 @@ content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER �
 内容类型：解读
 来源章节：[CHAPTER_001]、[CHAPTER_002]"""
 
-EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，设计一份能够支撑目标篇幅的声音细纲。
+EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和所属模块拆书稿，
+设计一份能够支撑目标篇幅的声音细纲。
 
 # 书籍信息
 书名：{{book_title}}
@@ -127,14 +191,11 @@ EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，
 # 每集目标字数
 {{episode_word_count_range}}
 
-# 人物关系
-{{character_relationships}}
-
 # 当前声音框架（来自已确认的专辑大纲）
 {{episode_framework}}
 
-# 当前声音关联原文
-{{source_text}}
+# 所属模块详细拆书稿
+{{module_book_analysis}}
 
 # 细纲方法
 1. 明确本集唯一中心问题和听众最终应能复述的判断。
@@ -144,7 +205,9 @@ EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，
 5. 开篇、过渡和结尾写成可以直接进入正文的完整句子。"""
 
 EPISODE_OUTLINE_PROTECTED_SUFFIX = """# 系统保护约束
-所有事实、观点、人物和案例仅限输入原文，不得虚构、夸大或超出事件范围。解释必要背景并区分作者观点、原文案例和编辑解释。
+所有事实、观点、人物和案例仅限当前声音框架与所属模块拆书稿，不得虚构、夸大或
+超出模块范围。声音细纲不得读取或引用段落级原文块、来源匹配结果或上一集终稿。
+解释必要背景并区分作者观点、书中案例和编辑解释。
 本项目目标篇幅是：{{episode_word_count_range}}
 该范围优先于用户模板中的“约 1500 字”等旧要求。细纲必须控制内容负载，
 每集只解决一个中心问题，不能因为原文中存在就纳入所有知识点。
@@ -224,10 +287,48 @@ EPISODE_FINAL_PROTECTED_SUFFIX = """# 系统保护约束
 
 
 PROMPT_TEMPLATE_SPECS = {
+    "mind_map": PromptTemplateSpec(
+        stage_key="mind_map",
+        label="思维导图",
+        system_version="2026-07-30.1",
+        system_prompt="你是讲书类内容创作者，擅长用金字塔结构建立清晰、准确的书籍知识地图。",
+        default_user_template=MIND_MAP_DEFAULT_TEMPLATE,
+        protected_suffix=MIND_MAP_PROTECTED_SUFFIX,
+        placeholders={
+            "full_book_analysis": "完整或压缩后的全书拆书稿",
+            "book_analysis": "旧版兼容：完整或压缩后的全书拆书稿",
+            "book_title": "书名",
+            "book_author": "作者",
+            "book_type": "叙事类或非叙事类",
+        },
+        required_placeholders=(),
+        required_one_of=(("full_book_analysis", "book_analysis"),),
+    ),
+    "album_module_plan": PromptTemplateSpec(
+        stage_key="album_module_plan",
+        label="全书知识模块设计",
+        system_version="2026-07-30.1",
+        system_prompt="你负责把一本书的策划版拆书稿组织成循序渐进、覆盖完整的讲书知识模块。",
+        default_user_template=ALBUM_MODULE_PLAN_DEFAULT_TEMPLATE,
+        protected_suffix=ALBUM_MODULE_PLAN_PROTECTED_SUFFIX,
+        placeholders={
+            "planning_book_analysis": "覆盖全部章节的策划版全书拆书稿",
+            "book_analysis": "旧版兼容：策划版全书拆书稿",
+            "chapter_catalog": "全书轻量章节目录",
+            "book_title": "书名",
+            "book_author": "作者",
+            "book_type": "叙事类或非叙事类",
+            "album_special_requirements": "用户填写的专辑特殊要求",
+            "desired_episode_count": "目标集数与允许浮动范围",
+            "episode_word_count_range": "项目配置的每集字数范围与计数口径",
+        },
+        required_placeholders=("chapter_catalog",),
+        required_one_of=(("planning_book_analysis", "book_analysis"),),
+    ),
     "album_outline": PromptTemplateSpec(
         stage_key="album_outline",
-        label="专辑大纲",
-        system_version="2026-07-30.1",
+        label="分模块专辑大纲",
+        system_version="2026-07-30.2",
         system_prompt="你是一位资深讲书专辑总编，负责把拆书稿编排成准确、通俗、有连续收听动力的有声专辑。",
         default_user_template=ALBUM_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_PROTECTED_SUFFIX,
@@ -235,7 +336,8 @@ PROMPT_TEMPLATE_SPECS = {
             "book_analysis": "兼容旧版本：当前模块的精简拆书材料",
             "chapter_catalog": "全书轻量章节目录",
             "module_brief": "当前知识模块的目标、顺序和分配集数",
-            "module_source": "当前模块关联章节的精简拆书材料",
+            "module_book_analysis": "当前模块关联章节的详细拆书稿",
+            "module_source": "旧版兼容：当前模块详细拆书稿",
             "book_title": "书名",
             "book_author": "作者",
             "book_type": "叙事类或非叙事类",
@@ -244,24 +346,29 @@ PROMPT_TEMPLATE_SPECS = {
             "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
         required_placeholders=(),
+        required_one_of=(
+            ("module_book_analysis", "module_source", "book_analysis"),
+        ),
     ),
     "episode_outline": PromptTemplateSpec(
         stage_key="episode_outline",
         label="声音细纲",
-        system_version="2026-07-30.1",
+        system_version="2026-07-30.2",
         system_prompt="你是专业的有声讲书专辑制作人，擅长把人物、剧情或复杂观点讲得清晰、准确、易懂。",
         default_user_template=EPISODE_OUTLINE_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_OUTLINE_PROTECTED_SUFFIX,
         placeholders={
             "episode_framework": "当前声音在专辑大纲中的内容框架",
-            "source_text": "当前声音关联的原文块与辅助上下文",
+            "module_book_analysis": "当前声音所属模块的详细拆书稿",
+            "source_text": "旧版兼容：当前声音所属模块的详细拆书稿",
             "book_title": "书名",
             "book_author": "作者",
             "episode_title": "当前声音标题",
             "character_relationships": "当前关联原文块的人物关系；非故事类自动说明无需提供",
             "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
-        required_placeholders=("episode_framework", "source_text"),
+        required_placeholders=("episode_framework",),
+        required_one_of=(("module_book_analysis", "source_text"),),
     ),
     "episode_draft": PromptTemplateSpec(
         stage_key="episode_draft",
@@ -320,10 +427,12 @@ def validate_user_template(spec: PromptTemplateSpec, template: str) -> None:
     missing = sorted(set(spec.required_placeholders) - used)
     if missing:
         raise ValueError(f"缺少必要占位符：{', '.join(missing)}")
-    if spec.stage_key == "album_outline" and not used.intersection(
-        {"book_analysis", "module_source", "chapter_catalog"}
-    ):
-        raise ValueError("专辑大纲模板必须包含章节目录或模块材料占位符")
+    missing_groups = [
+        group for group in spec.required_one_of if not used.intersection(group)
+    ]
+    if missing_groups:
+        choices = "；".join(" 或 ".join(group) for group in missing_groups)
+        raise ValueError(f"缺少必要材料占位符：{choices}")
 
 
 def render_user_template(
@@ -503,6 +612,10 @@ class PromptConfigurationService:
             "protected_suffix": system["protected_suffix"],
             "allowed_placeholders": template["allowed_placeholders_json"],
             "required_placeholders": template["required_placeholders_json"],
+            "required_placeholder_groups": [
+                list(group)
+                for group in PROMPT_TEMPLATE_SPECS[stage_key].required_one_of
+            ],
             "has_project_override": source_scope == "project",
             "has_global_override": bool(template.get("active_global_version_id")),
         }
@@ -735,7 +848,17 @@ class PromptConfigurationService:
         else:
             effective = self.effective(stage_key, project_id)
         spec = PROMPT_TEMPLATE_SPECS[stage_key]
-        rendered = render_user_template(spec, effective["user_template"], values)
+        runtime_template = effective["user_template"]
+        if stage_key == "album_outline":
+            used = set(TOKEN_RE.findall(runtime_template))
+            if not any(
+                used.intersection(group) for group in spec.required_one_of
+            ):
+                runtime_template += (
+                    "\n\n# 当前模块详细拆书稿（系统兼容旧版本补入）\n"
+                    "{{module_book_analysis}}"
+                )
+        rendered = render_user_template(spec, runtime_template, values)
         protected = render_protected_suffix(
             effective["protected_suffix"], values
         )

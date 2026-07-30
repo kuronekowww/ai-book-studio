@@ -14,6 +14,7 @@ def seed_context(
     book_id = uuid.uuid4().hex
     project_id = uuid.uuid4().hex
     episode_id = uuid.uuid4().hex
+    planning_run_id = uuid.uuid4().hex
     source_id = uuid.uuid4().hex
     other_source_id = uuid.uuid4().hex
     database.execute(
@@ -46,13 +47,45 @@ def seed_context(
     )
     database.execute(
         """
+        INSERT INTO workflow_runs
+          (id, scope_type, scope_id, stage, status, metadata_json,
+           created_at, updated_at)
+        VALUES (?, 'project_generation', ?, 'full', 'succeeded', '{}', ?, ?)
+        """,
+        (planning_run_id, project_id, now, now),
+    )
+    database.execute(
+        """
+        INSERT INTO album_planning_artifacts
+          (id, run_id, project_id, artifact_type, module_key, position,
+           source_chapter_ids_json, content, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'module_source', 'MODULE_001', 1, ?,
+                '模块拆书稿：人物甲与人物乙相遇。', 'succeeded', ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            planning_run_id,
+            project_id,
+            json.dumps([source_id]),
+            now,
+            now,
+        ),
+    )
+    database.execute(
+        """
         INSERT INTO episodes
           (id, project_id, position, title, content_type, style,
-           content_framework, status, source_section_ids)
+           content_framework, planning_run_id, module_key, status,
+           source_section_ids)
         VALUES (?, ?, 1, '相遇', '故事', '观点', '先介绍人物，再讲相遇事件。',
-                'ready', ?)
+                ?, 'MODULE_001', 'ready', ?)
         """,
-        (episode_id, project_id, json.dumps([source_id])),
+        (
+            episode_id,
+            project_id,
+            planning_run_id,
+            json.dumps([source_id]),
+        ),
     )
     database.executemany(
         """
@@ -82,7 +115,7 @@ def seed_context(
     return episode_id, source_id, other_source_id
 
 
-def test_narrative_outline_uses_framework_matching_relationships_and_source(
+def test_narrative_outline_uses_framework_and_module_analysis_only(
     tmp_path,
 ) -> None:
     database = Database(tmp_path / "studio.sqlite3")
@@ -93,14 +126,20 @@ def test_narrative_outline_uses_framework_matching_relationships_and_source(
 
     assert context.prompt_id == "episode_outline_narrative"
     assert "先介绍人物，再讲相遇事件。" in context.source
-    assert "人物甲与人物乙是同行者。" in context.source
+    assert "模块拆书稿：人物甲与人物乙相遇。" in context.source
+    assert "人物甲与人物乙是同行者。" not in context.source
     assert "人物丙与人物丁是对手。" not in context.source
-    assert source_id in context.source
+    assert source_id not in context.source
     assert other_source_id not in context.source
-    assert "当前章节的完整原文" in context.source
+    assert "当前章节的完整原文" not in context.source
     assert context.variables["episode_framework"] == "先介绍人物，再讲相遇事件。"
-    assert "人物甲与人物乙是同行者。" in context.variables["character_relationships"]
-    assert "当前章节的完整原文" in context.variables["source_text"]
+    assert context.variables["character_relationships"] == ""
+    assert context.variables["module_book_analysis"] == (
+        "模块拆书稿：人物甲与人物乙相遇。"
+    )
+    assert context.variables["source_text"] == (
+        "模块拆书稿：人物甲与人物乙相遇。"
+    )
     assert "2000–2500" in context.variables["episode_word_count_range"]
 
 
@@ -114,7 +153,7 @@ def test_non_narrative_outline_omits_relationship_section(tmp_path) -> None:
     assert context.prompt_id == "episode_outline_non_narrative"
     assert "# 人物关系" not in context.source
     assert "人物甲与人物乙是同行者。" not in context.source
-    assert context.variables["character_relationships"] == "非故事类书籍无须提供人物关系。"
+    assert context.variables["character_relationships"] == ""
 
 
 def test_draft_and_final_include_latest_previous_artifact_and_same_source(

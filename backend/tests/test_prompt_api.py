@@ -35,7 +35,15 @@ def test_prompt_api_versions_inheritance_validation_and_preview(
 
     templates = client.get("/api/prompts/templates")
     assert templates.status_code == 200
-    assert len(templates.json()) == 4
+    assert len(templates.json()) == 6
+    assert [item["stage_key"] for item in templates.json()] == [
+        "mind_map",
+        "album_module_plan",
+        "album_outline",
+        "episode_outline",
+        "episode_draft",
+        "episode_final",
+    ]
     assert all(item["source_scope"] == "system" for item in templates.json())
 
     invalid = client.post(
@@ -104,6 +112,17 @@ def test_prompt_api_versions_inheritance_validation_and_preview(
     assert preview.status_code == 200
     assert "{{episode_outline}}" not in preview.json()["rendered_user_template"]
     assert preview.json()["protected_suffix"]
+    assert [
+        material["key"] for material in preview.json()["input_materials"]
+    ] == ["episode_outline", "source_text"]
+    assert all(
+        "character_count" in material
+        for material in preview.json()["input_materials"]
+    )
+
+    modules = client.get(f"/api/projects/{project_id}/prompt-modules")
+    assert modules.status_code == 200
+    assert modules.json() == []
 
     cleared = client.delete(
         f"/api/projects/{project_id}/prompts/episode_draft"

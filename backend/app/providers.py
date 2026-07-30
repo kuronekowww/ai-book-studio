@@ -206,6 +206,9 @@ class DemoProvider:
                     r"^##\s+第?\d+\s*集[：:]\s*(.+)$", block, re.M
                 )
                 keys = list(dict.fromkeys(re.findall(r"CHAPTER_\d{3}", block)))
+                module_match = re.search(
+                    r"^模块标识[：:]\s*(MODULE_\d{3})", block, re.M
+                )
                 if not title_match or not keys:
                     continue
                 hook = re.search(r"^听众钩子[：:]\s*(.+)$", block, re.M)
@@ -225,6 +228,11 @@ class DemoProvider:
                             f"核心要点：\n{points.group(1).strip() if points else ''}"
                         ),
                         "chapter_keys": keys,
+                        "module_key": (
+                            module_match.group(1)
+                            if module_match
+                            else "MODULE_001"
+                        ),
                         "content_type": (
                             content_type.group(1).strip()
                             if content_type

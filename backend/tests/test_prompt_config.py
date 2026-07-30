@@ -42,22 +42,30 @@ def test_prompt_defaults_are_initialized_idempotently(tmp_path) -> None:
 
     templates = service.list_templates()
 
-    assert len(templates) == 4
+    assert len(templates) == 6
     assert {item["stage_key"] for item in templates} == set(
         PROMPT_TEMPLATE_SPECS
     )
     assert all(item["source_scope"] == "system" for item in templates)
     assert database.row(
         "SELECT COUNT(*) AS count FROM prompt_versions WHERE scope = 'system'"
-    )["count"] == 4
+    )["count"] == 6
     album = service.effective("album_outline")
-    assert album["system_version"] == "2026-07-30.1"
+    assert album["system_version"] == "2026-07-30.2"
+    assert album["label"] == "分模块专辑大纲"
+    assert "module_book_analysis" in album["allowed_placeholders"]
     assert "module_source" in album["allowed_placeholders"]
     assert "只输出以下 Markdown 结构" in album["protected_suffix"]
     assert "knowledge_item_id" in album["protected_suffix"]
     assert "必须严格输出该数量" in album["protected_suffix"]
     assert "当前调用只处理一个知识模块" in album["protected_suffix"]
     assert "episode_word_count_range" in album["allowed_placeholders"]
+    assert service.effective("mind_map")["required_placeholder_groups"] == [
+        ["full_book_analysis", "book_analysis"]
+    ]
+    assert service.effective("album_module_plan")["required_placeholders"] == [
+        "chapter_catalog"
+    ]
 
 
 def test_prompt_template_validation_and_single_pass_rendering() -> None:
@@ -88,13 +96,69 @@ def test_prompt_template_validation_and_single_pass_rendering() -> None:
 
     album = PROMPT_TEMPLATE_SPECS["album_outline"]
     validate_user_template(album, "旧模板仍可用\n{{book_analysis}}")
-    validate_user_template(album, "新模板\n{{chapter_catalog}}\n{{module_source}}")
+    validate_user_template(
+        album, "新模板\n{{module_brief}}\n{{module_book_analysis}}"
+    )
     try:
-        validate_user_template(album, "没有材料占位符")
+        validate_user_template(album, "{{module_brief}}\n没有材料占位符")
     except ValueError as error:
-        assert "章节目录或模块材料" in str(error)
+        assert "必要材料占位符" in str(error)
     else:
         raise AssertionError("专辑模板必须保留至少一个材料占位符")
+
+    outline = PROMPT_TEMPLATE_SPECS["episode_outline"]
+    validate_user_template(
+        outline, "{{episode_framework}}\n{{module_book_analysis}}"
+    )
+    validate_user_template(outline, "{{episode_framework}}\n{{source_text}}")
+
+
+def test_runtime_repairs_legacy_album_template_without_module_material(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = PromptConfigurationService(database)
+    template = database.row(
+        "SELECT * FROM prompt_templates WHERE stage_key = 'album_outline'"
+    )
+    assert template
+    system = service.effective("album_outline")
+    legacy_id = uuid.uuid4().hex
+    database.execute(
+        """
+        INSERT INTO prompt_versions
+          (id, template_id, scope, project_id, version, user_template,
+           base_system_version_id, created_at)
+        VALUES (?, ?, 'global', NULL, 1, ?, ?, ?)
+        """,
+        (
+            legacy_id,
+            template["id"],
+            "旧版只写创作要求，没有材料占位符。",
+            system["system_version_id"],
+            now_iso(),
+        ),
+    )
+    database.execute(
+        """
+        UPDATE prompt_templates SET active_global_version_id = ?
+        WHERE id = ?
+        """,
+        (legacy_id, template["id"]),
+    )
+
+    snapshot = service.snapshot(
+        "album_outline",
+        {
+            "module_book_analysis": "当前模块真实拆书稿",
+            "module_brief": "当前模块任务",
+        },
+    )
+
+    assert "旧版只写创作要求" in snapshot.source
+    assert "当前模块真实拆书稿" in snapshot.source
+    assert snapshot.user_template == "旧版只写创作要求，没有材料占位符。"
 
 
 def test_global_and_project_prompt_versions_inherit_and_restore(tmp_path) -> None:

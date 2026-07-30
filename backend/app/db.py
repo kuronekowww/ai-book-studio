@@ -174,6 +174,8 @@ CREATE TABLE IF NOT EXISTS episodes (
   style TEXT NOT NULL,
   content_framework TEXT NOT NULL DEFAULT '',
   section_identifier TEXT NOT NULL DEFAULT '',
+  planning_run_id TEXT NOT NULL DEFAULT '',
+  module_key TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   source_section_ids TEXT NOT NULL
 );
@@ -301,6 +303,8 @@ MIGRATION_COLUMNS = {
     "episodes": {
         "content_framework": "TEXT NOT NULL DEFAULT ''",
         "section_identifier": "TEXT NOT NULL DEFAULT ''",
+        "planning_run_id": "TEXT NOT NULL DEFAULT ''",
+        "module_key": "TEXT NOT NULL DEFAULT ''",
     },
     "sections": {
         "analysis_enabled": "INTEGER NOT NULL DEFAULT 1",

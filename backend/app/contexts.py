@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .album_planning import AlbumPlanningService
 from .db import Database
 from .text_metrics import (
     DEFAULT_EPISODE_WORD_COUNT_MAX,
@@ -29,6 +30,7 @@ class StageContext:
 class EpisodeContextBuilder:
     def __init__(self, database: Database):
         self.database = database
+        self.album_planning = AlbumPlanningService(database)
 
     def build(self, episode_id: str, stage: str) -> StageContext:
         if stage not in {"outline", "draft", "final"}:
@@ -52,19 +54,8 @@ class EpisodeContextBuilder:
             raise ValueError("内容项目没有有效来源书籍")
         source_ids = episode["source_section_ids"]
         valid_book_ids = {book["id"] for book in books}
-        bundle = self.evidence_bundle(episode_id)
-        typed_sections = bundle["legacy_sections"]
-        if any(section["book_id"] not in valid_book_ids for section in typed_sections):
-            raise ValueError("声音关联了项目来源书籍之外的原文块")
-
         book_info = self._format_books(books)
-        evidence = self._format_bundle(bundle)
         narrative = books[0]["book_type"] == "narrative"
-        relationships = (
-            self._format_relationships(books, set(source_ids))
-            if narrative
-            else "非故事类书籍无须提供人物关系。"
-        )
         previous_episode = self.database.row(
             """
             SELECT previous_artifact.content
@@ -87,8 +78,6 @@ class EpisodeContextBuilder:
             ),
             "episode_title": episode["title"],
             "episode_framework": episode["content_framework"].strip(),
-            "source_text": evidence,
-            "character_relationships": relationships,
             "previous_episode_final": (
                 previous_episode["content"]
                 if previous_episode
@@ -109,6 +98,16 @@ class EpisodeContextBuilder:
             framework = episode["content_framework"].strip()
             if not framework:
                 raise ValueError("声音内容框架不能为空")
+            module_analysis = self._module_analysis(
+                episode, project, books
+            )
+            common_variables.update(
+                {
+                    "module_book_analysis": module_analysis,
+                    "source_text": module_analysis,
+                    "character_relationships": "",
+                }
+            )
             parts = [
                 book_info,
                 (
@@ -118,10 +117,8 @@ class EpisodeContextBuilder:
                     f"风格：{episode['style']}"
                 ),
                 f"# 声音内容框架\n{framework}",
+                f"# 所属模块详细拆书稿\n{module_analysis}",
             ]
-            if narrative:
-                parts.append("# 人物关系\n" + relationships)
-            parts.append(f"# 书籍内容（原文证据）\n{evidence}")
             return StageContext(
                 prompt_id=(
                     "episode_outline_narrative"
@@ -134,6 +131,22 @@ class EpisodeContextBuilder:
                 variables=common_variables,
             )
 
+        bundle = self.evidence_bundle(episode_id)
+        typed_sections = bundle["legacy_sections"]
+        if any(section["book_id"] not in valid_book_ids for section in typed_sections):
+            raise ValueError("声音关联了项目来源书籍之外的原文块")
+        evidence = self._format_bundle(bundle)
+        relationships = (
+            self._format_relationships(books, set(source_ids))
+            if narrative
+            else "非故事类书籍无须提供人物关系。"
+        )
+        common_variables.update(
+            {
+                "source_text": evidence,
+                "character_relationships": relationships,
+            }
+        )
         previous_stage = "outline" if stage == "draft" else "draft"
         previous = self.database.row(
             """
@@ -164,6 +177,124 @@ class EpisodeContextBuilder:
             project_id=project["id"],
             book_type=books[0]["book_type"],
             variables=variables,
+        )
+
+    def _module_analysis(
+        self,
+        episode: dict[str, Any],
+        project: dict[str, Any],
+        books: list[dict[str, Any]],
+    ) -> str:
+        planning_run_id = str(episode.get("planning_run_id") or "")
+        module_key = str(episode.get("module_key") or "")
+        if planning_run_id and module_key:
+            artifact = self.album_planning.artifacts.get(
+                planning_run_id, "module_source", module_key
+            )
+            if artifact and artifact["status"] == "succeeded":
+                return artifact["content"]
+
+        source_ids = set(episode.get("source_section_ids") or [])
+        runs = self.database.rows(
+            """
+            SELECT * FROM workflow_runs
+            WHERE scope_type = 'project_generation' AND scope_id = ?
+            ORDER BY created_at DESC
+            """,
+            (project["id"],),
+        )
+        for run in runs:
+            candidates = [
+                item
+                for item in self.album_planning.artifacts.list_for_run(
+                    run["id"], "module_outline"
+                )
+                if item["status"] == "succeeded"
+                and source_ids.issubset(
+                    set(item["source_chapter_ids_json"])
+                )
+            ]
+            exact = [
+                item
+                for item in candidates
+                if set(item["source_chapter_ids_json"]) == source_ids
+            ]
+            selected = exact or candidates
+            if len(selected) > 1:
+                raise ValueError(
+                    "当前历史声音对应多个知识模块，无法唯一恢复模块拆书稿；"
+                    "请重新生成并确认专辑大纲"
+                )
+            if len(selected) == 1:
+                planning_run_id = run["id"]
+                module_key = selected[0]["module_key"]
+                break
+
+        if not planning_run_id:
+            if not runs:
+                if module_key:
+                    return self._render_module_analysis_for_sources(
+                        books[0]["id"], source_ids
+                    )
+                raise ValueError(
+                    "当前声音没有可恢复的知识模块，请重新生成并确认专辑大纲"
+                )
+            planning_run_id = runs[0]["id"]
+            module_key = f"RECOVERED_{int(episode['position']):03d}"
+
+        entries, _ = self.album_planning.build_chapter_catalog(books[0]["id"])
+        selected_keys = [
+            entry.chapter_key
+            for entry in entries
+            if entry.section_id in source_ids
+        ]
+        if not selected_keys:
+            raise ValueError(
+                "当前声音的来源章节无法恢复模块拆书稿；"
+                "请重新生成并确认专辑大纲"
+            )
+        content = self.album_planning.render_module_source(
+            entries, selected_keys
+        )
+        self.album_planning.artifacts.upsert(
+            run_id=planning_run_id,
+            project_id=project["id"],
+            artifact_type="module_source",
+            module_key=module_key,
+            position=int(episode["position"]),
+            source_chapter_ids=[
+                entry.section_id
+                for entry in entries
+                if entry.chapter_key in selected_keys
+            ],
+            content=content,
+        )
+        self.database.execute(
+            """
+            UPDATE episodes
+            SET planning_run_id = ?, module_key = ?
+            WHERE id = ?
+            """,
+            (planning_run_id, module_key, episode["id"]),
+        )
+        return content
+
+    def _render_module_analysis_for_sources(
+        self, book_id: str, source_ids: set[str]
+    ) -> str:
+        entries, _ = self.album_planning.build_chapter_catalog(book_id)
+        selected_keys = [
+            entry.chapter_key
+            for entry in entries
+            if entry.section_id in source_ids
+        ]
+        if not selected_keys:
+            raise ValueError(
+                "当前声音的来源章节无法恢复模块拆书稿；"
+                "请重新生成并确认专辑大纲"
+            )
+        return self.album_planning.render_module_source(
+            entries, selected_keys
         )
 
     @staticmethod

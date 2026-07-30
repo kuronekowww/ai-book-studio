@@ -150,24 +150,144 @@ class PromptPreviewPayload(BaseModel):
     user_template: str = Field(min_length=1, max_length=50_000)
     project_id: str | None = None
     episode_id: str | None = None
+    module_key: str | None = None
 
 
 def not_found(label: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{label}不存在")
 
 
-def _truncate_prompt_value(value: str, limit: int = 6_000) -> str:
-    if len(value) <= limit:
-        return value
-    return f"{value[:limit]}\n\n[预览已截断，原始长度 {len(value)} 字符]"
+def _latest_prompt_modules(project_id: str) -> list[dict[str, Any]]:
+    latest = database.row(
+        """
+        SELECT run_id, artifact_type
+        FROM album_planning_artifacts
+        WHERE project_id = ?
+          AND artifact_type IN ('module_source', 'module_outline')
+          AND status = 'succeeded'
+        ORDER BY created_at DESC,
+          CASE artifact_type WHEN 'module_source' THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        (project_id,),
+    )
+    if not latest:
+        return []
+    artifact_type = latest["artifact_type"]
+    artifacts = database.rows(
+        """
+        SELECT *
+        FROM album_planning_artifacts
+        WHERE run_id = ? AND artifact_type = ?
+          AND status = 'succeeded'
+        ORDER BY position, created_at
+        """,
+        (latest["run_id"], artifact_type),
+    )
+    child_runs = database.rows(
+        """
+        SELECT *
+        FROM workflow_runs
+        WHERE parent_run_id = ? AND scope_type = 'project_album_module'
+        ORDER BY position, created_at
+        """,
+        (latest["run_id"],),
+    )
+    metadata_by_key = {
+        str(run["metadata_json"].get("module_key") or ""): run["metadata_json"]
+        for run in child_runs
+    }
+    recovered_content: dict[str, str] = {}
+    chapter_keys_by_module: dict[str, list[str]] = {}
+    project = database.row("SELECT * FROM projects WHERE id = ?", (project_id,))
+    book_id = project["book_ids"][0] if project and project["book_ids"] else ""
+    if book_id:
+        try:
+            entries, key_map = workflows.album_planning.build_chapter_catalog(
+                book_id
+            )
+            key_by_section = {
+                section_id: chapter_key
+                for chapter_key, section_id in key_map.items()
+            }
+            for artifact in artifacts:
+                chapter_keys = [
+                    key_by_section[section_id]
+                    for section_id in artifact["source_chapter_ids_json"]
+                    if section_id in key_by_section
+                ]
+                chapter_keys_by_module[artifact["module_key"]] = chapter_keys
+                if artifact_type == "module_outline":
+                    recovered_content[artifact["module_key"]] = (
+                        workflows.album_planning.render_module_source(
+                            entries, chapter_keys
+                        )
+                    )
+        except ValueError:
+            recovered_content = {}
+            chapter_keys_by_module = {}
+    return [
+        {
+            "run_id": artifact["run_id"],
+            "module_key": artifact["module_key"],
+            "position": artifact["position"],
+            "title": (
+                metadata_by_key.get(artifact["module_key"], {}).get("module_title")
+                or f"知识模块 {artifact['position']}"
+            ),
+            "chapter_ids": (
+                chapter_keys_by_module.get(artifact["module_key"])
+                or artifact["source_chapter_ids_json"]
+            ),
+            "content": (
+                recovered_content.get(artifact["module_key"])
+                or artifact["content"]
+            ),
+            "character_count": len(
+                recovered_content.get(artifact["module_key"])
+                or artifact["content"]
+            ),
+        }
+        for artifact in artifacts
+    ]
+
+
+def _prompt_material(
+    key: str,
+    label: str,
+    source: str,
+    content: str,
+    *,
+    compressed: bool = False,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "source": source,
+        "character_count": len(content),
+        "compressed": compressed,
+        "content": content,
+    }
 
 
 def prompt_preview_values(
     stage_key: str,
     project_id: str | None = None,
     episode_id: str | None = None,
-) -> tuple[dict[str, str], str]:
+    module_key: str | None = None,
+) -> tuple[dict[str, str], str, list[dict[str, Any]]]:
     values = {
+        "full_book_analysis": (
+            "# 第一章 示例拆书稿\n\n## 子主题\n示例观点与原文索引。"
+        ),
+        "planning_book_analysis": (
+            "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题\n"
+            "子主题：示例子主题\n主要观点：示例观点"
+        ),
+        "module_book_analysis": (
+            "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题\n"
+            "子主题：示例子主题\n主要观点：示例观点"
+        ),
         "book_analysis": "# 第一章 示例拆书稿\n\n## 子主题\n示例观点与原文索引。",
         "chapter_catalog": "[CHAPTER_001] 第一章 示例章节\n章节主题：示例主题",
         "module_brief": (
@@ -197,7 +317,18 @@ def prompt_preview_values(
     }
     book_type = "non_narrative"
     if not project_id:
-        return values, book_type
+        material_keys = {
+            "mind_map": ("full_book_analysis",),
+            "album_module_plan": ("planning_book_analysis", "chapter_catalog"),
+            "album_outline": ("module_brief", "module_book_analysis"),
+            "episode_outline": ("episode_framework", "module_book_analysis"),
+            "episode_draft": ("episode_outline", "source_text"),
+            "episode_final": ("episode_draft", "source_text"),
+        }.get(stage_key, ())
+        return values, book_type, [
+            _prompt_material(key, key, "示例材料", values[key])
+            for key in material_keys
+        ]
     project = database.row("SELECT * FROM projects WHERE id = ?", (project_id,))
     if not project:
         raise KeyError(project_id)
@@ -248,9 +379,11 @@ def prompt_preview_values(
             (book["id"],),
         )
         if analyses:
-            values["book_analysis"] = "\n\n".join(
+            complete_analysis = "\n\n".join(
                 item["rendered_markdown"] for item in analyses
             )
+            values["full_book_analysis"] = complete_analysis
+            values["book_analysis"] = complete_analysis
             try:
                 entries, _ = workflows.album_planning.build_chapter_catalog(
                     book["id"]
@@ -258,13 +391,18 @@ def prompt_preview_values(
                 values["chapter_catalog"] = (
                     workflows.album_planning.render_catalog(entries)
                 )
+                values["planning_book_analysis"] = (
+                    workflows.album_planning.render_planning_analysis(entries)
+                )
                 preview_entries = entries[: min(3, len(entries))]
-                values["module_source"] = (
+                fallback_module = (
                     workflows.album_planning.render_module_source(
                         entries,
                         [entry.chapter_key for entry in preview_entries],
                     )
                 )
+                values["module_source"] = fallback_module
+                values["module_book_analysis"] = fallback_module
                 values["module_brief"] = (
                     "模块标题：预览知识模块\n"
                     "听众问题：这些章节共同解决什么问题？\n"
@@ -276,7 +414,26 @@ def prompt_preview_values(
                 )
             except ValueError:
                 pass
-    if stage_key != "album_outline":
+    modules = _latest_prompt_modules(project_id)
+    selected_module = next(
+        (item for item in modules if item["module_key"] == module_key),
+        modules[0] if modules else None,
+    )
+    if selected_module:
+        module_content = selected_module["content"]
+        values["module_book_analysis"] = module_content
+        values["module_source"] = module_content
+        if stage_key == "episode_outline":
+            values["source_text"] = module_content
+        values["module_brief"] = (
+            f"模块标识：{selected_module['module_key']}\n"
+            f"模块标题：{selected_module['title']}\n"
+            "来源章节："
+            + "、".join(selected_module["chapter_ids"])
+        )
+
+    episode: dict[str, Any] | None = None
+    if stage_key in {"episode_outline", "episode_draft", "episode_final"}:
         episode = (
             database.row(
                 "SELECT * FROM episodes WHERE id = ? AND project_id = ?",
@@ -292,8 +449,14 @@ def prompt_preview_values(
             )
         )
         if episode:
+            stage_name = {
+                "episode_outline": "outline",
+                "episode_draft": "draft",
+                "episode_final": "final",
+            }[stage_key]
             try:
-                values.update(workflows.contexts.build(episode["id"], "outline").variables)
+                context = workflows.contexts.build(episode["id"], stage_name)
+                values.update(context.variables)
             except ValueError:
                 values.update(
                     {
@@ -301,6 +464,17 @@ def prompt_preview_values(
                         "episode_framework": episode["content_framework"],
                     }
                 )
+                if stage_key != "episode_outline":
+                    bundle = workflows.contexts.evidence_bundle(episode["id"])
+                    values["source_text"] = workflows.contexts._format_bundle(bundle)
+                else:
+                    try:
+                        outline_context = workflows.contexts.build(
+                            episode["id"], "outline"
+                        )
+                        values.update(outline_context.variables)
+                    except ValueError:
+                        pass
             for artifact_stage, variable in (
                 ("outline", "episode_outline"),
                 ("draft", "episode_draft"),
@@ -308,10 +482,78 @@ def prompt_preview_values(
                 artifact = workflows.latest_artifact(episode["id"], artifact_stage)
                 if artifact:
                     values[variable] = artifact["content"]
-    return {
-        key: _truncate_prompt_value(value)
-        for key, value in values.items()
-    }, book_type
+            if episode.get("module_key"):
+                episode_module = next(
+                    (
+                        item
+                        for item in modules
+                        if item["module_key"] == episode["module_key"]
+                    ),
+                    None,
+                )
+                if episode_module and stage_key == "episode_outline":
+                    values["module_book_analysis"] = episode_module["content"]
+                    values["source_text"] = episode_module["content"]
+
+    missing_episode = (
+        stage_key in {"episode_outline", "episode_draft", "episode_final"}
+        and episode is None
+    )
+    if missing_episode:
+        values.update(
+            {
+                "episode_title": "当前项目尚无声音",
+                "episode_framework": "当前项目尚无已确认的声音框架。",
+                "episode_outline": "当前声音尚未生成声音细纲。",
+                "episode_draft": "当前声音尚未生成声音初稿。",
+            }
+        )
+    material_specs = {
+        "mind_map": (
+            ("full_book_analysis", "全书拆书稿", "最新成功章节拆书稿合并"),
+        ),
+        "album_module_plan": (
+            ("planning_book_analysis", "策划版全书拆书稿", "最新章节策划摘要"),
+            ("chapter_catalog", "全书轻量章节目录", "最新拆书章节目录"),
+        ),
+        "album_outline": (
+            ("module_brief", "当前模块任务", "最新专辑规划运行"),
+            ("module_book_analysis", "当前模块详细拆书稿", "模块所含一级章节"),
+        ),
+        "episode_outline": (
+            ("episode_framework", "当前声音框架", "已确认专辑大纲"),
+            ("module_book_analysis", "所属模块详细拆书稿", "声音关联模块"),
+        ),
+        "episode_draft": (
+            ("episode_outline", "上一步声音细纲", "最新声音细纲版本"),
+            ("source_text", "当前声音关联原文", "段落级原文匹配"),
+        ),
+        "episode_final": (
+            ("episode_draft", "上一步声音初稿", "最新声音初稿版本"),
+            ("source_text", "当前声音关联原文", "段落级原文匹配"),
+        ),
+    }.get(stage_key, ())
+    materials = [
+        _prompt_material(
+            key,
+            label,
+            (
+                "当前项目尚无声音，以下为缺失状态"
+                if missing_episode
+                and key
+                in {
+                    "episode_framework",
+                    "episode_outline",
+                    "episode_draft",
+                    "source_text",
+                }
+                else source
+            ),
+            values.get(key, ""),
+        )
+        for key, label, source in material_specs
+    ]
+    return values, book_type, materials
 
 
 async def execute_episode_run(
@@ -530,7 +772,20 @@ async def execute_project_generation_run(
             ),
             mind_map_provider=mind_map_provider,
             album_outline_provider=album_outline_provider,
-            album_prompt_lock=metadata.get("album_prompt_lock"),
+            mind_map_prompt_lock=(
+                (metadata.get("project_prompt_locks") or {}).get("mind_map")
+            ),
+            module_plan_prompt_lock=(
+                (metadata.get("project_prompt_locks") or {}).get(
+                    "album_module_plan"
+                )
+            ),
+            album_prompt_lock=(
+                (metadata.get("project_prompt_locks") or {}).get(
+                    "album_outline"
+                )
+                or metadata.get("album_prompt_lock")
+            ),
             planning_run_id=run_id,
             retry_module_key=metadata.get("retry_module_key"),
             progress_callback=report_stage,
@@ -1174,6 +1429,23 @@ def project_detail(project_id: str) -> dict[str, Any]:
         raise not_found("项目") from error
 
 
+@app.get("/api/projects/{project_id}/prompt-modules")
+def project_prompt_modules(project_id: str) -> list[dict[str, Any]]:
+    if not database.row("SELECT id FROM projects WHERE id = ?", (project_id,)):
+        raise not_found("项目")
+    return [
+        {
+            "run_id": module["run_id"],
+            "module_key": module["module_key"],
+            "position": module["position"],
+            "title": module["title"],
+            "chapter_ids": module["chapter_ids"],
+            "character_count": module["character_count"],
+        }
+        for module in _latest_prompt_modules(project_id)
+    ]
+
+
 @app.post("/api/projects/{project_id}/generate-outline", status_code=202)
 async def generate_project_outline(
     project_id: str, payload: ProjectGenerationPayload
@@ -1186,9 +1458,14 @@ async def generate_project_outline(
         snapshots = model_routing.project_stage_snapshots(
             project_id, ("mind_map", "album_outline")
         )
-        album_prompt_lock = prompt_configuration.lock_stage(
-            "album_outline", project_id
-        )
+        project_prompt_locks = {
+            stage: prompt_configuration.lock_stage(stage, project_id)
+            for stage in (
+                "mind_map",
+                "album_module_plan",
+                "album_outline",
+            )
+        }
         run, reused = runs.create(
             scope_type="project_generation",
             scope_id=project_id,
@@ -1204,7 +1481,7 @@ async def generate_project_outline(
                     stage: snapshot.run_model_id
                     for stage, snapshot in snapshots.items()
                 },
-                "album_prompt_lock": album_prompt_lock,
+                "project_prompt_locks": project_prompt_locks,
             },
         )
         if not reused:
@@ -1927,18 +2204,21 @@ def clear_project_prompt(project_id: str, stage_key: str) -> dict[str, Any]:
 @app.post("/api/prompts/preview")
 def preview_prompt(payload: PromptPreviewPayload) -> dict[str, Any]:
     try:
-        values, book_type = prompt_preview_values(
+        values, book_type, input_materials = prompt_preview_values(
             payload.stage_key,
             payload.project_id,
             payload.episode_id,
+            payload.module_key,
         )
-        return prompt_configuration.preview(
+        preview = prompt_configuration.preview(
             payload.stage_key,
             payload.user_template,
             values,
             project_id=payload.project_id,
             book_type=book_type,
         )
+        preview["input_materials"] = input_materials
+        return preview
     except KeyError as error:
         raise not_found("项目") from error
     except ValueError as error:

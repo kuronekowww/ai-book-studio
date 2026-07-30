@@ -75,11 +75,17 @@ test("keeps the versioned prompt workbench in source", async () => {
   assert.match(page, /恢复系统默认/);
   assert.match(page, /取消项目覆盖/);
   assert.match(page, /required_placeholders/);
+  assert.match(page, /required_placeholder_groups/);
+  assert.match(page, /全书知识模块设计/);
+  assert.match(page, /分模块专辑大纲/);
+  assert.match(page, /本次真实输入材料/);
+  assert.match(page, /prompt-modules/);
   assert.match(page, /\{\{\$\{name\}\}\}/);
   assert.match(styles, /\.prompt-workbench/);
   assert.match(styles, /\.prompt-stage-rail/);
   assert.match(styles, /\.prompt-editor-panel/);
   assert.match(styles, /\.prompt-meta-panel/);
+  assert.match(styles, /\.prompt-input-materials/);
 });
 
 test("keeps persistent workflow progress and workspace recovery in source", async () => {

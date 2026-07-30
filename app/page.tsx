@@ -172,6 +172,8 @@ type ModelOption = {
 };
 
 type PromptStage =
+  | "mind_map"
+  | "album_module_plan"
   | "album_outline"
   | "episode_outline"
   | "episode_draft"
@@ -189,6 +191,7 @@ type PromptTemplateConfig = {
   system_version: string;
   allowed_placeholders: Record<string, string>;
   required_placeholders: string[];
+  required_placeholder_groups: string[][];
   has_project_override: boolean;
   has_global_override: boolean;
 };
@@ -208,6 +211,25 @@ type PromptPreview = {
   protected_suffix: string;
   source_label: string;
   truncated: boolean;
+  input_materials: PromptInputMaterial[];
+};
+
+type PromptInputMaterial = {
+  key: string;
+  label: string;
+  source: string;
+  character_count: number;
+  compressed: boolean;
+  content: string;
+};
+
+type PromptModuleOption = {
+  run_id: string;
+  module_key: string;
+  position: number;
+  title: string;
+  chapter_ids: string[];
+  character_count: number;
 };
 
 type WorkflowRun = {
@@ -973,7 +995,7 @@ export default function Home() {
   const navItems: { key: View; label: string; hint: string }[] = [
     { key: "library", label: "书籍知识库", hint: `${books.length} 本` },
     { key: "projects", label: "内容项目", hint: `${projects.length} 个` },
-    { key: "prompts", label: "提示词", hint: "4 个环节" },
+    { key: "prompts", label: "提示词", hint: "6 个环节" },
     {
       key: "runs",
       label: "运行记录",
@@ -2784,11 +2806,37 @@ function RunsView({
 }
 
 const promptStages: PromptStage[] = [
+  "mind_map",
+  "album_module_plan",
   "album_outline",
   "episode_outline",
   "episode_draft",
   "episode_final",
 ];
+
+const promptStageFallbackLabels: Record<PromptStage, string> = {
+  mind_map: "思维导图",
+  album_module_plan: "全书知识模块设计",
+  album_outline: "分模块专辑大纲",
+  episode_outline: "声音细纲",
+  episode_draft: "声音初稿",
+  episode_final: "声音终稿",
+};
+
+const promptStageInputNotes: Record<PromptStage, string> = {
+  mind_map: "输入：完整或压缩后的全书拆书稿。",
+  album_module_plan: "输入：策划版全书拆书稿、轻量章节目录和专辑要求。",
+  album_outline: "输入：当前知识模块任务和该模块对应的详细拆书稿。",
+  episode_outline: "输入：当前声音框架和所属模块拆书稿；不读取段落级原文。",
+  episode_draft: "输入：最新声音细纲和当前声音匹配到的段落级原文。",
+  episode_final: "输入：最新声音初稿和当前声音匹配到的段落级原文。",
+};
+
+const episodePromptStages = new Set<PromptStage>([
+  "episode_outline",
+  "episode_draft",
+  "episode_final",
+]);
 
 function promptDraftIssues(
   config: PromptTemplateConfig | null,
@@ -2810,13 +2858,10 @@ function promptDraftIssues(
   if (unknown.length) issues.push(`未知占位符：${unknown.join("、")}`);
   const missing = config.required_placeholders.filter((name) => !used.has(name));
   if (missing.length) issues.push(`缺少必要占位符：${missing.join("、")}`);
-  if (
-    config.stage_key === "album_outline" &&
-    !["book_analysis", "module_source", "chapter_catalog"].some((name) =>
-      used.has(name),
-    )
-  ) {
-    issues.push("专辑大纲必须保留章节目录或模块材料占位符");
+  for (const group of config.required_placeholder_groups || []) {
+    if (!group.some((name) => used.has(name))) {
+      issues.push(`至少保留一个材料占位符：${group.join(" / ")}`);
+    }
   }
   return issues;
 }
@@ -2832,11 +2877,13 @@ function PromptSettingsView({
   const [projectId, setProjectId] = useState(projects[0]?.id || "");
   const [templates, setTemplates] = useState<PromptTemplateConfig[]>([]);
   const [selectedStage, setSelectedStage] =
-    useState<PromptStage>("album_outline");
+    useState<PromptStage>("mind_map");
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<PromptHistoryVersion[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeId, setEpisodeId] = useState("");
+  const [modules, setModules] = useState<PromptModuleOption[]>([]);
+  const [moduleKey, setModuleKey] = useState("");
   const [preview, setPreview] = useState<PromptPreview | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -2858,6 +2905,7 @@ function PromptSettingsView({
       setTemplates([]);
       setHistory([]);
       setEpisodes([]);
+      setModules([]);
       return;
     }
     const projectQuery =
@@ -2871,6 +2919,7 @@ function PromptSettingsView({
       Promise<PromptTemplateConfig[]>,
       Promise<PromptHistoryVersion[]>,
       Promise<Project | null>,
+      Promise<PromptModuleOption[]>,
     ] = [
       request<PromptTemplateConfig[]>(`/api/prompts/templates${projectQuery}`),
       request<PromptHistoryVersion[]>(
@@ -2879,19 +2928,34 @@ function PromptSettingsView({
       scope === "project"
         ? request<Project>(`/api/projects/${projectId}`)
         : Promise.resolve(null),
+      scope === "project"
+        ? request<PromptModuleOption[]>(
+            `/api/projects/${projectId}/prompt-modules`,
+          )
+        : Promise.resolve([]),
     ];
-    const [nextTemplates, nextHistory, project] = await Promise.all(requests);
+    const [nextTemplates, nextHistory, project, nextModules] =
+      await Promise.all(requests);
     const nextCurrent =
       nextTemplates.find((item) => item.stage_key === selectedStage) || null;
     setTemplates(nextTemplates);
     setHistory(nextHistory);
     setDraft(nextCurrent?.user_template || "");
     setEpisodes(project?.episodes || []);
+    setModules(nextModules);
     setEpisodeId((currentEpisodeId) => {
       if (project?.episodes?.some((item) => item.id === currentEpisodeId)) {
         return currentEpisodeId;
       }
       return project?.episodes?.[0]?.id || "";
+    });
+    setModuleKey((currentModuleKey) => {
+      if (
+        nextModules.some((item) => item.module_key === currentModuleKey)
+      ) {
+        return currentModuleKey;
+      }
+      return nextModules[0]?.module_key || "";
     });
     setPreview(null);
     setDirty(false);
@@ -3028,8 +3092,12 @@ function PromptSettingsView({
             stage_key: selectedStage,
             project_id: scope === "project" ? projectId : null,
             episode_id:
-              scope === "project" && selectedStage !== "album_outline"
+              scope === "project" && episodePromptStages.has(selectedStage)
                 ? episodeId || null
+                : null,
+            module_key:
+              scope === "project" && selectedStage === "album_outline"
+                ? moduleKey || null
                 : null,
             user_template: draft,
           }),
@@ -3102,7 +3170,7 @@ function PromptSettingsView({
         <div className="empty-card">
           <span>词</span>
           <h2>请选择内容项目</h2>
-          <p>选择项目后，可以为四个生产环节设置独立提示词。</p>
+          <p>选择项目后，可以为六个生产环节设置独立提示词。</p>
         </div>
       ) : (
         <div className="prompt-workbench">
@@ -3117,7 +3185,7 @@ function PromptSettingsView({
                   className={selectedStage === stage ? "active" : ""}
                   onClick={() => changeStage(stage)}
                 >
-                  <strong>{item?.label || projectModelStageLabels[stage]}</strong>
+                  <strong>{item?.label || promptStageFallbackLabels[stage]}</strong>
                   <span>{item?.source_label || "载入中"}</span>
                 </button>
               );
@@ -3136,12 +3204,13 @@ function PromptSettingsView({
               </div>
               {dirty && <em>未保存</em>}
             </header>
-            {selectedStage === "album_outline" && (
-              <div className="editor-help">
-                该模板用于分模块创作 Markdown 大纲。系统会保护章节标识和输出结构，
-                再通过内部步骤转换为页面数据；此处不需要要求模型输出 JSON、知识资产 ID 或原文索引。
-              </div>
-            )}
+            <div className="editor-help">
+              <strong>{promptStageInputNotes[selectedStage]}</strong>
+              <span>
+                你只需要配置主要创作指令和占位符；输出结构、来源边界、
+                数量与字数校验由系统保护。
+              </span>
+            </div>
             <textarea
               ref={editorRef}
               value={draft}
@@ -3155,13 +3224,38 @@ function PromptSettingsView({
               </div>
             )}
             {scope === "project" &&
-              selectedStage !== "album_outline" &&
+              selectedStage === "album_outline" &&
+              modules.length > 0 && (
+                <label className="prompt-preview-episode">
+                  <span>预览使用的模块</span>
+                  <select
+                    value={moduleKey}
+                    onChange={(event) => {
+                      setModuleKey(event.target.value);
+                      setPreview(null);
+                    }}
+                  >
+                    {modules.map((module) => (
+                      <option key={module.module_key} value={module.module_key}>
+                        {String(module.position).padStart(2, "0")} · {module.title}
+                        {" · "}
+                        {module.character_count.toLocaleString("zh-CN")} 字符
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            {scope === "project" &&
+              episodePromptStages.has(selectedStage) &&
               episodes.length > 0 && (
                 <label className="prompt-preview-episode">
                   <span>预览使用的声音</span>
                   <select
                     value={episodeId}
-                    onChange={(event) => setEpisodeId(event.target.value)}
+                    onChange={(event) => {
+                      setEpisodeId(event.target.value);
+                      setPreview(null);
+                    }}
                   >
                     {episodes.map((episode) => (
                       <option key={episode.id} value={episode.id}>
@@ -3189,9 +3283,30 @@ function PromptSettingsView({
             </footer>
             {preview && (
               <div className="prompt-preview">
+                <section className="prompt-input-materials">
+                  <div>
+                    <strong>本次真实输入材料</strong>
+                    <span>{preview.input_materials.length} 项</span>
+                  </div>
+                  {preview.input_materials.map((material) => (
+                    <details key={material.key}>
+                      <summary>
+                        <div>
+                          <strong>{material.label}</strong>
+                          <small>{material.source}</small>
+                        </div>
+                        <span>
+                          {material.character_count.toLocaleString("zh-CN")} 字符
+                          {material.compressed ? " · 已压缩" : ""}
+                        </span>
+                      </summary>
+                      <pre>{material.content || "当前项目尚无可用内容。"}</pre>
+                    </details>
+                  ))}
+                </section>
                 <div>
                   <strong>用户模板渲染结果</strong>
-                  {preview.truncated && <span>长内容已截断</span>}
+                  {preview.truncated && <span>包含长内容，可滚动查看</span>}
                 </div>
                 <pre>{preview.rendered_user_template}</pre>
                 <details>
@@ -3215,7 +3330,11 @@ function PromptSettingsView({
                       <em>
                         {current?.required_placeholders.includes(name)
                           ? "必要"
-                          : "可选"}
+                          : current?.required_placeholder_groups.some(
+                                (group) => group.includes(name),
+                              )
+                            ? "必选一"
+                            : "可选"}
                       </em>
                     </button>
                   ),

@@ -308,7 +308,9 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert bundle["knowledge_items"]
     assert bundle["direct_fragments"]
     context = service.contexts.build(episode["id"], "outline")
-    assert "# 直接原文证据" in context.source
+    assert "# 所属模块详细拆书稿" in context.source
+    assert "# 直接原文证据" not in context.source
+    assert context.variables["module_book_analysis"]
 
 
 def test_album_outline_requires_hook_and_two_to_four_key_points(tmp_path) -> None:

@@ -153,14 +153,16 @@ PROMPTS = {
     ),
     "album_outline_structure": PromptDefinition(
         id="album_outline_structure",
-        version="2026-07-29.1",
+        version="2026-07-30.1",
         system="你只负责把已完成的 Markdown 专辑大纲转换为结构化数据，不做创作。",
         user_template=(
             "把输入 Markdown 逐集转换为合法 JSON，保留标题、听众钩子、核心主题、"
-            "核心要点、内容类型和 CHAPTER 标识，不得改写、增删或排序。\n"
+            "核心要点、内容类型、每段开头给出的 MODULE 标识和 CHAPTER 标识，"
+            "不得改写、增删或排序。\n"
             '只输出：{{"album_outline":[{{"title":"声音标题",'
             '"main_points":"听众钩子：……\\n核心主题：……\\n核心要点：\\n1. ……",'
-            '"chapter_keys":["CHAPTER_001"],"content_type":"解读"}}]}}\n\n{source}'
+            '"module_key":"MODULE_001","chapter_keys":["CHAPTER_001"],'
+            '"content_type":"解读"}}]}}\n\n{source}'
         ),
     ),
     "episode_source_match": PromptDefinition(

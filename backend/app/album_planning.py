@@ -251,6 +251,13 @@ class AlbumPlanningService:
         return "\n\n".join(entry.catalog_markdown() for entry in entries)
 
     @staticmethod
+    def render_planning_analysis(
+        entries: list[ChapterPlanningEntry],
+    ) -> str:
+        """Render a compact whole-book analysis while preserving chapter order."""
+        return "\n\n".join(entry.detail_markdown() for entry in entries)
+
+    @staticmethod
     def render_module_source(
         entries: list[ChapterPlanningEntry], chapter_keys: list[str] | tuple[str, ...]
     ) -> str:
@@ -563,6 +570,7 @@ class AlbumPlanningService:
         *,
         book_type: str,
         desired_episode_count: int | None,
+        modules: list[AlbumModule] | None = None,
         expected_episode_count: int | None = None,
         allowed_episode_range: tuple[int, int] | None = None,
     ) -> tuple[list[dict[str, Any]], str]:
@@ -570,6 +578,9 @@ class AlbumPlanningService:
         if not isinstance(raw_episodes, list) or not raw_episodes:
             raise ValueError("结构化专辑大纲缺少 album_outline")
         entry_map = {entry.chapter_key: entry for entry in entries}
+        module_map = {
+            module.key: module for module in (modules or [])
+        }
         episodes: list[dict[str, Any]] = []
         for position, raw in enumerate(raw_episodes, start=1):
             if not isinstance(raw, dict):
@@ -580,6 +591,7 @@ class AlbumPlanningService:
                 "类", ""
             )
             chapter_keys = raw.get("chapter_keys")
+            module_key = str(raw.get("module_key") or "").strip()
             if (
                 not title
                 or not main_points
@@ -602,6 +614,19 @@ class AlbumPlanningService:
                 )
             if book_type == "narrative" and content_type != "解读":
                 raise ValueError("叙事类书籍不能生成过渡声音")
+            if module_map:
+                if module_key not in module_map:
+                    raise ValueError(
+                        f"专辑第 {position} 条缺少有效模块标识"
+                    )
+                outside = set(normalized_keys) - set(
+                    module_map[module_key].chapter_keys
+                )
+                if outside:
+                    raise ValueError(
+                        f"专辑第 {position} 条引用了所属模块之外的章节："
+                        + "、".join(sorted(outside))
+                    )
             for marker in ("听众钩子：", "核心主题：", "核心要点："):
                 if marker not in main_points:
                     raise ValueError(
@@ -620,6 +645,7 @@ class AlbumPlanningService:
                         f"[{entry.chapter_key}] {entry.title}"
                         for entry in selected
                     ),
+                    "module_key": module_key,
                     "source_section_ids": [entry.section_id for entry in selected],
                     "knowledge_item_ids": [],
                     "source_content_indexes": [],
