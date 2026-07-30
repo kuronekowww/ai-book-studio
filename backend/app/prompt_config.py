@@ -66,8 +66,8 @@ class PromptSnapshot:
         }
 
 
-MIND_MAP_DEFAULT_TEMPLATE = """请根据全书拆书稿，为此前没有读过原书的听众设计一份
-循序渐进、通俗易懂的 Markdown 思维导图。
+MIND_MAP_DEFAULT_TEMPLATE = """请根据全书拆书稿，为此前没有读过原书、将主要通过
+听书理解内容的听众，设计一份循序渐进、通俗易懂的 Markdown 知识地图。
 
 # 书籍信息
 书名：{{book_title}}
@@ -78,17 +78,21 @@ MIND_MAP_DEFAULT_TEMPLATE = """请根据全书拆书稿，为此前没有读过�
 {{full_book_analysis}}
 
 # 设计方法
-1. 先识别全书的核心问题和内容性质，再按金字塔结构组织知识。
-2. 建立章节之间的因果、递进、并列或对照关系，避免按目录机械摘抄。
-3. 第二层分支标明来源一级章节，优先使用原书中的表述。
-4. 末梢可以增加用户视角的总结句，但不得编造原书没有的事实。"""
+1. 先识别全书试图回答的核心问题、内容性质和听众读完后应建立的总体认识。
+2. 按金字塔结构归并知识，让上层是核心判断，下层是解释、证据、案例或事件。
+3. 用因果、递进、并列或对照关系连接章节，按未读听众的理解路径安排顺序，避免照抄目录。
+4. 第二层分支标明来源一级章节，优先使用原书中的准确表述。
+5. 末梢可以增加用户视角的简短总结，但不得引入材料之外的新事实。
+
+思维导图不负责声音标题、逐集策划或口播表达，只负责展示全书知识体系。"""
 
 MIND_MAP_PROTECTED_SUFFIX = """# 系统保护约束
-所有知识、事实、人物、案例和数据只能来自输入拆书稿。只输出完整 Markdown 思维导图，
-不得输出分析过程、JSON、Mermaid、数据库 ID 或段落索引。"""
+所有知识、事实、人物、案例、数据和因果只能来自输入拆书稿。不得为了完整性补充外部
+背景或常识推断。只输出完整 Markdown 思维导图，不得输出分析过程、JSON、Mermaid、
+数据库 ID、段落索引、声音标题或口播稿。"""
 
 ALBUM_MODULE_PLAN_DEFAULT_TEMPLATE = """请根据覆盖全书的策划版拆书稿和章节目录，
-为未读过原书的听众设计完整、连续的知识模块。
+为此前没有读过原书、将主要通过听书理解内容的听众设计完整、连续的知识模块。
 
 # 书籍信息
 书名：{{book_title}}
@@ -107,14 +111,17 @@ ALBUM_MODULE_PLAN_DEFAULT_TEMPLATE = """请根据覆盖全书的策划版拆书�
 {{planning_book_analysis}}
 
 # 模块设计方法
-1. 覆盖全部一级章节，按听众理解顺序组织模块。
-2. 每个模块解决一个清楚的听众问题，并说明与前后模块的认知关系。
-3. 结合目标集数控制模块数量，必要时合并相邻且高度相关的章节。
-4. 此处只设计知识模块，不展开每一集。"""
+1. 识别书籍类型、全书核心问题和听众获取这本书内容时最需要建立的知识路径。
+2. 覆盖全部一级章节；优先尊重原书顺序，但当未读听众需要先补背景或概念时，可调整理解顺序。
+3. 每个模块解决一个清楚的听众问题，模块之间形成因果、递进、对照或从现象到机制的关系。
+4. 结合目标集数控制模块数量；相邻且高度相关、共同回答同一问题的章节可以合并。
+5. 说明每个模块怎样承接前文、又为后文准备什么，避免模块之间互相重复。
+6. 此处只设计知识模块，不展开逐集标题、听众钩子、声音细纲或口播稿。"""
 
 ALBUM_MODULE_PLAN_PROTECTED_SUFFIX = """# 系统保护约束
-不得遗漏或编造 CHAPTER 标识，不得增加输入材料之外的事实。只输出以下 Markdown 结构，
-不要输出 JSON、逐集大纲、数据库 ID、知识资产 ID 或段落索引：
+不得遗漏或编造 CHAPTER 标识，不得增加输入材料之外的事实。只设计知识模块，不生成逐集
+声音标题、听众钩子、声音细纲或口播正文。只输出以下 Markdown 结构，不要输出 JSON、
+逐集大纲、数据库 ID、知识资产 ID 或段落索引：
 
 ## 模块N：模块标题
 听众问题：这个模块为未读听众解决什么问题？
@@ -123,7 +130,7 @@ ALBUM_MODULE_PLAN_PROTECTED_SUFFIX = """# 系统保护约束
 建议声音数：数字"""
 
 ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连续收听理解本书的听众，
-根据当前知识模块和来源章节设计连续的声音目录。
+根据当前知识模块和详细拆书稿设计有吸引力、循序渐进的声音目录。
 
 # 书籍信息
 书名：{{book_title}}
@@ -142,12 +149,17 @@ ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连�
 {{chapter_catalog}}
 
 # 组稿方法
-1. 识别当前模块的核心问题、关键背景、主要机制或事件线和最终启示。
-2. 按“建立背景或发现异常—提出问题—解释原因与机制—展开影响—回到现实或总结出路”安排认知路线。
-3. 每集只解决一个听众能够复述的中心问题，通常安排 2 至 4 个递进要点。
-4. 根据每集目标字数控制内容负载；一个独立主题能单独成集时，不要塞进“全景概述”。
-5. 标题从具体人物、事件、矛盾、反常识现象或因果悬念切入，轻松但克制。
-6. 用清楚的因果链保留原书精华，不机械地一章一集，不重复观点凑集数。
+1. 先找出当前模块最值得听众追问的异常、冲突、人物选择、反常识结果、现实困惑或因果悬念。
+2. 每集设置一个唯一中心问题和一句听众钩子，让没读过书的人立刻知道“为什么值得听”。
+3. 每集安排 2 至 4 个递进核心要点，沿“建立背景或发现异常—提出问题—解释原因或机制—
+   展开结果与影响—回答开场问题”推进，而不是罗列章节摘要。
+4. 标题优先使用具体问题、矛盾、选择、反差或因果追问；轻松但克制，不堆夸张词、
+   网络梗或空泛宏大概念。
+5. 根据每集目标字数控制信息容量；一个能够独立成集的主题不要塞进“全景概述”，
+   同一观点也不要换标题重复凑数。
+6. 相邻声音要形成自然的认知递进和连续收听动力，但不强制每集回顾或预告下一集。
+7. 保留原书的关键观点、概念、案例和数据意义，不机械地一章一集；允许一集关联多个
+   一级章节，也允许同一一级章节支持多集。
 
 # 当前模块详细拆书稿
 {{module_book_analysis}}"""
@@ -198,22 +210,52 @@ EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和所属模块拆
 {{module_book_analysis}}
 
 # 细纲方法
-1. 明确本集唯一中心问题和听众最终应能复述的判断。
-2. 根据目标字数安排 2 至 4 个递进模块，并标注每个模块的大致字数预算。
-3. 每个模块只承担一个主要认知任务，超出容量的知识点明确舍弃。
-4. 从具体困惑、反常识现象、生活场景或关键冲突开场，先建立问题，再解释概念。
-5. 开篇、过渡和结尾写成可以直接进入正文的完整句子。"""
+1. 明确本集唯一中心问题，以及听众听完后最终应能复述的判断。
+2. 开篇直接预告要解决的问题和理解路线，不铺陈与主题无关的背景。
+3. 根据目标字数安排 2 至 4 个递进正文部分；每部分只承担一个主要认知任务，并标注
+   主要观点、支撑论据、故事抓手和大致字数预算。
+4. 故事抓手优先选择材料中的人物选择、案例、调查、数据变化或结果反差，案例最多两个。
+   没有案例时，只设计明确标注为假设、且不承担事实论据功能的生活场景。
+5. 对听众可能不认识的人物、概念、制度和数据安排最低必要解释，先说事实，再解释含义。
+6. 在每两部分之间写一句承上启下的过渡；结尾用一两句回答开场问题，不强行引用金句。
+7. 超出目标篇幅、偏离唯一中心问题或与其他声音重复的知识点必须明确舍弃。
+
+# 输出结构
+# 声音主题
+- 中心问题：
+- 听众最终应能复述的判断：
+## 开篇
+- 预告：
+## 第一部分
+- 认知任务：
+- 主要观点：
+- 论据：
+- 故事抓手（如有）：
+- 字数预算：
+## 过渡句
+- 可直接进入正文的完整句子
+## 第二部分
+……
+## 结尾
+- 回答开场问题的一两句话
+## 明确舍弃
+- 本集不展开的内容及原因"""
 
 EPISODE_OUTLINE_PROTECTED_SUFFIX = """# 系统保护约束
 所有事实、观点、人物和案例仅限当前声音框架与所属模块拆书稿，不得虚构、夸大或
 超出模块范围。声音细纲不得读取或引用段落级原文块、来源匹配结果或上一集终稿。
-解释必要背景并区分作者观点、书中案例和编辑解释。
+解释必要背景并区分作者观点、书中案例和编辑解释。原文金句只在输入中确实存在且与
+主题直接相关时引用；没有合适金句时直接总结，禁止编造。
 本项目目标篇幅是：{{episode_word_count_range}}
 该范围优先于用户模板中的“约 1500 字”等旧要求。细纲必须控制内容负载，
 每集只解决一个中心问题，不能因为原文中存在就纳入所有知识点。
-只输出 Markdown 细纲正文，包含声音主题、开篇预告、分部分展开、部分间过渡和一句话结尾；不要输出分析过程。"""
+只输出 Markdown 细纲正文，包含声音主题、开篇预告、分部分展开、部分间过渡、结尾和
+明确舍弃项；不要输出分析过程。
 
-EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成目标篇幅内的声音初稿。以细纲为结构，以原文为事实边界，把观点、论据和案例讲清楚。
+{{book_type_rules}}"""
+
+EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成目标篇幅内的完整声音
+初稿。以细纲决定范围和逻辑顺序，以原文提供事实、数据、案例细节和准确表述。
 
 # 书籍信息
 书名：{{book_title}}
@@ -235,20 +277,42 @@ EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成目�
 {{previous_episode_final}}
 
 # 口播方法
-1. 从具体困惑、反常识现象、生活场景或关键冲突开场，先让听众知道本集要破解什么。
-2. 专业概念按“日常说法—准确含义—具体例子—现实意义”展开。
-3. 数据后立即解释“这意味着什么”，不要连续堆叠年份、比例和政策名称。
-4. 多用短句和自然问答，每段只推进一个主要意思。
-5. 可以使用一个贯穿全文的解释性比喻，但不得把比喻写成事实。
-6. 避免长篇使用“第一个、第二个、第三个”清单；必要枚举拆成可听懂的小段。
-7. 结尾回答开头问题，不机械重复固定问候、口头禅或网络梗。"""
+1. 开篇先建立一个具体问题，再用简短预告给听众认知地图；不要从宏大背景或作者介绍讲起。
+2. 根据系统给出的书籍类型选择讲述路径：
+   - 非叙事类：现实现象或生活困惑 → 常识预期 → 反差结果 → 概念解释 → 原书证据 → 现实意义；
+   - 叙事类：人物处境 → 原文明示的目标或动机 → 行动 → 结果 → 关键剧情意味着什么。
+3. 专业概念按“日常说法—准确含义—具体例子或场景—现实意义”展开；事实和解释分清。
+4. 把原书案例、调查和数据写成有起因、变化、结果和意义的微型故事；数据后立即解释
+   “这意味着什么”，不要连续堆叠年份、比例、定义和政策名称。
+5. 多用短句、自然问答、对比和承接句，每段只推进一个主要意思；每 500 字推进
+   1 至 2 个理解步骤，而不是增加新的中心观点。
+6. 幽默来自事实反差、人物选择和结果落差，轻松但克制；不机械重复固定问候、口头禅、
+   “想象一下”或网络梗。
+7. 不反复写“作者认为”“书中提到”；仅在作者亲历、直接引用、需要区分归属或不标注
+   会造成误解时提作者，同一篇称呼保持一致。
+8. 原文中没有进入细纲的材料不能因为出现在输入里就扩写进正文；内容过多时删除次要
+   论据，不能牺牲可理解性。
+9. 结尾直接回答开场问题。只有前后集确实递进且输入提供可靠依据时，才自然回顾或预告。"""
 
 EPISODE_DRAFT_PROTECTED_SUFFIX = """# 系统保护约束
-不得虚构或扩展原文没有的信息；引用必须忠于原意。只输出可以继续进入口语化调整的初稿正文，不要输出分析过程或写作说明。
+所有事实、人物、数据、案例、定义、动机和因果只能来自声音细纲与关联原文。不得补充
+外部新闻、历史背景、真实人物、现实案例或未经原文支持的常识推断。引用必须忠于原意。
+输入没有案例时可以使用明确标注为“假设”的生活场景，但假设只能解释概念，不能成为新论据。
 本项目目标篇幅是：{{episode_word_count_range}}
-该范围优先于用户模板中的任何旧篇幅要求。只输出连续口播正文。"""
+该范围优先于用户模板中的任何旧篇幅要求。
 
-EPISODE_FINAL_DEFAULT_TEMPLATE = """把声音初稿调整为自然、清晰、适合听觉场景的中文口播稿。优化结构、节奏、衔接和表达，但保持初稿的事实范围。
+针对 DeepSeek V4：不把原文目录逐项复述成文章；不用“第一、第二、第三、综上所述”
+组织整篇；不连续堆叠数据、定义和政策名称；不换一种说法重复总结同一观点；不为了显得
+深刻添加抽象升华；不把全部原文压缩成高密度清单。段落过长时主动拆分，每段只完成一个
+推进动作。内容超出容量时删除次要论据，不得扩展细纲范围。
+
+只输出连续、可逐字转成音频的口播正文，不要输出标题、小标题、序号、加粗、括号式
+写作说明、分析过程或自检结果。
+
+{{book_type_rules}}"""
+
+EPISODE_FINAL_DEFAULT_TEMPLATE = """对声音初稿只做减法编辑和听觉优化，形成自然、清晰、
+适合连续收听的中文口播终稿。保持初稿的选题、逻辑顺序、中心判断和事实范围。
 
 # 书籍信息
 书名：{{book_title}}
@@ -273,25 +337,40 @@ EPISODE_FINAL_DEFAULT_TEMPLATE = """把声音初稿调整为自然、清晰、�
 {{previous_episode_final}}
 
 # 编辑方法
-1. 删除重复解释、论文腔和无意义套话；合并只是在重复同一结论的论据。
-2. 拆分过长段落和长句，让每段只推进一个主要意思。
-3. 数据和概念之后紧跟面向未读听众的意义解释。
-4. 保留自然问答、对比和必要场景，避免连续定义与清单式枚举。
-5. 结尾回扣开场问题；不要机械复刻固定问候、口头禅或网络梗。"""
+1. 不重新选题，不改变初稿的逻辑顺序和中心判断，不借原文输入增加初稿没有展开的知识。
+2. 删除重复解释、论文腔、清单腔、无意义套话和只是在重复结论的次要论据。
+3. 拆分过长句子和段落，每段只完成一个推进动作；补足必要承接，但不新增事实。
+4. 数据和概念之后保留面向未读听众的意义解释，删除连续定义、年份和比例堆叠。
+5. 保留自然问答、对比、必要场景和有新逻辑作用的概念复现；不要机械复刻固定问候、
+   口头禅、“想象一下”或网络梗。
+6. 不反复标注作者。只有作者亲历、直接引用、需要区分归属或不标注会误解时保留称呼。
+7. 结尾回答开场问题，不过度升华；仅在内容自然递进且有可靠输入时保留下一集悬念。"""
 
 EPISODE_FINAL_PROTECTED_SUFFIX = """# 系统保护约束
-只能优化初稿已经覆盖的内容，不得借原文证据增加初稿未覆盖的新事实段落，不得虚构或夸大。只输出完整声音终稿正文，不要输出分析过程或修改说明。
+只能优化初稿已经覆盖的内容，不得增加初稿未覆盖的新知识点、事实段落、外部新闻、
+历史背景、现实案例或常识推断，不得虚构或夸大。
 本项目目标篇幅是：{{episode_word_count_range}}
 该范围优先于用户模板中的任何旧篇幅要求。允许删除重复、合并同义论据、拆分长段，
-但不得改变核心事实、因果和观点方向。"""
+但不得改变核心事实、因果和观点方向。
+
+针对 DeepSeek V4：不按原文目录重写初稿；不用“第一、第二、第三、综上所述”重组全文；
+不连续堆叠数据、定义和政策名称；不换一种说法重复总结；不添加抽象升华；不把正文压成
+高密度清单。篇幅过长时优先删除次要证据和重复解释，篇幅不足时只能把初稿已有内容讲得
+更清楚，不能引入新知识。
+
+输出前在内部检查人物、数字、术语、定义、动机、事件顺序、因果、篇幅和段落衔接是否
+与输入一致，但不得输出内部检查过程。只输出完整、连续、可逐字转成音频的声音终稿正文，
+不要输出标题、小标题、序号、加粗、分析过程或修改说明。
+
+{{book_type_rules}}"""
 
 
 PROMPT_TEMPLATE_SPECS = {
     "mind_map": PromptTemplateSpec(
         stage_key="mind_map",
         label="思维导图",
-        system_version="2026-07-30.1",
-        system_prompt="你是讲书类内容创作者，擅长用金字塔结构建立清晰、准确的书籍知识地图。",
+        system_version="2026-07-30.2",
+        system_prompt="你是讲书知识架构师，负责为未读听众建立清晰、准确、可理解的全书知识地图。",
         default_user_template=MIND_MAP_DEFAULT_TEMPLATE,
         protected_suffix=MIND_MAP_PROTECTED_SUFFIX,
         placeholders={
@@ -307,8 +386,8 @@ PROMPT_TEMPLATE_SPECS = {
     "album_module_plan": PromptTemplateSpec(
         stage_key="album_module_plan",
         label="全书知识模块设计",
-        system_version="2026-07-30.1",
-        system_prompt="你负责把一本书的策划版拆书稿组织成循序渐进、覆盖完整的讲书知识模块。",
+        system_version="2026-07-30.2",
+        system_prompt="你是讲书专辑架构师，负责把策划版全书拆书稿组织成覆盖完整、循序渐进的知识模块。",
         default_user_template=ALBUM_MODULE_PLAN_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_MODULE_PLAN_PROTECTED_SUFFIX,
         placeholders={
@@ -328,8 +407,8 @@ PROMPT_TEMPLATE_SPECS = {
     "album_outline": PromptTemplateSpec(
         stage_key="album_outline",
         label="分模块专辑大纲",
-        system_version="2026-07-30.2",
-        system_prompt="你是一位资深讲书专辑总编，负责把拆书稿编排成准确、通俗、有连续收听动力的有声专辑。",
+        system_version="2026-07-30.3",
+        system_prompt="你是资深讲书专辑总编，负责把当前知识模块编排成准确、通俗、有选题吸引力和连续收听动力的声音目录。",
         default_user_template=ALBUM_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_PROTECTED_SUFFIX,
         placeholders={
@@ -353,8 +432,8 @@ PROMPT_TEMPLATE_SPECS = {
     "episode_outline": PromptTemplateSpec(
         stage_key="episode_outline",
         label="声音细纲",
-        system_version="2026-07-30.2",
-        system_prompt="你是专业的有声讲书专辑制作人，擅长把人物、剧情或复杂观点讲得清晰、准确、易懂。",
+        system_version="2026-07-30.3",
+        system_prompt="你是专业的有声讲书制作人，负责把一集声音框架设计成准确、可讲述、能控制信息负载的内容路线。",
         default_user_template=EPISODE_OUTLINE_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_OUTLINE_PROTECTED_SUFFIX,
         placeholders={
@@ -373,8 +452,8 @@ PROMPT_TEMPLATE_SPECS = {
     "episode_draft": PromptTemplateSpec(
         stage_key="episode_draft",
         label="声音初稿",
-        system_version="2026-07-30.1",
-        system_prompt="你是讲书口播稿作者，负责依据声音细纲和原文证据写出忠于原书的初稿。",
+        system_version="2026-07-30.2",
+        system_prompt="你是讲书口播稿作者，负责依据声音细纲和原文证据，为未读听众写出忠于原书、通俗而有故事感的完整初稿。",
         default_user_template=EPISODE_DRAFT_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_DRAFT_PROTECTED_SUFFIX,
         placeholders={
@@ -392,8 +471,8 @@ PROMPT_TEMPLATE_SPECS = {
     "episode_final": PromptTemplateSpec(
         stage_key="episode_final",
         label="声音终稿",
-        system_version="2026-07-30.1",
-        system_prompt="你负责把讲书初稿调整成自然、清晰、适合听觉场景的中文口播终稿。",
+        system_version="2026-07-30.2",
+        system_prompt="你是讲书口播终审编辑，负责在不重新选题和不增加知识的前提下，把初稿调整成自然、清晰、适合听觉场景的终稿。",
         default_user_template=EPISODE_FINAL_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_FINAL_PROTECTED_SUFFIX,
         placeholders={
@@ -449,6 +528,67 @@ def render_protected_suffix(template: str, values: dict[str, str]) -> str:
         lambda match: normalized.get(match.group(1), ""),
         template,
     )
+
+
+def episode_book_type_rules(stage_key: str, book_type: str) -> str:
+    if stage_key not in {
+        "episode_outline",
+        "episode_draft",
+        "episode_final",
+    }:
+        return ""
+    if book_type == "narrative":
+        type_rules = (
+            "本书为叙事类。围绕人物处境、原文明示的动机或目标、行动、结果和事件后果"
+            "组织内容；人物动机、关系、事件顺序和因果必须来自输入，不得用常理补写。"
+            "背景解释只保留理解关键剧情所必需的部分，讲解服务于剧情，不能把故事改写"
+            "成观点清单。"
+        )
+    else:
+        type_rules = (
+            "本书为非叙事类。围绕问题、概念、机制、证据、数据含义和现实影响组织内容；"
+            "优先把输入中的人物、调查、案例、变化和结果讲成微型故事。输入没有故事时，"
+            "可使用明确标注为“假设”的生活场景帮助解释，但假设不能增加事实、真实人物、"
+            "机构数据、未经原文支持的因果或新论据，不能把内容写成定义与观点清单。"
+        )
+    if stage_key == "episode_outline":
+        continuity_rules = (
+            "声音细纲没有上一集终稿输入，不得生成具体回顾措辞；只有当前声音框架已经"
+            "明确前后集承接意图时，才标记需要承接的知识点。第一集不设计回顾。"
+        )
+    else:
+        continuity_rules = (
+            "只有输入中确实提供可用的上一集终稿，且当前内容与上一集存在直接递进时，"
+            "才可用一句话回顾相关知识点；不得复述上一集摘要。下一集方向只有当前声音"
+            "框架已经提供时才可预告，否则直接结束本集。"
+        )
+    return f"# 书籍类型与连续专辑约束\n{type_rules}\n{continuity_rules}"
+
+
+def protected_suffix_for_runtime(
+    stage_key: str,
+    template: str,
+    values: dict[str, str],
+    book_type: str,
+) -> str:
+    if "{{book_type_rules}}" in template:
+        return render_protected_suffix(
+            template,
+            {
+                **values,
+                "book_type_rules": episode_book_type_rules(
+                    stage_key, book_type
+                ),
+            },
+        )
+    protected = render_protected_suffix(template, values)
+    if stage_key == "episode_outline":
+        protected += (
+            "\n叙事类书籍必须把人物和剧情讲清楚，只能使用输入提及的人物与事件。"
+            if book_type == "narrative"
+            else "\n非叙事类书籍应重点梳理概念、观点、论据、案例和结论关系。"
+        )
+    return protected
 
 
 class PromptConfigurationService:
@@ -859,15 +999,12 @@ class PromptConfigurationService:
                     "{{module_book_analysis}}"
                 )
         rendered = render_user_template(spec, runtime_template, values)
-        protected = render_protected_suffix(
-            effective["protected_suffix"], values
+        protected = protected_suffix_for_runtime(
+            stage_key,
+            effective["protected_suffix"],
+            values,
+            book_type,
         )
-        if stage_key == "episode_outline":
-            protected += (
-                "\n叙事类书籍必须把人物和剧情讲清楚，只能使用输入提及的人物与事件。"
-                if book_type == "narrative"
-                else "\n非叙事类书籍应重点梳理概念、观点、论据、案例和结论关系。"
-            )
         source = f"{rendered.strip()}\n\n{protected.strip()}"
         version_label = (
             f"{effective['system_version']} · {effective['source_label']}"
@@ -898,15 +1035,12 @@ class PromptConfigurationService:
         effective = self.effective(stage_key, project_id)
         spec = PROMPT_TEMPLATE_SPECS[stage_key]
         rendered = render_user_template(spec, user_template, values)
-        protected = render_protected_suffix(
-            effective["protected_suffix"], values
+        protected = protected_suffix_for_runtime(
+            stage_key,
+            effective["protected_suffix"],
+            values,
+            book_type,
         )
-        if stage_key == "episode_outline":
-            protected += (
-                "\n叙事类书籍必须把人物和剧情讲清楚，只能使用输入提及的人物与事件。"
-                if book_type == "narrative"
-                else "\n非叙事类书籍应重点梳理概念、观点、论据、案例和结论关系。"
-            )
         return {
             "rendered_user_template": rendered,
             "protected_suffix": protected,

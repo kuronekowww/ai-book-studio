@@ -4,6 +4,7 @@ from app.db import Database, now_iso
 from app.prompt_config import (
     PROMPT_TEMPLATE_SPECS,
     PromptConfigurationService,
+    protected_suffix_for_runtime,
     render_user_template,
     validate_user_template,
 )
@@ -51,7 +52,7 @@ def test_prompt_defaults_are_initialized_idempotently(tmp_path) -> None:
         "SELECT COUNT(*) AS count FROM prompt_versions WHERE scope = 'system'"
     )["count"] == 6
     album = service.effective("album_outline")
-    assert album["system_version"] == "2026-07-30.2"
+    assert album["system_version"] == "2026-07-30.3"
     assert album["label"] == "分模块专辑大纲"
     assert "module_book_analysis" in album["allowed_placeholders"]
     assert "module_source" in album["allowed_placeholders"]
@@ -261,3 +262,142 @@ def test_locked_prompt_snapshot_does_not_follow_newer_global_version(tmp_path) -
         assert "锁定的提示词版本不存在" in str(error)
     else:
         raise AssertionError("其他环节的提示词版本不能混入声音初稿")
+
+
+def test_deepseek_v4_storytelling_defaults_keep_six_stage_responsibilities() -> None:
+    expected_versions = {
+        "mind_map": "2026-07-30.2",
+        "album_module_plan": "2026-07-30.2",
+        "album_outline": "2026-07-30.3",
+        "episode_outline": "2026-07-30.3",
+        "episode_draft": "2026-07-30.2",
+        "episode_final": "2026-07-30.2",
+    }
+    assert {
+        key: spec.system_version
+        for key, spec in PROMPT_TEMPLATE_SPECS.items()
+    } == expected_versions
+
+    mind_map = PROMPT_TEMPLATE_SPECS["mind_map"]
+    assert "不负责声音标题" in mind_map.default_user_template
+    assert "未读听众的理解路径" in mind_map.default_user_template
+
+    module_plan = PROMPT_TEMPLATE_SPECS["album_module_plan"]
+    assert "只设计知识模块" in module_plan.default_user_template
+    assert "不生成逐集" in module_plan.protected_suffix
+
+    album = PROMPT_TEMPLATE_SPECS["album_outline"]
+    assert "听众钩子" in album.default_user_template
+    assert "唯一中心问题" in album.default_user_template
+    assert "连续收听" in album.default_user_template
+
+    outline = PROMPT_TEMPLATE_SPECS["episode_outline"]
+    assert "听众最终应能复述的判断" in outline.default_user_template
+    assert "故事抓手" in outline.default_user_template
+    assert "字数预算" in outline.default_user_template
+    assert "明确舍弃" in outline.default_user_template
+
+    draft = PROMPT_TEMPLATE_SPECS["episode_draft"]
+    assert "现实现象或生活困惑" in draft.default_user_template
+    assert "常识预期" in draft.default_user_template
+    assert "反差结果" in draft.default_user_template
+    assert "不连续堆叠" in draft.protected_suffix
+    assert "不换一种说法重复总结" in draft.protected_suffix
+
+    final = PROMPT_TEMPLATE_SPECS["episode_final"]
+    assert "只做减法编辑" in final.default_user_template
+    assert "不重新选题" in final.default_user_template
+    assert "不得增加初稿未覆盖的新知识点" in final.protected_suffix
+    assert "内部检查" in final.protected_suffix
+
+
+def test_episode_prompt_snapshot_and_preview_branch_by_book_type(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = PromptConfigurationService(database)
+    stage_values = {
+        "episode_outline": {
+            "episode_framework": "本集框架",
+            "module_book_analysis": "模块拆书稿",
+            "episode_word_count_range": "2000–2500 字",
+        },
+        "episode_draft": {
+            "episode_outline": "声音细纲",
+            "source_text": "段落级原文",
+            "previous_episode_final": "当前没有可用的上一集终稿。",
+            "episode_word_count_range": "2000–2500 字",
+        },
+        "episode_final": {
+            "episode_draft": "声音初稿",
+            "source_text": "段落级原文",
+            "previous_episode_final": "上一集终稿正文",
+            "episode_word_count_range": "2000–2500 字",
+        },
+    }
+
+    for stage_key, values in stage_values.items():
+        narrative = service.snapshot(
+            stage_key, values, book_type="narrative"
+        )
+        non_narrative = service.snapshot(
+            stage_key, values, book_type="non_narrative"
+        )
+        assert "人物处境" in narrative.protected_suffix
+        assert "原文明示的动机" in narrative.protected_suffix
+        assert "问题、概念、机制" in non_narrative.protected_suffix
+        assert "明确标注为“假设”" in non_narrative.protected_suffix
+
+        narrative_preview = service.preview(
+            stage_key,
+            PROMPT_TEMPLATE_SPECS[stage_key].default_user_template,
+            values,
+            book_type="narrative",
+        )
+        non_narrative_preview = service.preview(
+            stage_key,
+            PROMPT_TEMPLATE_SPECS[stage_key].default_user_template,
+            values,
+            book_type="non_narrative",
+        )
+        assert "人物处境" in narrative_preview["protected_suffix"]
+        assert "问题、概念、机制" in non_narrative_preview["protected_suffix"]
+
+    outline = service.snapshot(
+        "episode_outline",
+        stage_values["episode_outline"],
+        book_type="non_narrative",
+    )
+    assert "具体回顾措辞" in outline.protected_suffix
+    assert "当前没有可用的上一集终稿" not in outline.source
+
+    draft = service.snapshot(
+        "episode_draft",
+        stage_values["episode_draft"],
+        book_type="non_narrative",
+    )
+    final = service.snapshot(
+        "episode_final",
+        stage_values["episode_final"],
+        book_type="non_narrative",
+    )
+    assert "只有输入中确实提供可用的上一集终稿" in draft.protected_suffix
+    assert "只有输入中确实提供可用的上一集终稿" in final.protected_suffix
+
+
+def test_legacy_locked_system_suffix_keeps_legacy_book_type_behavior() -> None:
+    legacy_outline = protected_suffix_for_runtime(
+        "episode_outline",
+        "# 旧版细纲保护层",
+        {},
+        "narrative",
+    )
+    legacy_draft = protected_suffix_for_runtime(
+        "episode_draft",
+        "# 旧版初稿保护层",
+        {},
+        "narrative",
+    )
+
+    assert "只能使用输入提及的人物与事件" in legacy_outline
+    assert "人物处境" not in legacy_outline
+    assert legacy_draft == "# 旧版初稿保护层"
