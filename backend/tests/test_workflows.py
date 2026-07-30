@@ -162,6 +162,51 @@ class RelationshipProvider:
         )
 
 
+class WordCountRepairProvider:
+    name = "test"
+    model = "word-count-repair"
+
+    def __init__(self, repaired: str):
+        self.repaired = repaired
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        self.calls.append((prompt.id, source))
+        return self.repaired
+
+
+def test_episode_word_count_repairs_and_reports_failure(tmp_path) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, DemoProvider())
+    provider = WordCountRepairProvider("合" * 350)
+
+    repaired = asyncio.run(
+        service._fit_episode_word_count(
+            "短" * 20, "draft", provider, 300, 400
+        )
+    )
+
+    assert len(repaired) == 350
+    assert [call[0] for call in provider.calls] == [
+        "episode_word_count_repair"
+    ]
+    assert "需要增加至少 280 字" in provider.calls[0][1]
+
+    failing = WordCountRepairProvider("短" * 20)
+    try:
+        asyncio.run(
+            service._fit_episode_word_count(
+                "短" * 20, "final", failing, 300, 400
+            )
+        )
+        raise AssertionError("两次校正后仍不达标时应失败")
+    except ValueError as error:
+        assert "自动调整 2 次后仍未达标" in str(error)
+        assert "实际 20 字" in str(error)
+    assert len(failing.calls) == 2
+
+
 def test_narrative_analysis_saves_relationships_with_server_source_id(
     tmp_path,
 ) -> None:

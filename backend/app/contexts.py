@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .db import Database
+from .text_metrics import (
+    DEFAULT_EPISODE_WORD_COUNT_MAX,
+    DEFAULT_EPISODE_WORD_COUNT_MIN,
+    format_episode_word_count_range,
+)
 
 
 STAGE_PROMPTS = {
@@ -88,6 +93,16 @@ class EpisodeContextBuilder:
                 previous_episode["content"]
                 if previous_episode
                 else "当前没有可用的上一集终稿。"
+            ),
+            "episode_word_count_range": format_episode_word_count_range(
+                int(
+                    project.get("episode_word_count_min")
+                    or DEFAULT_EPISODE_WORD_COUNT_MIN
+                ),
+                int(
+                    project.get("episode_word_count_max")
+                    or DEFAULT_EPISODE_WORD_COUNT_MAX
+                ),
             ),
         }
         if stage == "outline":

@@ -28,6 +28,13 @@ from .providers import (
     ModelProvider,
 )
 from .runs import RunService
+from .text_metrics import (
+    DEFAULT_EPISODE_WORD_COUNT_MAX,
+    DEFAULT_EPISODE_WORD_COUNT_MIN,
+    format_episode_word_count_range,
+    inspect_word_count,
+    validate_episode_word_count_range,
+)
 
 
 CHAPTER_COMPRESSION_CHUNK_CHARS = 5_000
@@ -1609,6 +1616,8 @@ class WorkflowService:
         desired_episode_count: int | None = None,
         provider: ModelProvider | None = None,
         *,
+        episode_word_count_min: int = DEFAULT_EPISODE_WORD_COUNT_MIN,
+        episode_word_count_max: int = DEFAULT_EPISODE_WORD_COUNT_MAX,
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
         album_prompt_lock: dict[str, str] | None = None,
@@ -1618,6 +1627,12 @@ class WorkflowService:
         cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
+        validate_episode_word_count_range(
+            episode_word_count_min, episode_word_count_max
+        )
+        episode_word_count_range = format_episode_word_count_range(
+            episode_word_count_min, episode_word_count_max
+        )
         mind_provider = mind_map_provider or fallback_provider
         album_provider = album_outline_provider or fallback_provider
         project = self.database.row(
@@ -1815,6 +1830,7 @@ class WorkflowService:
                     f"# 专辑特殊要求\n{requirements or '无'}\n\n"
                     f"# 期望集数\n{count_text}\n\n"
                     f"# 允许浮动范围\n{count_range_text}\n\n"
+                    f"# 每集目标字数\n{episode_word_count_range}\n\n"
                     f"# 轻量章节目录\n{catalog}"
                 )
                 module_plan_markdown = await album_provider.generate(
@@ -1993,6 +2009,9 @@ class WorkflowService:
                             ),
                             "album_special_requirements": requirements or "无",
                             "desired_episode_count": module_count_text,
+                            "episode_word_count_range": (
+                                episode_word_count_range
+                            ),
                         },
                         project_id=project_id,
                         locked=album_prompt_lock,
@@ -2266,6 +2285,7 @@ class WorkflowService:
             """
             UPDATE projects
             SET album_special_requirements = ?, desired_episode_count = ?,
+                episode_word_count_min = ?, episode_word_count_max = ?,
                 episode_count_notice = ?, status = 'outline_review',
                 album_prompt_version_id = ?,
                 album_prompt_system_version_id = ?,
@@ -2277,6 +2297,8 @@ class WorkflowService:
             (
                 requirements,
                 desired_episode_count,
+                episode_word_count_min,
+                episode_word_count_max,
                 notice,
                 active_prompt["prompt_version_id"],
                 active_prompt["system_version_id"],
@@ -2309,6 +2331,8 @@ class WorkflowService:
         desired_episode_count: int | None = None,
         provider: ModelProvider | None = None,
         *,
+        episode_word_count_min: int = DEFAULT_EPISODE_WORD_COUNT_MIN,
+        episode_word_count_max: int = DEFAULT_EPISODE_WORD_COUNT_MAX,
         mind_map_provider: ModelProvider | None = None,
         album_outline_provider: ModelProvider | None = None,
         album_prompt_lock: dict[str, str] | None = None,
@@ -2316,6 +2340,12 @@ class WorkflowService:
         cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         fallback_provider = provider or self.provider
+        validate_episode_word_count_range(
+            episode_word_count_min, episode_word_count_max
+        )
+        episode_word_count_range = format_episode_word_count_range(
+            episode_word_count_min, episode_word_count_max
+        )
         mind_provider = mind_map_provider or fallback_provider
         album_provider = album_outline_provider or fallback_provider
         project = self.database.row(
@@ -2372,7 +2402,9 @@ class WorkflowService:
             f"# 书籍信息\n书名：{book['title']}\n作者：{book['author'] or '未填写'}\n"
             f"书籍类型：{'叙事类' if book['book_type'] == 'narrative' else '非叙事类'}\n\n"
             f"# 专辑特殊要求\n{requirements or '无'}\n\n"
-            f"# 期望集数\n{count_text}\n\n# 拆书稿\n{album_facts}"
+            f"# 期望集数\n{count_text}\n\n"
+            f"# 每集目标字数\n{episode_word_count_range}\n\n"
+            f"# 拆书稿\n{album_facts}"
         )
         album_prompt = self.prompts.snapshot(
             "album_outline",
@@ -2387,6 +2419,7 @@ class WorkflowService:
                 ),
                 "album_special_requirements": requirements or "无",
                 "desired_episode_count": count_text,
+                "episode_word_count_range": episode_word_count_range,
             },
             project_id=project_id,
             locked=album_prompt_lock,
@@ -2614,6 +2647,7 @@ class WorkflowService:
                     """
                     UPDATE projects
                     SET album_special_requirements = ?, desired_episode_count = ?,
+                        episode_word_count_min = ?, episode_word_count_max = ?,
                         episode_count_notice = ?, status = 'outline_review',
                         album_prompt_version_id = ?,
                         album_prompt_system_version_id = ?,
@@ -2625,6 +2659,8 @@ class WorkflowService:
                     (
                         requirements,
                         desired_episode_count,
+                        episode_word_count_min,
+                        episode_word_count_max,
                         notice,
                         album_prompt.prompt_version_id,
                         album_prompt.system_version_id,
@@ -3036,6 +3072,7 @@ class WorkflowService:
         *,
         stage_providers: dict[str, ModelProvider] | None = None,
         stage_prompt_locks: dict[str, dict[str, str]] | None = None,
+        word_count_range: tuple[int, int] | None = None,
         progress_callback: StageProgressCallback | None = None,
         completed_stages: set[str] | None = None,
         cancelled: Callable[[], bool] | None = None,
@@ -3044,6 +3081,28 @@ class WorkflowService:
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:
             raise KeyError(episode_id)
+        project = self.database.row(
+            "SELECT * FROM projects WHERE id = ?", (episode["project_id"],)
+        )
+        if not project:
+            raise ValueError("声音所属项目不存在")
+        episode_word_count_min, episode_word_count_max = (
+            word_count_range
+            if word_count_range is not None
+            else (
+                int(
+                    project.get("episode_word_count_min")
+                    or DEFAULT_EPISODE_WORD_COUNT_MIN
+                ),
+                int(
+                    project.get("episode_word_count_max")
+                    or DEFAULT_EPISODE_WORD_COUNT_MAX
+                ),
+            )
+        )
+        validate_episode_word_count_range(
+            episode_word_count_min, episode_word_count_max
+        )
         creative_stages = ["outline", "draft", "final"]
         start = creative_stages.index(from_stage)
         stages = creative_stages[start:]
@@ -3126,6 +3185,15 @@ class WorkflowService:
                 content = await task_provider.generate(
                     prompt_snapshot.prompt, prompt_snapshot.source
                 )
+                if stage in {"draft", "final"}:
+                    content = await self._fit_episode_word_count(
+                        content,
+                        stage,
+                        task_provider,
+                        episode_word_count_min,
+                        episode_word_count_max,
+                        progress_callback=progress_callback,
+                    )
             except Exception as error:
                 if progress_callback:
                     progress_callback(stage, "failed", None, str(error))
@@ -3163,6 +3231,62 @@ class WorkflowService:
             (episode_id,),
         )
         return self.episode_detail(episode_id)
+
+    async def _fit_episode_word_count(
+        self,
+        content: str,
+        stage: str,
+        provider: ModelProvider,
+        minimum: int,
+        maximum: int,
+        *,
+        progress_callback: StageProgressCallback | None = None,
+    ) -> str:
+        label = "初稿" if stage == "draft" else "终稿"
+        current = content.strip()
+        result = inspect_word_count(current, minimum, maximum)
+        for attempt in range(1, 3):
+            if result.within_range:
+                return current
+            if progress_callback:
+                progress_callback(
+                    stage,
+                    "running",
+                    {
+                        "word_count": result.actual,
+                        "word_count_min": minimum,
+                        "word_count_max": maximum,
+                        "repair_attempt": attempt,
+                    },
+                    f"正在调整{label}字数（{result.actual} 字）",
+                )
+            repair_source = (
+                f"# 当前阶段\n声音{label}\n\n"
+                f"# 目标范围\n{minimum}–{maximum} 字\n\n"
+                f"# 当前实际字数\n{result.actual} 字\n\n"
+                f"# 调整要求\n{result.instruction}；"
+                "以程序计数结果为准，不要在输出中报告字数。\n\n"
+                f"# 当前文稿\n{current}"
+            )
+            current = (
+                await provider.generate(
+                    PROMPTS["episode_word_count_repair"],
+                    repair_source,
+                )
+            ).strip()
+            result = inspect_word_count(current, minimum, maximum)
+        if result.within_range:
+            return current
+        direction = (
+            f"少 {minimum - result.actual} 字"
+            if result.actual < minimum
+            else f"多 {result.actual - maximum} 字"
+        )
+        raise ValueError(
+            f"声音{label}字数不符合要求：实际 {result.actual} 字，"
+            f"目标 {minimum}–{maximum} 字（{direction}），"
+            "自动调整 2 次后仍未达标，可单条重跑"
+        )
 
     async def _match_episode_sources(
         self, episode_id: str, provider: ModelProvider

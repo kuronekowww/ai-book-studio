@@ -99,6 +99,8 @@ class BatchService:
             "model_id": model_id,
             "stage_model_ids": locked_stage_model_ids,
             "stage_prompt_locks": stage_prompt_locks or {},
+            "episode_word_count_min": project["episode_word_count_min"],
+            "episode_word_count_max": project["episode_word_count_max"],
         }
         self.database.execute(
             """
@@ -361,6 +363,18 @@ class BatchService:
                         "progress_callback": report_stage,
                         "completed_stages": completed_stages,
                         "cancelled": cancelled,
+                        "word_count_range": (
+                            int(
+                                batch["metadata_json"].get(
+                                    "episode_word_count_min", 2000
+                                )
+                            ),
+                            int(
+                                batch["metadata_json"].get(
+                                    "episode_word_count_max", 2500
+                                )
+                            ),
+                        ),
                     }
                     if locked_stage_providers:
                         await self.workflows.generate_episode(
@@ -457,6 +471,16 @@ class BatchService:
             "stage_prompt_locks": (
                 (batch or {}).get("metadata_json", {}).get(
                     "stage_prompt_locks", {}
+                )
+            ),
+            "episode_word_count_min": (
+                (batch or {}).get("metadata_json", {}).get(
+                    "episode_word_count_min", 2000
+                )
+            ),
+            "episode_word_count_max": (
+                (batch or {}).get("metadata_json", {}).get(
+                    "episode_word_count_max", 2500
                 )
             ),
         }

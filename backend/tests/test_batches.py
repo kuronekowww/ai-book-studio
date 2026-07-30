@@ -41,6 +41,7 @@ class TrackingWorkflows:
         self.max_active = 0
         self.stage_provider_models: list[dict[str, str]] = []
         self.stage_prompt_locks: list[dict[str, dict[str, str]]] = []
+        self.word_count_ranges: list[tuple[int, int]] = []
 
     def latest_artifact(self, episode_id: str, stage: str):
         return self.database.row(
@@ -60,6 +61,7 @@ class TrackingWorkflows:
         *,
         stage_providers=None,
         stage_prompt_locks=None,
+        word_count_range=None,
         progress_callback=None,
         completed_stages=None,
         cancelled=None,
@@ -73,6 +75,8 @@ class TrackingWorkflows:
             )
         if stage_prompt_locks:
             self.stage_prompt_locks.append(stage_prompt_locks)
+        if word_count_range:
+            self.word_count_ranges.append(word_count_range)
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
@@ -116,6 +120,7 @@ def test_batch_limits_concurrency_and_isolates_failure(tmp_path) -> None:
     asyncio.run(batches.run_batch(batch["id"]))
     result = batches.batch_detail(batch["id"])
     assert workflows.max_active == 5
+    assert workflows.word_count_ranges == [(2000, 2500)] * 7
     assert result["status"] == "partial_failed"
     assert result["summary"]["completed"] == 6
     assert result["summary"]["failed"] == 1

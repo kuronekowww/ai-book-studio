@@ -74,6 +74,7 @@ ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连�
 # 专辑要求
 特殊要求：{{album_special_requirements}}
 目标集数与允许范围：{{desired_episode_count}}
+每集目标字数：{{episode_word_count_range}}
 
 # 当前模块
 {{module_brief}}
@@ -84,9 +85,10 @@ ALBUM_DEFAULT_TEMPLATE = """请面向此前没有读过原书、主要通过连�
 # 组稿方法
 1. 识别当前模块的核心问题、关键背景、主要机制或事件线和最终启示。
 2. 按“建立背景或发现异常—提出问题—解释原因与机制—展开影响—回到现实或总结出路”安排认知路线。
-3. 每集只解决一个明确问题，并检查相邻声音之间是否具备必要背景。
-4. 标题从具体人物、事件、矛盾、反常识现象或因果悬念切入，轻松但克制。
-5. 用清楚的因果链保留原书精华，不机械地一章一集，不重复观点凑集数。
+3. 每集只解决一个听众能够复述的中心问题，通常安排 2 至 4 个递进要点。
+4. 根据每集目标字数控制内容负载；一个独立主题能单独成集时，不要塞进“全景概述”。
+5. 标题从具体人物、事件、矛盾、反常识现象或因果悬念切入，轻松但克制。
+6. 用清楚的因果链保留原书精华，不机械地一章一集，不重复观点凑集数。
 
 # 当前模块的精简拆书材料
 {{module_source}}"""
@@ -99,6 +101,9 @@ content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER �
 如果“当前模块”中包含“本模块分配集数”，必须严格输出该数量的声音条目。
 当前调用只处理一个知识模块。即使用户模板仍出现“全书”“整张专辑”或“全专辑集数”
 等旧措辞，也不得扩展到其他模块；唯一数量约束是当前模块分配集数。
+本项目的每集目标字数是：{{episode_word_count_range}}
+该范围优先于用户模板中的“约 1500 字”等旧篇幅要求。每集只解决一个中心问题，
+通常使用 2 至 4 个递进要点；禁止把多个能够独立成集的大主题压成一集全景概述。
 
 只输出以下 Markdown 结构：
 ## 第1集：声音标题
@@ -110,7 +115,7 @@ content_index、数据库 ID、完整口播稿或 JSON；不得编造 CHAPTER �
 内容类型：解读
 来源章节：[CHAPTER_001]、[CHAPTER_002]"""
 
-EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，设计一份能支撑约 1500 字正文的声音细纲。
+EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，设计一份能够支撑目标篇幅的声音细纲。
 
 # 书籍信息
 书名：{{book_title}}
@@ -118,6 +123,9 @@ EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，
 
 # 当前声音
 标题：{{episode_title}}
+
+# 每集目标字数
+{{episode_word_count_range}}
 
 # 人物关系
 {{character_relationships}}
@@ -126,13 +134,23 @@ EPISODE_OUTLINE_DEFAULT_TEMPLATE = """根据当前声音框架和关联原文，
 {{episode_framework}}
 
 # 当前声音关联原文
-{{source_text}}"""
+{{source_text}}
+
+# 细纲方法
+1. 明确本集唯一中心问题和听众最终应能复述的判断。
+2. 根据目标字数安排 2 至 4 个递进模块，并标注每个模块的大致字数预算。
+3. 每个模块只承担一个主要认知任务，超出容量的知识点明确舍弃。
+4. 从具体困惑、反常识现象、生活场景或关键冲突开场，先建立问题，再解释概念。
+5. 开篇、过渡和结尾写成可以直接进入正文的完整句子。"""
 
 EPISODE_OUTLINE_PROTECTED_SUFFIX = """# 系统保护约束
 所有事实、观点、人物和案例仅限输入原文，不得虚构、夸大或超出事件范围。解释必要背景并区分作者观点、原文案例和编辑解释。
+本项目目标篇幅是：{{episode_word_count_range}}
+该范围优先于用户模板中的“约 1500 字”等旧要求。细纲必须控制内容负载，
+每集只解决一个中心问题，不能因为原文中存在就纳入所有知识点。
 只输出 Markdown 细纲正文，包含声音主题、开篇预告、分部分展开、部分间过渡和一句话结尾；不要输出分析过程。"""
 
-EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成约 1500 字的声音初稿。以细纲为结构，以原文为事实边界，把观点、论据和案例讲清楚。
+EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成目标篇幅内的声音初稿。以细纲为结构，以原文为事实边界，把观点、论据和案例讲清楚。
 
 # 书籍信息
 书名：{{book_title}}
@@ -141,6 +159,9 @@ EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成约 1
 # 当前声音
 标题：{{episode_title}}
 
+# 目标字数
+{{episode_word_count_range}}
+
 # 上一步结果：声音细纲
 {{episode_outline}}
 
@@ -148,10 +169,21 @@ EPISODE_DRAFT_DEFAULT_TEMPLATE = """根据声音细纲和关联原文生成约 1
 {{source_text}}
 
 # 上一集终稿（如有）
-{{previous_episode_final}}"""
+{{previous_episode_final}}
+
+# 口播方法
+1. 从具体困惑、反常识现象、生活场景或关键冲突开场，先让听众知道本集要破解什么。
+2. 专业概念按“日常说法—准确含义—具体例子—现实意义”展开。
+3. 数据后立即解释“这意味着什么”，不要连续堆叠年份、比例和政策名称。
+4. 多用短句和自然问答，每段只推进一个主要意思。
+5. 可以使用一个贯穿全文的解释性比喻，但不得把比喻写成事实。
+6. 避免长篇使用“第一个、第二个、第三个”清单；必要枚举拆成可听懂的小段。
+7. 结尾回答开头问题，不机械重复固定问候、口头禅或网络梗。"""
 
 EPISODE_DRAFT_PROTECTED_SUFFIX = """# 系统保护约束
-不得虚构或扩展原文没有的信息；引用必须忠于原意。只输出可以继续进入口语化调整的初稿正文，不要输出分析过程或写作说明。"""
+不得虚构或扩展原文没有的信息；引用必须忠于原意。只输出可以继续进入口语化调整的初稿正文，不要输出分析过程或写作说明。
+本项目目标篇幅是：{{episode_word_count_range}}
+该范围优先于用户模板中的任何旧篇幅要求。只输出连续口播正文。"""
 
 EPISODE_FINAL_DEFAULT_TEMPLATE = """把声音初稿调整为自然、清晰、适合听觉场景的中文口播稿。优化结构、节奏、衔接和表达，但保持初稿的事实范围。
 
@@ -161,6 +193,9 @@ EPISODE_FINAL_DEFAULT_TEMPLATE = """把声音初稿调整为自然、清晰、�
 
 # 当前声音
 标题：{{episode_title}}
+
+# 目标字数
+{{episode_word_count_range}}
 
 # 当前声音框架
 {{episode_framework}}
@@ -172,17 +207,27 @@ EPISODE_FINAL_DEFAULT_TEMPLATE = """把声音初稿调整为自然、清晰、�
 {{source_text}}
 
 # 上一集终稿（如有）
-{{previous_episode_final}}"""
+{{previous_episode_final}}
+
+# 编辑方法
+1. 删除重复解释、论文腔和无意义套话；合并只是在重复同一结论的论据。
+2. 拆分过长段落和长句，让每段只推进一个主要意思。
+3. 数据和概念之后紧跟面向未读听众的意义解释。
+4. 保留自然问答、对比和必要场景，避免连续定义与清单式枚举。
+5. 结尾回扣开场问题；不要机械复刻固定问候、口头禅或网络梗。"""
 
 EPISODE_FINAL_PROTECTED_SUFFIX = """# 系统保护约束
-只能优化初稿已经覆盖的内容，不得借原文证据增加初稿未覆盖的新事实段落，不得虚构或夸大。只输出完整声音终稿正文，不要输出分析过程或修改说明。"""
+只能优化初稿已经覆盖的内容，不得借原文证据增加初稿未覆盖的新事实段落，不得虚构或夸大。只输出完整声音终稿正文，不要输出分析过程或修改说明。
+本项目目标篇幅是：{{episode_word_count_range}}
+该范围优先于用户模板中的任何旧篇幅要求。允许删除重复、合并同义论据、拆分长段，
+但不得改变核心事实、因果和观点方向。"""
 
 
 PROMPT_TEMPLATE_SPECS = {
     "album_outline": PromptTemplateSpec(
         stage_key="album_outline",
         label="专辑大纲",
-        system_version="2026-07-29.3",
+        system_version="2026-07-30.1",
         system_prompt="你是一位资深讲书专辑总编，负责把拆书稿编排成准确、通俗、有连续收听动力的有声专辑。",
         default_user_template=ALBUM_DEFAULT_TEMPLATE,
         protected_suffix=ALBUM_PROTECTED_SUFFIX,
@@ -196,13 +241,14 @@ PROMPT_TEMPLATE_SPECS = {
             "book_type": "叙事类或非叙事类",
             "album_special_requirements": "用户填写的专辑特殊要求",
             "desired_episode_count": "当前模块分配集数；未分配时说明由模型决定",
+            "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
         required_placeholders=(),
     ),
     "episode_outline": PromptTemplateSpec(
         stage_key="episode_outline",
         label="声音细纲",
-        system_version="2026-07-28.2",
+        system_version="2026-07-30.1",
         system_prompt="你是专业的有声讲书专辑制作人，擅长把人物、剧情或复杂观点讲得清晰、准确、易懂。",
         default_user_template=EPISODE_OUTLINE_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_OUTLINE_PROTECTED_SUFFIX,
@@ -213,13 +259,14 @@ PROMPT_TEMPLATE_SPECS = {
             "book_author": "作者",
             "episode_title": "当前声音标题",
             "character_relationships": "当前关联原文块的人物关系；非故事类自动说明无需提供",
+            "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
         required_placeholders=("episode_framework", "source_text"),
     ),
     "episode_draft": PromptTemplateSpec(
         stage_key="episode_draft",
         label="声音初稿",
-        system_version="2026-07-28.2",
+        system_version="2026-07-30.1",
         system_prompt="你是讲书口播稿作者，负责依据声音细纲和原文证据写出忠于原书的初稿。",
         default_user_template=EPISODE_DRAFT_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_DRAFT_PROTECTED_SUFFIX,
@@ -231,13 +278,14 @@ PROMPT_TEMPLATE_SPECS = {
             "episode_title": "当前声音标题",
             "episode_framework": "当前声音在专辑大纲中的内容框架",
             "previous_episode_final": "上一集最新终稿；没有时自动说明",
+            "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
         required_placeholders=("episode_outline", "source_text"),
     ),
     "episode_final": PromptTemplateSpec(
         stage_key="episode_final",
         label="声音终稿",
-        system_version="2026-07-28.2",
+        system_version="2026-07-30.1",
         system_prompt="你负责把讲书初稿调整成自然、清晰、适合听觉场景的中文口播终稿。",
         default_user_template=EPISODE_FINAL_DEFAULT_TEMPLATE,
         protected_suffix=EPISODE_FINAL_PROTECTED_SUFFIX,
@@ -249,6 +297,7 @@ PROMPT_TEMPLATE_SPECS = {
             "episode_title": "当前声音标题",
             "episode_framework": "当前声音在专辑大纲中的内容框架",
             "previous_episode_final": "上一集最新终稿；没有时自动说明",
+            "episode_word_count_range": "项目配置的每集字数范围与计数口径",
         },
         required_placeholders=("episode_draft", "source_text"),
     ),
@@ -283,6 +332,14 @@ def render_user_template(
     validate_user_template(spec, template)
     normalized = {key: str(values.get(key, "")) for key in spec.placeholders}
     return TOKEN_RE.sub(lambda match: normalized[match.group(1)], template)
+
+
+def render_protected_suffix(template: str, values: dict[str, str]) -> str:
+    normalized = {key: str(value) for key, value in values.items()}
+    return TOKEN_RE.sub(
+        lambda match: normalized.get(match.group(1), ""),
+        template,
+    )
 
 
 class PromptConfigurationService:
@@ -679,7 +736,9 @@ class PromptConfigurationService:
             effective = self.effective(stage_key, project_id)
         spec = PROMPT_TEMPLATE_SPECS[stage_key]
         rendered = render_user_template(spec, effective["user_template"], values)
-        protected = effective["protected_suffix"]
+        protected = render_protected_suffix(
+            effective["protected_suffix"], values
+        )
         if stage_key == "episode_outline":
             protected += (
                 "\n叙事类书籍必须把人物和剧情讲清楚，只能使用输入提及的人物与事件。"
@@ -716,7 +775,9 @@ class PromptConfigurationService:
         effective = self.effective(stage_key, project_id)
         spec = PROMPT_TEMPLATE_SPECS[stage_key]
         rendered = render_user_template(spec, user_template, values)
-        protected = effective["protected_suffix"]
+        protected = render_protected_suffix(
+            effective["protected_suffix"], values
+        )
         if stage_key == "episode_outline":
             protected += (
                 "\n叙事类书籍必须把人物和剧情讲清楚，只能使用输入提及的人物与事件。"

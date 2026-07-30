@@ -156,6 +156,8 @@ def test_project_generation_returns_202_before_background_work_finishes(
             json={
                 "album_special_requirements": "",
                 "desired_episode_count": None,
+                "episode_word_count_min": 1800,
+                "episode_word_count_max": 2300,
             },
         )
         assert response.status_code == 202
@@ -163,6 +165,13 @@ def test_project_generation_returns_202_before_background_work_finishes(
         assert run["scope_type"] == "project_generation"
         assert run["scope_id"] == project_id
         assert run["status"] in {"pending", "running"}
+        assert run["metadata_json"]["episode_word_count_min"] == 1800
+        assert run["metadata_json"]["episode_word_count_max"] == 2300
+        saved_project = main.database.row(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        )
+        assert saved_project["episode_word_count_min"] == 1800
+        assert saved_project["episode_word_count_max"] == 2300
         duplicate = client.post(
             f"/api/projects/{project_id}/generate-outline",
             json={
@@ -173,6 +182,17 @@ def test_project_generation_returns_202_before_background_work_finishes(
         assert duplicate.status_code == 202
         assert duplicate.json()["id"] == run["id"]
         assert duplicate.json()["reused"] is True
+
+        invalid = client.post(
+            f"/api/projects/{project_id}/generate-outline",
+            json={
+                "album_special_requirements": "",
+                "desired_episode_count": None,
+                "episode_word_count_min": 2600,
+                "episode_word_count_max": 2500,
+            },
+        )
+        assert invalid.status_code == 400
 
 
 def test_album_module_output_is_visible_and_failed_module_can_retry(

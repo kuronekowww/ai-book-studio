@@ -246,6 +246,8 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .album-generation-card textarea { min-height: 86px; resize: vertical; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 .album-generation-actions { display: grid; gap: 8px; }
 .album-generation-actions label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.word-count-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.word-count-fields input { min-width: 0; }
 .episode-count-notice { grid-column: 1 / -1; padding: 8px 10px; border-radius: 7px; background: var(--ochre-soft); color: #8a551f; font-size: 11px; }
 .episode-rail, .editor-panel, .review-inspector { min-width: 0; background: white; }
 .episode-rail { padding: 16px 12px; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: none; }
@@ -342,6 +344,10 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .final-editor-footer { margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .final-editor-footer > span { color: var(--muted); font-size: 11px; }
 .final-editor-footer > span.unsaved { color: var(--warning); }
+.final-editor-footer > span.word-count-ok { color: var(--green); }
+.final-editor-footer > span.word-count-warning { color: var(--error); }
+.final-editor-footer > span.unsaved.word-count-ok,
+.final-editor-footer > span.unsaved.word-count-warning { font-weight: 600; }
 .final-editor-footer > div { display: flex; gap: 8px; }
 .inspector-empty { padding: 40px 10px; color: var(--muted); text-align: center; font-size: 12px; }
 .evidence-list { display: grid; gap: 6px; }

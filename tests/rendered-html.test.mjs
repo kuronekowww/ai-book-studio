@@ -39,6 +39,11 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /analysis_enabled/);
   assert.match(page, /生成思维导图与专辑大纲/);
   assert.match(page, /目标集数（允许上下浮动 2 集）/);
+  assert.match(page, /每集最少字数/);
+  assert.match(page, /每集最多字数/);
+  assert.match(page, /episode_word_count_min/);
+  assert.match(page, /countSpokenWords/);
+  assert.match(page, /符合范围/);
   assert.match(page, /设为全局模型/);
   assert.match(page, /新任务使用新模型，正在运行的任务继续使用启动时的模型/);
   assert.match(page, /available_models/);
@@ -48,6 +53,8 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /专辑大纲 ·/);
   assert.match(styles, /\.file-drop\.selected/);
   assert.match(styles, /\.album-generation-card/);
+  assert.match(styles, /\.word-count-fields/);
+  assert.match(styles, /\.word-count-warning/);
   assert.match(styles, /\.model-selector/);
   assert.match(styles, /\.project-model-config/);
   assert.match(styles, /--green: #5645d4/);

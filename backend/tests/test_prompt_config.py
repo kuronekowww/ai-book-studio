@@ -51,12 +51,13 @@ def test_prompt_defaults_are_initialized_idempotently(tmp_path) -> None:
         "SELECT COUNT(*) AS count FROM prompt_versions WHERE scope = 'system'"
     )["count"] == 4
     album = service.effective("album_outline")
-    assert album["system_version"] == "2026-07-29.3"
+    assert album["system_version"] == "2026-07-30.1"
     assert "module_source" in album["allowed_placeholders"]
     assert "只输出以下 Markdown 结构" in album["protected_suffix"]
     assert "knowledge_item_id" in album["protected_suffix"]
     assert "必须严格输出该数量" in album["protected_suffix"]
     assert "当前调用只处理一个知识模块" in album["protected_suffix"]
+    assert "episode_word_count_range" in album["allowed_placeholders"]
 
 
 def test_prompt_template_validation_and_single_pass_rendering() -> None:
@@ -180,6 +181,7 @@ def test_locked_prompt_snapshot_does_not_follow_newer_global_version(tmp_path) -
     assert snapshot.prompt_version_id == first["prompt_version_id"]
     assert snapshot.source.startswith("第一版")
     assert "第二版" not in snapshot.source
+    assert "{{episode_word_count_range}}" not in snapshot.source
 
     try:
         service.snapshot(

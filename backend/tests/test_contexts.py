@@ -101,6 +101,7 @@ def test_narrative_outline_uses_framework_matching_relationships_and_source(
     assert context.variables["episode_framework"] == "先介绍人物，再讲相遇事件。"
     assert "人物甲与人物乙是同行者。" in context.variables["character_relationships"]
     assert "当前章节的完整原文" in context.variables["source_text"]
+    assert "2000–2500" in context.variables["episode_word_count_range"]
 
 
 def test_non_narrative_outline_omits_relationship_section(tmp_path) -> None:
@@ -147,6 +148,9 @@ def test_draft_and_final_include_latest_previous_artifact_and_same_source(
     assert "当前章节的完整原文" in final.source
     assert draft.variables["episode_outline"] == "最新细纲"
     assert final.variables["episode_draft"] == "最新初稿"
+    assert draft.variables["episode_word_count_range"] == (
+        final.variables["episode_word_count_range"]
+    )
 
 
 def test_missing_previous_artifact_fails_before_generation(tmp_path) -> None:

@@ -244,6 +244,11 @@ class DemoProvider:
                 '"relationship":"人物甲与人物乙在当前事件中相互影响",'
                 '"evidence":"当前原文块中的人物互动"}]}'
             )
+        if prompt.id == "episode_word_count_repair":
+            minimum_match = re.search(r"目标范围[：:]\s*(\d+)", source)
+            target = int(minimum_match.group(1)) if minimum_match else 2000
+            phrase = "演示口播围绕当前问题展开解释帮助听众看清事实原因影响和现实意义"
+            return (phrase * ((target // len(phrase)) + 1))[:target]
         if prompt.id in {"episode_outline_narrative", "episode_outline_non_narrative"}:
             return (
                 "# 声音细纲\n\n"
@@ -308,6 +313,7 @@ class OpenAICompatibleProvider:
             "album_outline_count_repair",
             "album_module_plan",
             "album_outline_structure",
+            "episode_word_count_repair",
         }
         payload: dict[str, object] = {
             "model": self.settings.model,

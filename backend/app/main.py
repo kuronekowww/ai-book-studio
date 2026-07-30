@@ -20,6 +20,12 @@ from .obsidian import ObsidianSyncService
 from .prompt_config import PromptConfigurationService
 from .providers import ModelGenerationError, ModelProvider
 from .runs import RunService, TaskRegistry
+from .text_metrics import (
+    DEFAULT_EPISODE_WORD_COUNT_MAX,
+    DEFAULT_EPISODE_WORD_COUNT_MIN,
+    format_episode_word_count_range,
+    validate_episode_word_count_range,
+)
 from .workflows import StageGenerationError, WorkflowService
 
 
@@ -79,6 +85,8 @@ class ProjectCreate(BaseModel):
 class ProjectGenerationPayload(BaseModel):
     album_special_requirements: str = ""
     desired_episode_count: int | None = Field(default=None, ge=1, le=500)
+    episode_word_count_min: int = DEFAULT_EPISODE_WORD_COUNT_MIN
+    episode_word_count_max: int = DEFAULT_EPISODE_WORD_COUNT_MAX
 
 
 class EpisodeUpdate(BaseModel):
@@ -182,6 +190,10 @@ def prompt_preview_values(
         "episode_outline": "示例声音细纲。",
         "episode_draft": "示例声音初稿。",
         "previous_episode_final": "当前没有可用的上一集终稿。",
+        "episode_word_count_range": format_episode_word_count_range(
+            DEFAULT_EPISODE_WORD_COUNT_MIN,
+            DEFAULT_EPISODE_WORD_COUNT_MAX,
+        ),
     }
     book_type = "non_narrative"
     if not project_id:
@@ -208,6 +220,16 @@ def prompt_preview_values(
                     str(project["desired_episode_count"])
                     if project["desired_episode_count"]
                     else "未指定，由模型根据内容自行决定"
+                ),
+                "episode_word_count_range": format_episode_word_count_range(
+                    int(
+                        project.get("episode_word_count_min")
+                        or DEFAULT_EPISODE_WORD_COUNT_MIN
+                    ),
+                    int(
+                        project.get("episode_word_count_max")
+                        or DEFAULT_EPISODE_WORD_COUNT_MAX
+                    ),
                 ),
             }
         )
@@ -383,12 +405,23 @@ async def execute_episode_run(
         return runs.get(run_id)["status"] == "cancelled"
 
     try:
+        word_count_range = (
+            int(
+                current["metadata_json"].get("episode_word_count_min")
+                or DEFAULT_EPISODE_WORD_COUNT_MIN
+            ),
+            int(
+                current["metadata_json"].get("episode_word_count_max")
+                or DEFAULT_EPISODE_WORD_COUNT_MAX
+            ),
+        )
         await workflows.generate_episode(
             episode_id,
             from_stage,
             provider=task_provider,
             stage_providers=locked_stage_providers,
             stage_prompt_locks=locked_prompt_versions,
+            word_count_range=word_count_range,
             progress_callback=report_stage,
             completed_stages=completed_stages,
             cancelled=cancelled,
@@ -487,6 +520,14 @@ async def execute_project_generation_run(
             project_id,
             str(metadata.get("album_special_requirements") or ""),
             metadata.get("desired_episode_count"),
+            episode_word_count_min=int(
+                metadata.get("episode_word_count_min")
+                or DEFAULT_EPISODE_WORD_COUNT_MIN
+            ),
+            episode_word_count_max=int(
+                metadata.get("episode_word_count_max")
+                or DEFAULT_EPISODE_WORD_COUNT_MAX
+            ),
             mind_map_provider=mind_map_provider,
             album_outline_provider=album_outline_provider,
             album_prompt_lock=metadata.get("album_prompt_lock"),
@@ -1138,6 +1179,10 @@ async def generate_project_outline(
     project_id: str, payload: ProjectGenerationPayload
 ) -> dict[str, Any]:
     try:
+        validate_episode_word_count_range(
+            payload.episode_word_count_min,
+            payload.episode_word_count_max,
+        )
         snapshots = model_routing.project_stage_snapshots(
             project_id, ("mind_map", "album_outline")
         )
@@ -1153,6 +1198,8 @@ async def generate_project_outline(
             metadata={
                 "album_special_requirements": payload.album_special_requirements,
                 "desired_episode_count": payload.desired_episode_count,
+                "episode_word_count_min": payload.episode_word_count_min,
+                "episode_word_count_max": payload.episode_word_count_max,
                 "stage_model_ids": {
                     stage: snapshot.run_model_id
                     for stage, snapshot in snapshots.items()
@@ -1160,6 +1207,26 @@ async def generate_project_outline(
                 "album_prompt_lock": album_prompt_lock,
             },
         )
+        if not reused:
+            database.execute(
+                """
+                UPDATE projects
+                SET album_special_requirements = ?,
+                    desired_episode_count = ?,
+                    episode_word_count_min = ?,
+                    episode_word_count_max = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    payload.album_special_requirements.strip(),
+                    payload.desired_episode_count,
+                    payload.episode_word_count_min,
+                    payload.episode_word_count_max,
+                    now_iso(),
+                    project_id,
+                ),
+            )
         task_registry.spawn(
             run["id"],
             lambda: execute_project_generation_run(
@@ -1297,7 +1364,15 @@ async def generate_episode(
     if payload.from_stage not in {"outline", "draft", "final"}:
         raise HTTPException(status_code=400, detail="from_stage 参数无效")
     episode = database.row(
-        "SELECT id, project_id FROM episodes WHERE id = ?", (episode_id,)
+        """
+        SELECT episode.id, episode.project_id,
+               project.episode_word_count_min,
+               project.episode_word_count_max
+        FROM episodes episode
+        JOIN projects project ON project.id = episode.project_id
+        WHERE episode.id = ?
+        """,
+        (episode_id,),
     )
     if not episode:
         raise not_found("声音")
@@ -1328,6 +1403,8 @@ async def generate_episode(
         metadata={
             "stage_model_ids": stage_model_ids,
             "stage_prompt_locks": stage_prompt_locks,
+            "episode_word_count_min": episode["episode_word_count_min"],
+            "episode_word_count_max": episode["episode_word_count_max"],
         },
     )
     task_registry.spawn(

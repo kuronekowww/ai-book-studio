@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS projects (
   status TEXT NOT NULL,
   album_special_requirements TEXT NOT NULL DEFAULT '',
   desired_episode_count INTEGER,
+  episode_word_count_min INTEGER NOT NULL DEFAULT 2000,
+  episode_word_count_max INTEGER NOT NULL DEFAULT 2500,
   episode_count_notice TEXT NOT NULL DEFAULT '',
   album_outline_draft_json TEXT NOT NULL DEFAULT '',
   album_outline_draft_signature TEXT NOT NULL DEFAULT '',
@@ -315,6 +317,8 @@ MIGRATION_COLUMNS = {
     "projects": {
         "album_special_requirements": "TEXT NOT NULL DEFAULT ''",
         "desired_episode_count": "INTEGER",
+        "episode_word_count_min": "INTEGER NOT NULL DEFAULT 2000",
+        "episode_word_count_max": "INTEGER NOT NULL DEFAULT 2500",
         "episode_count_notice": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_json": "TEXT NOT NULL DEFAULT ''",
         "album_outline_draft_signature": "TEXT NOT NULL DEFAULT ''",

@@ -114,6 +114,8 @@ type Project = {
   episodes?: Episode[];
   album_special_requirements?: string;
   desired_episode_count?: number | null;
+  episode_word_count_min?: number;
+  episode_word_count_max?: number;
   episode_count_notice?: string;
   model_overrides?: Record<ProjectModelStage, string | null>;
   effective_models?: Record<ProjectModelStage, EffectiveModel>;
@@ -365,6 +367,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 function formatCount(value: number | undefined) {
   return new Intl.NumberFormat("zh-CN").format(value ?? 0);
+}
+
+function countSpokenWords(text: string) {
+  return (
+    text.match(
+      /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]|[0-9]|[A-Za-z]+(?:['’\-][A-Za-z]+)*/g,
+    )?.length || 0
+  );
 }
 
 export default function Home() {
@@ -771,6 +781,8 @@ export default function Home() {
   const generateProjectOutline = (
     specialRequirements: string,
     desiredEpisodeCount: number | null,
+    episodeWordCountMin: number,
+    episodeWordCountMax: number,
   ) =>
     selectedProject &&
     runAction("启动专辑规划任务", async () => {
@@ -782,6 +794,8 @@ export default function Home() {
         body: JSON.stringify({
           album_special_requirements: specialRequirements,
           desired_episode_count: desiredEpisodeCount,
+          episode_word_count_min: episodeWordCountMin,
+          episode_word_count_max: episodeWordCountMax,
         }),
         },
       );
@@ -1082,8 +1096,13 @@ export default function Home() {
                 onOpenEpisode={openEpisode}
                 onGenerate={generateEpisode}
                 onGenerateAll={() => void generateAll()}
-                onGenerateOutline={(requirements, count) =>
-                  void generateProjectOutline(requirements, count)
+                onGenerateOutline={(requirements, count, wordMin, wordMax) =>
+                  void generateProjectOutline(
+                    requirements,
+                    count,
+                    wordMin,
+                    wordMax,
+                  )
                 }
                 onUpdateModel={(stage, modelId) =>
                   void updateProjectModel(stage, modelId)
@@ -1841,6 +1860,8 @@ function ProjectWorkspace({
   onGenerateOutline: (
     specialRequirements: string,
     desiredEpisodeCount: number | null,
+    episodeWordCountMin: number,
+    episodeWordCountMax: number,
   ) => void;
   onUpdateModel: (
     stage: ProjectModelStage,
@@ -1886,6 +1907,14 @@ function ProjectWorkspace({
   const [desiredEpisodeCount, setDesiredEpisodeCount] = useState(
     project.desired_episode_count?.toString() || "",
   );
+  const [episodeWordCountMin, setEpisodeWordCountMin] = useState(
+    (project.episode_word_count_min || 2000).toString(),
+  );
+  const [episodeWordCountMax, setEpisodeWordCountMax] = useState(
+    (project.episode_word_count_max || 2500).toString(),
+  );
+  const [generationValidationError, setGenerationValidationError] =
+    useState("");
   const batchActive = Boolean(
     batch && ["pending", "running"].includes(batch.status),
   );
@@ -1923,6 +1952,42 @@ function ProjectWorkspace({
   const saveDraft = async () => {
     const saved = await onSaveFinal(finalDraft);
     if (saved) setDirty(false);
+  };
+  const finalWordCount = useMemo(
+    () => countSpokenWords(finalDraft),
+    [finalDraft],
+  );
+  const wordCountMinimum = project.episode_word_count_min || 2000;
+  const wordCountMaximum = project.episode_word_count_max || 2500;
+  const finalWordCountStatus =
+    finalWordCount < wordCountMinimum
+      ? "偏短"
+      : finalWordCount > wordCountMaximum
+        ? "偏长"
+        : "符合范围";
+
+  const startAlbumGeneration = () => {
+    const minimum = Number(episodeWordCountMin);
+    const maximum = Number(episodeWordCountMax);
+    if (
+      !Number.isInteger(minimum) ||
+      !Number.isInteger(maximum) ||
+      minimum < 300 ||
+      maximum > 10000 ||
+      minimum > maximum
+    ) {
+      setGenerationValidationError(
+        "每集字数需填写 300–10000 之间的整数，且最少字数不能大于最多字数。",
+      );
+      return;
+    }
+    setGenerationValidationError("");
+    onGenerateOutline(
+      specialRequirements,
+      desiredEpisodeCount ? Number(desiredEpisodeCount) : null,
+      minimum,
+      maximum,
+    );
   };
 
   return (
@@ -2006,7 +2071,7 @@ function ProjectWorkspace({
           <div>
             <p className="eyebrow">模型编排</p>
             <h3>生成思维导图与专辑大纲</h3>
-            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；填写目标后允许上下浮动 2 集，留空时由模型自行决定。</p>
+            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；每集字数会继续传给细纲、初稿和终稿，并在生成后自动验收。</p>
             <div className="model-summary">
               <span>
                 思维导图 · {project.effective_models?.mind_map.label || "—"}
@@ -2033,19 +2098,45 @@ function ProjectWorkspace({
                 placeholder="例如 15，将生成 13–17 集"
               />
             </label>
+            <div className="word-count-fields">
+              <label>
+                每集最少字数
+                <input
+                  type="number"
+                  min={300}
+                  max={10000}
+                  value={episodeWordCountMin}
+                  onChange={(event) =>
+                    setEpisodeWordCountMin(event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                每集最多字数
+                <input
+                  type="number"
+                  min={300}
+                  max={10000}
+                  value={episodeWordCountMax}
+                  onChange={(event) =>
+                    setEpisodeWordCountMax(event.target.value)
+                  }
+                />
+              </label>
+            </div>
             <button
               className="primary-button"
               disabled={busy || Boolean(activeRun)}
-              onClick={() =>
-                onGenerateOutline(
-                  specialRequirements,
-                  desiredEpisodeCount ? Number(desiredEpisodeCount) : null,
-                )
-              }
+              onClick={startAlbumGeneration}
             >
               生成思维导图与专辑大纲
             </button>
           </div>
+          {generationValidationError && (
+            <div className="outline-validation">
+              {generationValidationError}
+            </div>
+          )}
           {project.episode_count_notice && (
             <div className="episode-count-notice">{project.episode_count_notice}</div>
           )}
@@ -2219,8 +2310,16 @@ function ProjectWorkspace({
                   }}
                 />
                 <div className="final-editor-footer">
-                  <span className={dirty ? "unsaved" : ""}>
-                    {dirty ? "有未保存修改" : `${finalDraft.length} 字 · 已保存`}
+                  <span
+                    className={`${dirty ? "unsaved" : ""} ${
+                      finalWordCountStatus === "符合范围"
+                        ? "word-count-ok"
+                        : "word-count-warning"
+                    }`}
+                  >
+                    {finalWordCount} 字 · 目标 {wordCountMinimum}–
+                    {wordCountMaximum} · {finalWordCountStatus}
+                    {dirty ? " · 有未保存修改" : " · 已保存"}
                   </span>
                   <div>
                     <button
