@@ -1,5 +1,6 @@
 import asyncio
 import re
+import sqlite3
 import uuid
 
 from app.db import Database, now_iso
@@ -139,6 +140,49 @@ def test_workflow_keeps_versions(tmp_path) -> None:
     assert len(final_versions) == 4
     assert final_versions[0]["author_type"] == "human"
     assert final_versions[-1]["author_type"] == "model"
+
+
+def test_generated_album_replacement_rolls_back_as_one_transaction(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, DemoProvider())
+    book_id = seed_book(database)
+    project = service.create_project("事务测试专辑", book_id)
+    before = database.rows(
+        "SELECT id, title FROM episodes WHERE project_id = ? ORDER BY position",
+        (project["id"],),
+    )
+    assert len(before) == 1
+
+    try:
+        service._save_generated_album(
+            project["id"],
+            [
+                {
+                    "id": uuid.uuid4().hex,
+                    "position": 1,
+                    "title": "不应保存的新声音",
+                    "content_type": "解读",
+                    "style": "观点",
+                    "content_framework": "测试",
+                    "section_identifier": "",
+                    "source_section_ids": [],
+                    "knowledge_item_ids": ["missing-knowledge-item"],
+                }
+            ],
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("无效知识资产引用应触发事务回滚")
+
+    after = database.rows(
+        "SELECT id, title FROM episodes WHERE project_id = ? ORDER BY position",
+        (project["id"],),
+    )
+    assert after == before
 
 
 class RelationshipProvider:

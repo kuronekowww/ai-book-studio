@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -26,7 +27,11 @@ from .text_metrics import (
     format_episode_word_count_range,
     validate_episode_word_count_range,
 )
-from .workflows import StageGenerationError, WorkflowService
+from .workflows import (
+    LocalRevalidationProvider,
+    StageGenerationError,
+    WorkflowService,
+)
 
 
 settings = get_settings()
@@ -788,6 +793,9 @@ async def execute_project_generation_run(
             ),
             planning_run_id=run_id,
             retry_module_key=metadata.get("retry_module_key"),
+            allow_structure_model_fallback=not bool(
+                metadata.get("structure_only_recovery")
+            ),
             progress_callback=report_stage,
             cancelled=cancelled,
         )
@@ -2071,6 +2079,107 @@ async def retry_album_module(run_id: str, module_key: str) -> dict[str, Any]:
         run_id, lambda: execute_project_generation_run(run_id)
     )
     return runs.get(run_id)
+
+
+@app.post("/api/runs/{run_id}/structure/recover", status_code=202)
+async def recover_album_structure(run_id: str) -> dict[str, Any]:
+    try:
+        run = runs.get(run_id)
+    except KeyError:
+        raise not_found("运行记录")
+    if run["scope_type"] != "project_generation":
+        raise HTTPException(status_code=400, detail="该任务不是专辑规划任务")
+    if run["status"] in {"pending", "running"}:
+        raise HTTPException(status_code=400, detail="任务仍在执行，不能恢复结构")
+    stages = (run.get("metadata_json") or {}).get("stages") or {}
+    if (
+        run["status"] == "succeeded"
+        and (stages.get("structure_album_outline") or {}).get("status")
+        == "succeeded"
+        and (stages.get("save_project_outline") or {}).get("status")
+        == "succeeded"
+    ):
+        result = dict(run)
+        result["reused"] = True
+        return result
+    if run["status"] not in {"partial_failed", "failed"}:
+        raise HTTPException(status_code=400, detail="该任务当前不能恢复结构")
+
+    module_plan = workflows.album_planning.artifacts.get(
+        run_id, "module_plan"
+    )
+    module_outlines = workflows.album_planning.artifacts.list_for_run(
+        run_id, "module_outline"
+    )
+    if not module_plan or module_plan["status"] != "succeeded":
+        raise HTTPException(status_code=400, detail="缺少已成功的全书知识模块")
+    if not module_outlines:
+        raise HTTPException(status_code=400, detail="没有可恢复的模块专辑大纲")
+    try:
+        expected_modules = workflows.album_planning.parse_module_plan(
+            module_plan["content"],
+            set(re.findall(r"CHAPTER_\d{3}", module_plan["content"])),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    outline_keys = {item["module_key"] for item in module_outlines}
+    missing_modules = [
+        module.key for module in expected_modules if module.key not in outline_keys
+    ]
+    if missing_modules:
+        raise HTTPException(
+            status_code=400,
+            detail="缺少模块产物：" + "、".join(missing_modules),
+        )
+    failed_modules = [
+        item["module_key"]
+        for item in module_outlines
+        if item["status"] != "succeeded" or not item["content"].strip()
+    ]
+    if failed_modules:
+        raise HTTPException(
+            status_code=400,
+            detail="以下模块尚未成功：" + "、".join(failed_modules),
+        )
+
+    metadata = dict(run.get("metadata_json") or {})
+    metadata["structure_only_recovery"] = True
+    metadata.pop("retry_module_key", None)
+    next_stages = dict(metadata.get("stages") or {})
+    next_stages.pop("structure_album_outline", None)
+    next_stages.pop("save_project_outline", None)
+    metadata["stages"] = next_stages
+    now = now_iso()
+    database.execute(
+        """
+        UPDATE album_planning_artifacts
+        SET status = 'pending', error_message = '', updated_at = ?
+        WHERE run_id = ? AND artifact_type = 'structured_outline'
+        """,
+        (now, run_id),
+    )
+    database.execute(
+        """
+        UPDATE workflow_runs
+        SET status = 'pending', current_stage = 'structure_album_outline',
+            message = '正在从已保存模块恢复专辑大纲', error_stage = '',
+            finished_at = NULL, metadata_json = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (json.dumps(metadata, ensure_ascii=False), now, run_id),
+    )
+    local_provider = LocalRevalidationProvider()
+    task_registry.spawn(
+        run_id,
+        lambda: execute_project_generation_run(
+            run_id,
+            mind_map_provider=local_provider,
+            album_outline_provider=local_provider,
+        ),
+    )
+    result = runs.get(run_id)
+    result["reused"] = False
+    return result
 
 
 @app.post("/api/runs/{run_id}/cancel")

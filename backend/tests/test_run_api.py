@@ -247,3 +247,94 @@ def test_album_module_output_is_visible_and_failed_module_can_retry(
             )["status"]
             == "pending"
         )
+
+
+def test_failed_album_structure_can_start_local_artifact_recovery(
+    tmp_path, monkeypatch
+) -> None:
+    main = load_main(tmp_path, monkeypatch)
+    _, project_id, _ = seed_project(main)
+
+    async def paused_project_run(run_id: str, **_kwargs) -> None:
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(main, "execute_project_generation_run", paused_project_run)
+    run, _ = main.runs.create(
+        scope_type="project_generation",
+        scope_id=project_id,
+        stage="full",
+        current_stage="structure_album_outline",
+        progress_total=6,
+        reuse_active=False,
+    )
+    main.runs.finish(
+        run["id"], status="partial_failed", message="结构化失败"
+    )
+    main.workflows.album_planning.artifacts.upsert(
+        run_id=run["id"],
+        project_id=project_id,
+        artifact_type="module_plan",
+        content=(
+            "## 模块1：测试模块\n"
+            "听众问题：为什么？\n"
+            "来源章节：[CHAPTER_001]\n"
+            "建议声音数：1"
+        ),
+    )
+    main.workflows.album_planning.artifacts.upsert(
+        run_id=run["id"],
+        project_id=project_id,
+        artifact_type="module_outline",
+        module_key="MODULE_001",
+        position=1,
+        content=(
+            "## 第1集：测试声音\n"
+            "听众钩子：为什么值得听？\n"
+            "核心主题：解释问题。\n"
+            "核心要点：\n1. 现象；\n2. 原因。\n"
+            "内容类型：深度解读\n"
+            "来源章节：[CHAPTER_001]"
+        ),
+    )
+    main.workflows.album_planning.artifacts.upsert(
+        run_id=run["id"],
+        project_id=project_id,
+        artifact_type="structured_outline",
+        content="",
+        status="failed",
+        error_message="字段不完整",
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            f"/api/runs/{run['id']}/structure/recover"
+        )
+        assert response.status_code == 202
+        recovered = response.json()
+        assert recovered["status"] in {"pending", "running"}
+        assert recovered["metadata_json"]["structure_only_recovery"] is True
+        structured = main.workflows.album_planning.artifacts.get(
+            run["id"], "structured_outline"
+        )
+        assert structured["status"] == "pending"
+
+        succeeded, _ = main.runs.create(
+            scope_type="project_generation",
+            scope_id=project_id,
+            stage="full",
+            current_stage="save_project_outline",
+            progress_total=6,
+            metadata={
+                "stages": {
+                    "structure_album_outline": {"status": "succeeded"},
+                    "save_project_outline": {"status": "succeeded"},
+                }
+            },
+            reuse_active=False,
+        )
+        main.runs.finish(succeeded["id"], message="已完成")
+        repeated = client.post(
+            f"/api/runs/{succeeded['id']}/structure/recover"
+        )
+        assert repeated.status_code == 202
+        assert repeated.json()["reused"] is True

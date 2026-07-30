@@ -13,6 +13,25 @@ CHAPTER_KEY_RE = re.compile(r"\[?(CHAPTER_\d{3})\]?")
 KNOWLEDGE_ID_RE = re.compile(r"\bknowledge_[0-9a-f]+\b")
 CONTENT_INDEX_RE = re.compile(r"\bcontent_[0-9a-f]+\b")
 MODULE_INPUT_TARGET_CHARS = 12_000
+EPISODE_HEADING_RE = re.compile(
+    r"^##\s+第?\s*\d+\s*集\s*[：:]\s*(.+?)\s*$", re.M
+)
+OUTLINE_FIELD_RE = re.compile(
+    r"^\s*(?:\*\*)?"
+    r"(听众钩子|核心主题|核心要点|内容类型|来源章节|模块标识)"
+    r"(?:\*\*)?\s*[：:]\s*(.*?)\s*$"
+)
+CONTENT_TYPE_ALIASES = {
+    "解读": "解读",
+    "解读类": "解读",
+    "深度解读": "解读",
+    "深度解读类": "解读",
+    "书籍解读": "解读",
+    "过渡": "过渡",
+    "过渡类": "过渡",
+    "过渡声音": "过渡",
+    "承上启下": "过渡",
+}
 
 
 @dataclass(frozen=True)
@@ -564,6 +583,138 @@ class AlbumPlanningService:
         return markdown.strip()
 
     @staticmethod
+    def normalize_content_type(value: Any) -> str:
+        raw = re.sub(r"[*_`]", "", str(value or ""))
+        normalized = re.sub(r"\s+", "", raw).strip("：:；;，,。")
+        if normalized not in CONTENT_TYPE_ALIASES:
+            raise ValueError(f"未知内容类型：{str(value or '').strip() or '空值'}")
+        return CONTENT_TYPE_ALIASES[normalized]
+
+    @staticmethod
+    def _episode_blocks(markdown: str) -> list[tuple[str, str]]:
+        matches = list(EPISODE_HEADING_RE.finditer(markdown))
+        return [
+            (
+                match.group(1).strip(),
+                markdown[
+                    match.end() : (
+                        matches[position + 1].start()
+                        if position + 1 < len(matches)
+                        else len(markdown)
+                    )
+                ].strip(),
+            )
+            for position, match in enumerate(matches)
+        ]
+
+    @staticmethod
+    def _outline_fields(body: str) -> dict[str, str]:
+        values: dict[str, list[str]] = {}
+        current: str | None = None
+        for line in body.splitlines():
+            match = OUTLINE_FIELD_RE.match(line)
+            if match:
+                label, first_value = match.groups()
+                current = None if label == "模块标识" else label
+                if current:
+                    values[current] = [first_value] if first_value else []
+                continue
+            if current and line.strip():
+                values[current].append(line.strip())
+        return {
+            label: "\n".join(lines).strip()
+            for label, lines in values.items()
+        }
+
+    @classmethod
+    def parse_module_outlines(
+        cls,
+        modules: list[AlbumModule],
+        markdown_by_module: dict[str, str],
+        entries: list[ChapterPlanningEntry],
+    ) -> dict[str, Any]:
+        entry_keys = {entry.chapter_key for entry in entries}
+        raw_episodes: list[dict[str, Any]] = []
+        required_fields = (
+            "听众钩子",
+            "核心主题",
+            "核心要点",
+            "内容类型",
+            "来源章节",
+        )
+        for module in sorted(modules, key=lambda item: item.position):
+            markdown = str(markdown_by_module.get(module.key) or "").strip()
+            if not markdown:
+                raise ValueError(f"{module.key} 缺少已生成的模块大纲")
+            blocks = cls._episode_blocks(markdown)
+            if not blocks:
+                raise ValueError(f"{module.key} 没有可识别的声音条目")
+            if len(blocks) != module.suggested_episode_count:
+                raise ValueError(
+                    f"{module.key} 应有 {module.suggested_episode_count} 集，"
+                    f"实际解析 {len(blocks)} 集"
+                )
+            for local_position, (title, body) in enumerate(blocks, start=1):
+                if not title:
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集缺少标题"
+                    )
+                if KNOWLEDGE_ID_RE.search(body) or CONTENT_INDEX_RE.search(body):
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集不得包含知识资产 ID"
+                        "或段落原文索引"
+                    )
+                fields = cls._outline_fields(body)
+                missing = [
+                    field for field in required_fields if not fields.get(field)
+                ]
+                if missing:
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集缺少字段："
+                        + "、".join(missing)
+                    )
+                content_type = cls.normalize_content_type(fields["内容类型"])
+                chapter_keys = list(
+                    dict.fromkeys(
+                        CHAPTER_KEY_RE.findall(fields["来源章节"])
+                    )
+                )
+                if not chapter_keys:
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集缺少来源章节"
+                    )
+                unknown = [key for key in chapter_keys if key not in entry_keys]
+                if unknown:
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集引用未知章节："
+                        + "、".join(unknown)
+                    )
+                outside = [
+                    key
+                    for key in chapter_keys
+                    if key not in module.chapter_keys
+                ]
+                if outside:
+                    raise ValueError(
+                        f"{module.key} 第 {local_position} 集引用所属模块之外的章节："
+                        + "、".join(outside)
+                    )
+                raw_episodes.append(
+                    {
+                        "title": title,
+                        "main_points": (
+                            f"听众钩子：{fields['听众钩子']}\n"
+                            f"核心主题：{fields['核心主题']}\n"
+                            f"核心要点：\n{fields['核心要点']}"
+                        ),
+                        "module_key": module.key,
+                        "chapter_keys": chapter_keys,
+                        "content_type": content_type,
+                    }
+                )
+        return {"album_outline": raw_episodes}
+
+    @staticmethod
     def validate_structured_outline(
         data: dict[str, Any],
         entries: list[ChapterPlanningEntry],
@@ -587,19 +738,25 @@ class AlbumPlanningService:
                 raise ValueError(f"专辑第 {position} 条结构无效")
             title = str(raw.get("title") or "").strip()
             main_points = str(raw.get("main_points") or "").strip()
-            content_type = str(raw.get("content_type") or "").strip().replace(
-                "类", ""
-            )
+            raw_content_type = str(raw.get("content_type") or "").strip()
             chapter_keys = raw.get("chapter_keys")
             module_key = str(raw.get("module_key") or "").strip()
             if (
                 not title
                 or not main_points
-                or content_type not in {"解读", "过渡"}
+                or not raw_content_type
                 or not isinstance(chapter_keys, list)
                 or not chapter_keys
             ):
                 raise ValueError(f"专辑第 {position} 条字段不完整")
+            try:
+                content_type = AlbumPlanningService.normalize_content_type(
+                    raw_content_type
+                )
+            except ValueError as error:
+                raise ValueError(
+                    f"专辑第 {position} 条{error}"
+                ) from error
             normalized_keys = list(
                 dict.fromkeys(
                     str(key).strip().strip("[]")

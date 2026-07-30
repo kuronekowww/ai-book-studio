@@ -282,7 +282,8 @@ def test_chapter_batch_limits_concurrency_and_generates_album(tmp_path) -> None:
     assert mind_provider.calls == ["mind_map"]
     assert album_provider.calls[0] == "album_module_plan"
     assert album_provider.calls.count("album_outline") == 3
-    assert album_provider.calls[-1] == "album_outline_structure"
+    assert "album_outline_structure" not in album_provider.calls
+    assert "json_repair" not in album_provider.calls
     saved_map = database.row(
         "SELECT model FROM mind_maps WHERE book_id = ? ORDER BY version DESC LIMIT 1",
         (book_id,),
@@ -400,6 +401,38 @@ class RecordingDemoProvider(DemoProvider):
     async def generate(self, prompt: PromptDefinition, source: str) -> str:
         self.calls.append(prompt.id)
         return await super().generate(prompt, source)
+
+
+class NonstandardModuleProvider(RecordingDemoProvider):
+    async def generate(self, prompt: PromptDefinition, source: str) -> str:
+        result = await super().generate(prompt, source)
+        if prompt.id == "album_outline":
+            return result.replace("听众钩子：", "为什么值得听：")
+        return result
+
+
+def test_project_outline_uses_model_structure_only_as_parser_fallback(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "studio.sqlite3")
+    database.init()
+    service = WorkflowService(database, ConcurrentChapterProvider())
+    book_id = seed_chapter_book(database, chapter_count=3)
+    asyncio.run(service.analyze_book(book_id))
+    project = service.create_project("格式兜底专辑", book_id)
+    provider = NonstandardModuleProvider("fallback-model")
+
+    generated = asyncio.run(
+        service.generate_project_knowledge_outputs(
+            project["id"],
+            desired_episode_count=3,
+            mind_map_provider=RecordingDemoProvider("mind-model"),
+            album_outline_provider=provider,
+        )
+    )
+
+    assert generated["album_outline"]["status"] == "succeeded"
+    assert provider.calls.count("album_outline_structure") == 1
 
 
 def _module_outline_markdown(count: int) -> str:

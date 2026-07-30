@@ -1625,6 +1625,7 @@ class WorkflowService:
         album_prompt_lock: dict[str, str] | None = None,
         planning_run_id: str | None = None,
         retry_module_key: str | None = None,
+        allow_structure_model_fallback: bool = True,
         progress_callback: StageProgressCallback | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
@@ -2254,45 +2255,107 @@ class WorkflowService:
             )
             if structured_artifact and structured_artifact["status"] == "succeeded":
                 structured_raw = structured_artifact["content"]
-            else:
-                structure_source = (
-                    "# 合法章节标识\n"
-                    + "、".join(f"[{key}]" for key in key_map)
-                    + "\n\n# 已完成 Markdown 专辑大纲\n"
-                    + combined
-                )
-                structured_raw = await album_provider.generate(
-                    PROMPTS["album_outline_structure"], structure_source
-                )
-                check_cancelled()
-            try:
                 structured = parse_json_object(structured_raw)
-            except json.JSONDecodeError:
-                repaired = await album_provider.generate(
-                    PROMPTS["json_repair"], structured_raw
+                episodes, notice = self.album_planning.validate_structured_outline(
+                    structured,
+                    entries,
+                    book_type=book["book_type"],
+                    desired_episode_count=desired_episode_count,
+                    modules=modules,
+                    expected_episode_count=(
+                        episode_budget.selected_count
+                        if episode_budget
+                        else None
+                    ),
+                    allowed_episode_range=(
+                        (
+                            episode_budget.minimum_count,
+                            episode_budget.maximum_count,
+                        )
+                        if episode_budget
+                        else None
+                    ),
                 )
-                structured = parse_json_object(repaired)
-                structured_raw = repaired
-            episodes, notice = self.album_planning.validate_structured_outline(
-                structured,
-                entries,
-                book_type=book["book_type"],
-                desired_episode_count=desired_episode_count,
-                modules=modules,
-                expected_episode_count=(
-                    episode_budget.selected_count
-                    if episode_budget
-                    else None
-                ),
-                allowed_episode_range=(
-                    (
-                        episode_budget.minimum_count,
-                        episode_budget.maximum_count,
+            else:
+                markdown_by_module = {
+                    module.key: str(result)
+                    for module, result in expanded
+                }
+                try:
+                    structured = self.album_planning.parse_module_outlines(
+                        modules, markdown_by_module, entries
                     )
-                    if episode_budget
-                    else None
-                ),
-            )
+                    structured_raw = json.dumps(
+                        structured, ensure_ascii=False
+                    )
+                    episodes, notice = (
+                        self.album_planning.validate_structured_outline(
+                            structured,
+                            entries,
+                            book_type=book["book_type"],
+                            desired_episode_count=desired_episode_count,
+                            modules=modules,
+                            expected_episode_count=(
+                                episode_budget.selected_count
+                                if episode_budget
+                                else None
+                            ),
+                            allowed_episode_range=(
+                                (
+                                    episode_budget.minimum_count,
+                                    episode_budget.maximum_count,
+                                )
+                                if episode_budget
+                                else None
+                            ),
+                        )
+                    )
+                except Exception as deterministic_error:
+                    if not allow_structure_model_fallback:
+                        raise ValueError(
+                            "本地结构化恢复失败："
+                            f"{deterministic_error}"
+                        ) from deterministic_error
+                    structure_source = (
+                        "# 合法章节标识\n"
+                        + "、".join(f"[{key}]" for key in key_map)
+                        + "\n\n# 已完成 Markdown 专辑大纲\n"
+                        + combined
+                    )
+                    structured_raw = await album_provider.generate(
+                        PROMPTS["album_outline_structure"], structure_source
+                    )
+                    check_cancelled()
+                    try:
+                        structured = parse_json_object(structured_raw)
+                    except json.JSONDecodeError:
+                        repaired = await album_provider.generate(
+                            PROMPTS["json_repair"], structured_raw
+                        )
+                        structured = parse_json_object(repaired)
+                        structured_raw = repaired
+                    episodes, notice = (
+                        self.album_planning.validate_structured_outline(
+                            structured,
+                            entries,
+                            book_type=book["book_type"],
+                            desired_episode_count=desired_episode_count,
+                            modules=modules,
+                            expected_episode_count=(
+                                episode_budget.selected_count
+                                if episode_budget
+                                else None
+                            ),
+                            allowed_episode_range=(
+                                (
+                                    episode_budget.minimum_count,
+                                    episode_budget.maximum_count,
+                                )
+                                if episode_budget
+                                else None
+                            ),
+                        )
+                    )
             if planning_run_id:
                 self.album_planning.artifacts.upsert(
                     run_id=planning_run_id,
@@ -2333,34 +2396,18 @@ class WorkflowService:
             None,
             "正在保存章节级专辑大纲",
         )
-        self._save_generated_album(
-            project_id, episodes, planning_run_id=planning_run_id or ""
-        )
         active_prompt = self.prompts.effective("album_outline", project_id)
-        self.database.execute(
-            """
-            UPDATE projects
-            SET album_special_requirements = ?, desired_episode_count = ?,
-                episode_word_count_min = ?, episode_word_count_max = ?,
-                episode_count_notice = ?, status = 'outline_review',
-                album_prompt_version_id = ?,
-                album_prompt_system_version_id = ?,
-                album_outline_draft_json = '',
-                album_outline_draft_signature = '',
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                requirements,
-                desired_episode_count,
-                episode_word_count_min,
-                episode_word_count_max,
-                notice,
-                active_prompt["prompt_version_id"],
-                active_prompt["system_version_id"],
-                now_iso(),
-                project_id,
-            ),
+        self._save_generated_album_and_project(
+            project_id,
+            episodes,
+            planning_run_id=planning_run_id or "",
+            requirements=requirements,
+            desired_episode_count=desired_episode_count,
+            episode_word_count_min=episode_word_count_min,
+            episode_word_count_max=episode_word_count_max,
+            notice=notice,
+            prompt_version_id=active_prompt["prompt_version_id"],
+            prompt_system_version_id=active_prompt["system_version_id"],
         )
         response["album_outline"] = {
             "status": "succeeded",
@@ -2969,8 +3016,26 @@ class WorkflowService:
         *,
         planning_run_id: str = "",
     ) -> None:
-        self.database.execute("DELETE FROM episodes WHERE project_id = ?", (project_id,))
-        self.database.executemany(
+        with self.database.connect() as connection:
+            self._replace_generated_album(
+                connection,
+                project_id,
+                episodes,
+                planning_run_id=planning_run_id,
+            )
+
+    @staticmethod
+    def _replace_generated_album(
+        connection: Any,
+        project_id: str,
+        episodes: list[dict[str, Any]],
+        *,
+        planning_run_id: str = "",
+    ) -> None:
+        connection.execute(
+            "DELETE FROM episodes WHERE project_id = ?", (project_id,)
+        )
+        connection.executemany(
             """
             INSERT INTO episodes
               (id, project_id, position, title, content_type, style,
@@ -2995,7 +3060,7 @@ class WorkflowService:
                 for item in episodes
             ],
         )
-        self.database.executemany(
+        connection.executemany(
             """
             INSERT INTO episode_knowledge_items
               (episode_id, knowledge_item_id, position, role)
@@ -3009,6 +3074,53 @@ class WorkflowService:
                 )
             ],
         )
+
+    def _save_generated_album_and_project(
+        self,
+        project_id: str,
+        episodes: list[dict[str, Any]],
+        *,
+        planning_run_id: str,
+        requirements: str,
+        desired_episode_count: int | None,
+        episode_word_count_min: int,
+        episode_word_count_max: int,
+        notice: str,
+        prompt_version_id: str,
+        prompt_system_version_id: str,
+    ) -> None:
+        with self.database.connect() as connection:
+            self._replace_generated_album(
+                connection,
+                project_id,
+                episodes,
+                planning_run_id=planning_run_id,
+            )
+            connection.execute(
+                """
+                UPDATE projects
+                SET album_special_requirements = ?, desired_episode_count = ?,
+                    episode_word_count_min = ?, episode_word_count_max = ?,
+                    episode_count_notice = ?, status = 'outline_review',
+                    album_prompt_version_id = ?,
+                    album_prompt_system_version_id = ?,
+                    album_outline_draft_json = '',
+                    album_outline_draft_signature = '',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    requirements,
+                    desired_episode_count,
+                    episode_word_count_min,
+                    episode_word_count_max,
+                    notice,
+                    prompt_version_id,
+                    prompt_system_version_id,
+                    now_iso(),
+                    project_id,
+                ),
+            )
 
     def create_project(self, title: str, book_id: str) -> dict[str, Any]:
         book = self.database.row("SELECT * FROM books WHERE id = ?", (book_id,))

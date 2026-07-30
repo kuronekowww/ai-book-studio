@@ -450,3 +450,156 @@ def test_module_and_final_outline_enforce_selected_episode_count() -> None:
             expected_episode_count=1,
             allowed_episode_range=(1, 4),
         )
+
+
+def test_deterministic_module_outline_parser_normalizes_supported_markdown() -> None:
+    entries = _planning_entries(2)
+    modules = [
+        AlbumModule(
+            key="MODULE_001",
+            title="完整模块",
+            listener_question="为什么？",
+            chapter_keys=("CHAPTER_001", "CHAPTER_002"),
+            suggested_episode_count=2,
+            position=1,
+        )
+    ]
+    markdown = """## 第1集：普通标签
+听众钩子：为什么值得听？
+核心主题：解释第一个问题。
+核心要点：
+1. 先看现象；
+2. 再看原因。
+内容类型：解读类
+来源章节：[CHAPTER_001]
+
+## 第2集：加粗标签
+**听众钩子**：另一个问题为什么重要？
+**核心主题**：解释第二个问题。
+**核心要点**：
+1. 看变化；
+2. 看结果。
+**内容类型**：深度解读
+**来源章节**：[CHAPTER_002]、[CHAPTER_002]
+"""
+
+    structured = AlbumPlanningService.parse_module_outlines(
+        modules,
+        {"MODULE_001": markdown},
+        entries,
+    )
+
+    assert [item["title"] for item in structured["album_outline"]] == [
+        "普通标签",
+        "加粗标签",
+    ]
+    assert [item["module_key"] for item in structured["album_outline"]] == [
+        "MODULE_001",
+        "MODULE_001",
+    ]
+    assert [item["content_type"] for item in structured["album_outline"]] == [
+        "解读",
+        "解读",
+    ]
+    assert structured["album_outline"][1]["chapter_keys"] == ["CHAPTER_002"]
+    assert structured["album_outline"][1]["main_points"] == (
+        "听众钩子：另一个问题为什么重要？\n"
+        "核心主题：解释第二个问题。\n"
+        "核心要点：\n"
+        "1. 看变化；\n"
+        "2. 看结果。"
+    )
+
+    episodes, _ = AlbumPlanningService.validate_structured_outline(
+        structured,
+        entries,
+        modules=modules,
+        book_type="non_narrative",
+        desired_episode_count=2,
+        expected_episode_count=2,
+        allowed_episode_range=(1, 4),
+    )
+    assert len(episodes) == 2
+
+
+def test_deterministic_module_outline_parser_rejects_unsafe_variations() -> None:
+    entries = _planning_entries(2)
+    modules = [
+        AlbumModule(
+            key="MODULE_001",
+            title="第一个模块",
+            listener_question="为什么？",
+            chapter_keys=("CHAPTER_001",),
+            suggested_episode_count=1,
+            position=1,
+        )
+    ]
+    base = """## 第1集：测试声音
+听众钩子：为什么值得听？
+核心主题：解释问题。
+核心要点：
+1. 现象；
+2. 原因。
+内容类型：{content_type}
+来源章节：[{chapter_key}]
+"""
+
+    with pytest.raises(ValueError, match="未知内容类型.*热点"):
+        AlbumPlanningService.parse_module_outlines(
+            modules,
+            {
+                "MODULE_001": base.format(
+                    content_type="热点", chapter_key="CHAPTER_001"
+                )
+            },
+            entries,
+        )
+
+    with pytest.raises(ValueError, match="缺少字段.*听众钩子"):
+        AlbumPlanningService.parse_module_outlines(
+            modules,
+            {
+                "MODULE_001": base.format(
+                    content_type="解读", chapter_key="CHAPTER_001"
+                ).replace("听众钩子：为什么值得听？\n", "")
+            },
+            entries,
+        )
+
+    with pytest.raises(ValueError, match="所属模块之外.*CHAPTER_002"):
+        AlbumPlanningService.parse_module_outlines(
+            modules,
+            {
+                "MODULE_001": base.format(
+                    content_type="解读", chapter_key="CHAPTER_002"
+                )
+            },
+            entries,
+        )
+
+
+def test_structured_outline_normalizes_supported_content_type_aliases() -> None:
+    entries = _planning_entries(1)
+    main_points = (
+        "听众钩子：为什么值得听？\n"
+        "核心主题：解释问题。\n"
+        "核心要点：\n1. 现象；\n2. 机制。"
+    )
+
+    episodes, _ = AlbumPlanningService.validate_structured_outline(
+        {
+            "album_outline": [
+                {
+                    "title": "测试声音",
+                    "main_points": main_points,
+                    "chapter_keys": ["CHAPTER_001"],
+                    "content_type": "深度解读",
+                }
+            ]
+        },
+        entries,
+        book_type="non_narrative",
+        desired_episode_count=None,
+    )
+
+    assert episodes[0]["content_type"] == "解读"
