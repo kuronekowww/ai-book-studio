@@ -43,7 +43,11 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(page, /每集最多字数/);
   assert.match(page, /episode_word_count_min/);
   assert.match(page, /countSpokenWords/);
-  assert.match(page, /符合范围/);
+  assert.doesNotMatch(page, /符合范围/);
+  assert.match(page, /字数提醒：当前/);
+  assert.match(page, /还差约/);
+  assert.match(page, /超出约/);
+  assert.match(page, /仍可正常保存和审核/);
   assert.match(page, /设为全局模型/);
   assert.match(page, /新任务使用新模型，正在运行的任务继续使用启动时的模型/);
   assert.match(page, /available_models/);
@@ -55,6 +59,7 @@ test("keeps the final-first Notion review workspace in source", async () => {
   assert.match(styles, /\.album-generation-card/);
   assert.match(styles, /\.word-count-fields/);
   assert.match(styles, /\.word-count-warning/);
+  assert.match(styles, /\.word-count-warning[^}]*color: var\(--warning\)/s);
   assert.match(styles, /\.model-selector/);
   assert.match(styles, /\.project-model-config/);
   assert.match(styles, /--green: #5645d4/);

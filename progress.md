@@ -873,3 +873,26 @@
 - README 已补充 Apple Silicon 原生 Node 选择和缺失绑定的修复命令。
 - 原生 Node 26 下 `npm test` 通过：生产构建成功，Node/页面结构测试共 7 项。
 - 最终预检显示 Node 26.0.0、darwin/arm64、npm 11.12.1；Git 锁文件零差异。
+## Phase 39：字数范围改为非阻断提醒
+
+- 进行中：核对初稿/终稿的字数自动修复、失败状态及终稿编辑区的字数展示。
+- 已确认设计边界：初稿和终稿都取消强制验收，只有终稿超范围时显示非阻断提醒。
+- 已编写设计规格 `docs/superpowers/specs/2026-07-31-soft-episode-word-count-warning-design.md`。
+- 设计规格已提交为 `a1b2e8c`，用户已审核确认。
+- 当前会话未提供 brainstorming 指定的 writing-plans 技能，改用 planning-with-files 编写并跟踪实施计划。
+- 已新增实施计划 `docs/superpowers/plans/2026-07-31-soft-episode-word-count-warning-implementation.md`。
+- 已新增失败优先测试：后端要求短初稿和长终稿直接保存且不调用修复模型；前端要求移除常驻“符合范围”并显示非阻断偏差提醒。
+- 实现前定向测试按预期失败：后端仍进入 `episode_word_count_repair`，前端仍含常驻“符合范围”状态。
+- 已从声音生成主流程移除字数自动修复；项目范围、任务快照、输入校验和提示词目标保持不变。
+- 终稿编辑器现在仅在偏短或偏长时显示当前字数、目标范围、偏差和“仍可正常保存和审核”；范围内保持静默。
+- README 与页面说明已从“自动验收/字数修复”更新为“创作目标/非阻断提醒”。
+- 后端字数定向测试通过：`1 passed`；前端渲染结构测试通过：`4 passed`。
+- 字数、上下文、批次和工作流相关定向回归通过：`22 passed`。
+- 前端 ESLint 通过；`git diff --check` 通过，生产工作流中已无 `_fit_episode_word_count` 或修复提示词调用。
+- 后端全量回归通过：`89 passed`，仅有既有 FastAPI `on_event` 弃用警告。
+- 直接运行 `npm test` 时当前登录 shell 仍解析到 x64 Node 24，因缺少 x64 Rolldown 绑定而失败；将按 Phase 38 的原生 arm64 Node 路径重跑。
+- 使用原生 arm64 Node 26 重跑 `npm test` 通过：生产构建成功，Node 运行时与页面结构测试共 `7 passed`；仅有上游 `module.register()` 弃用警告。
+- Python 编译与 `git diff --check` 通过。
+- 既有统一开发服务保持运行；后端热重载和前端 HMR 已加载本轮改动，运行日志持续返回项目、声音和任务 API 200。
+- 使用浏览器控制技能完成真实页面验收：打开“专辑4”第 1 集，最新终稿默认显示；2756 字相对目标 2000–2500 字准确提示超出约 256 字，文案为非阻断状态。
+- 页面控制台 0 条错误；本地项目页面已保留在 `http://localhost:3000/`。

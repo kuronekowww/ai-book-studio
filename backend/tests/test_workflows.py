@@ -206,49 +206,68 @@ class RelationshipProvider:
         )
 
 
-class WordCountRepairProvider:
+class SoftWordCountProvider:
     name = "test"
-    model = "word-count-repair"
+    model = "soft-word-count"
 
-    def __init__(self, repaired: str):
-        self.repaired = repaired
-        self.calls: list[tuple[str, str]] = []
+    def __init__(self):
+        self.calls: list[str] = []
+        self.demo = DemoProvider()
 
     async def generate(self, prompt: PromptDefinition, source: str) -> str:
-        self.calls.append((prompt.id, source))
-        return self.repaired
+        self.calls.append(prompt.id)
+        if prompt.id == "episode_draft":
+            return "短" * 20
+        if prompt.id == "episode_final":
+            return "长" * 450
+        if prompt.id == "episode_word_count_repair":
+            raise AssertionError("字数偏差不应触发自动修复调用")
+        return await self.demo.generate(prompt, source)
 
 
-def test_episode_word_count_repairs_and_reports_failure(tmp_path) -> None:
+def test_episode_word_count_is_a_non_blocking_target(tmp_path) -> None:
     database = Database(tmp_path / "studio.sqlite3")
     database.init()
     service = WorkflowService(database, DemoProvider())
-    provider = WordCountRepairProvider("合" * 350)
+    book_id = seed_book(database)
+    asyncio.run(service.analyze_book(book_id))
+    project = service.create_project("字数提醒测试专辑", book_id)
+    project = asyncio.run(
+        service.generate_project_knowledge_outputs(project["id"])
+    )["project"]
+    database.execute(
+        """
+        UPDATE projects
+        SET episode_word_count_min = 300, episode_word_count_max = 400
+        WHERE id = ?
+        """,
+        (project["id"],),
+    )
+    service.confirm_project(project["id"])
+    episode_id = project["episodes"][0]["id"]
+    provider = SoftWordCountProvider()
 
-    repaired = asyncio.run(
-        service._fit_episode_word_count(
-            "短" * 20, "draft", provider, 300, 400
+    result = asyncio.run(
+        service.generate_episode(
+            episode_id,
+            "outline",
+            provider=provider,
+            word_count_range=(300, 400),
         )
     )
 
-    assert len(repaired) == 350
-    assert [call[0] for call in provider.calls] == [
-        "episode_word_count_repair"
-    ]
-    assert "需要增加至少 280 字" in provider.calls[0][1]
-
-    failing = WordCountRepairProvider("短" * 20)
-    try:
-        asyncio.run(
-            service._fit_episode_word_count(
-                "短" * 20, "final", failing, 300, 400
-            )
+    latest = {
+        stage: next(
+            item for item in result["versions"] if item["stage"] == stage
         )
-        raise AssertionError("两次校正后仍不达标时应失败")
-    except ValueError as error:
-        assert "自动调整 2 次后仍未达标" in str(error)
-        assert "实际 20 字" in str(error)
-    assert len(failing.calls) == 2
+        for stage in ("draft", "final")
+    }
+    assert latest["draft"]["content"] == "短" * 20
+    assert latest["final"]["content"] == "长" * 450
+    assert result["status"] == "review"
+    assert provider.calls.count("episode_draft") == 1
+    assert provider.calls.count("episode_final") == 1
+    assert "episode_word_count_repair" not in provider.calls
 
 
 def test_narrative_analysis_saves_relationships_with_server_source_id(

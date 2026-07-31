@@ -32,7 +32,6 @@ from .text_metrics import (
     DEFAULT_EPISODE_WORD_COUNT_MAX,
     DEFAULT_EPISODE_WORD_COUNT_MIN,
     format_episode_word_count_range,
-    inspect_word_count,
     validate_episode_word_count_range,
 )
 
@@ -3360,15 +3359,6 @@ class WorkflowService:
                 content = await task_provider.generate(
                     prompt_snapshot.prompt, prompt_snapshot.source
                 )
-                if stage in {"draft", "final"}:
-                    content = await self._fit_episode_word_count(
-                        content,
-                        stage,
-                        task_provider,
-                        episode_word_count_min,
-                        episode_word_count_max,
-                        progress_callback=progress_callback,
-                    )
             except Exception as error:
                 if progress_callback:
                     progress_callback(stage, "failed", None, str(error))
@@ -3406,62 +3396,6 @@ class WorkflowService:
             (episode_id,),
         )
         return self.episode_detail(episode_id)
-
-    async def _fit_episode_word_count(
-        self,
-        content: str,
-        stage: str,
-        provider: ModelProvider,
-        minimum: int,
-        maximum: int,
-        *,
-        progress_callback: StageProgressCallback | None = None,
-    ) -> str:
-        label = "初稿" if stage == "draft" else "终稿"
-        current = content.strip()
-        result = inspect_word_count(current, minimum, maximum)
-        for attempt in range(1, 3):
-            if result.within_range:
-                return current
-            if progress_callback:
-                progress_callback(
-                    stage,
-                    "running",
-                    {
-                        "word_count": result.actual,
-                        "word_count_min": minimum,
-                        "word_count_max": maximum,
-                        "repair_attempt": attempt,
-                    },
-                    f"正在调整{label}字数（{result.actual} 字）",
-                )
-            repair_source = (
-                f"# 当前阶段\n声音{label}\n\n"
-                f"# 目标范围\n{minimum}–{maximum} 字\n\n"
-                f"# 当前实际字数\n{result.actual} 字\n\n"
-                f"# 调整要求\n{result.instruction}；"
-                "以程序计数结果为准，不要在输出中报告字数。\n\n"
-                f"# 当前文稿\n{current}"
-            )
-            current = (
-                await provider.generate(
-                    PROMPTS["episode_word_count_repair"],
-                    repair_source,
-                )
-            ).strip()
-            result = inspect_word_count(current, minimum, maximum)
-        if result.within_range:
-            return current
-        direction = (
-            f"少 {minimum - result.actual} 字"
-            if result.actual < minimum
-            else f"多 {result.actual - maximum} 字"
-        )
-        raise ValueError(
-            f"声音{label}字数不符合要求：实际 {result.actual} 字，"
-            f"目标 {minimum}–{maximum} 字（{direction}），"
-            "自动调整 2 次后仍未达标，可单条重跑"
-        )
 
     async def _match_episode_sources(
         self, episode_id: str, provider: ModelProvider

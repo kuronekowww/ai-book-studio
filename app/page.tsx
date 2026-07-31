@@ -1981,12 +1981,13 @@ function ProjectWorkspace({
   );
   const wordCountMinimum = project.episode_word_count_min || 2000;
   const wordCountMaximum = project.episode_word_count_max || 2500;
-  const finalWordCountStatus =
-    finalWordCount < wordCountMinimum
-      ? "偏短"
+  const finalWordCountWarning = !finalDraft.trim()
+    ? ""
+    : finalWordCount < wordCountMinimum
+      ? `字数提醒：当前 ${finalWordCount} 字，低于预期 ${wordCountMinimum}–${wordCountMaximum} 字，还差约 ${wordCountMinimum - finalWordCount} 字。文稿仍可正常保存和审核。`
       : finalWordCount > wordCountMaximum
-        ? "偏长"
-        : "符合范围";
+        ? `字数提醒：当前 ${finalWordCount} 字，高于预期 ${wordCountMinimum}–${wordCountMaximum} 字，超出约 ${finalWordCount - wordCountMaximum} 字。文稿仍可正常保存和审核。`
+        : "";
 
   const startAlbumGeneration = () => {
     const minimum = Number(episodeWordCountMin);
@@ -2093,7 +2094,7 @@ function ProjectWorkspace({
           <div>
             <p className="eyebrow">模型编排</p>
             <h3>生成思维导图与专辑大纲</h3>
-            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；每集字数会继续传给细纲、初稿和终稿，并在生成后自动验收。</p>
+            <p>系统先用轻量章节目录规划全书，再分模块生成 Markdown 大纲；每集字数会继续传给细纲、初稿和终稿，终稿超出预期范围时仅作提醒。</p>
             <div className="model-summary">
               <span>
                 思维导图 · {project.effective_models?.mind_map.label || "—"}
@@ -2331,17 +2332,14 @@ function ProjectWorkspace({
                     setDirty(true);
                   }}
                 />
+                {finalWordCountWarning && (
+                  <p className="word-count-warning" role="status">
+                    {finalWordCountWarning}
+                  </p>
+                )}
                 <div className="final-editor-footer">
-                  <span
-                    className={`${dirty ? "unsaved" : ""} ${
-                      finalWordCountStatus === "符合范围"
-                        ? "word-count-ok"
-                        : "word-count-warning"
-                    }`}
-                  >
-                    {finalWordCount} 字 · 目标 {wordCountMinimum}–
-                    {wordCountMaximum} · {finalWordCountStatus}
-                    {dirty ? " · 有未保存修改" : " · 已保存"}
+                  <span className={dirty ? "unsaved" : ""}>
+                    {dirty ? "有未保存修改" : "已保存"}
                   </span>
                   <div>
                     <button
@@ -3208,7 +3206,7 @@ function PromptSettingsView({
               <strong>{promptStageInputNotes[selectedStage]}</strong>
               <span>
                 你只需要配置主要创作指令和占位符；输出结构、来源边界、
-                数量与字数校验由系统保护。
+                结构校验与字数目标由系统保护。
               </span>
             </div>
             <textarea

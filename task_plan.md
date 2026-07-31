@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Phase 38: Apple Silicon Node 运行时统一（已完成）
+Phase 39: 单集字数范围非阻断提醒（已完成）
 
 ## Phases
 
@@ -426,6 +426,19 @@ Phase 38: Apple Silicon Node 运行时统一（已完成）
 - [x] 更新文档、全量回归并提交
 - **Status:** complete
 
+### Phase 39: 单集字数范围非阻断提醒
+
+- [x] 用户确认取消初稿/终稿强制字数验收
+- [x] 编写并提交设计规格
+- [x] 编写实施计划
+- [x] 建立失败优先测试
+- [x] 移除后端自动字数修复与失败判定
+- [x] 实现终稿超范围非阻断提醒
+- [x] 更新页面文案和 README
+- [x] 完成前后端全量回归
+- [x] 提交实现
+- **Status:** complete
+
 ## Key Questions
 
 1. 如何在无真实 API Key 的自动化环境中完成可重复验收？使用确定性演示供应商，真实供应商走同一接口。
@@ -540,6 +553,9 @@ Phase 38: Apple Silicon Node 运行时统一（已完成）
 | 原生 `npm install --include=optional` 仍未安装 Rolldown arm64 包 | 1 | 使用受控网络按锁定版本单独补装 `@rolldown/binding-darwin-arm64@1.0.1` |
 | 原生 npm 11.12.1 重写 package-lock 的 25 个 dev 标记 | 1 | 使用项目原 npm 11.5.1 离线执行 `--package-lock-only`，恢复原锁文件语义 |
 | 沙箱内 curl 无法访问已启动的 3000/8000 | 1 | 服务运行在受控本机环境；改用同权限级别执行只读健康检查 |
+| Phase 39 后端失败优先测试触发旧的字数修复调用 | 1 | 符合新契约预期，下一步移除生产流程中的自动修复路径 |
+| Phase 39 前端失败优先测试仍发现“符合范围”常驻状态 | 1 | 符合新契约预期，下一步改为仅在超范围时渲染提醒 |
+| Phase 39 直接执行 `npm test` 再次命中 x64 Node 24 | 1 | 使用 Phase 38 已统一的原生 arm64 Node 路径重跑，不修改已验证的依赖锁文件 |
 
 ## Notes
 

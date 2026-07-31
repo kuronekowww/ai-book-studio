@@ -341,13 +341,10 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .final-editor-heading > span { color: var(--muted); font-size: 11px; }
 .final-editor { width: 100%; min-height: 480px; resize: vertical; padding: 24px 26px; border: 1px solid var(--line-strong); border-radius: 8px; background: white; color: var(--ink); outline: none; font-size: 16px; line-height: 1.85; }
 .final-editor:focus { border-color: var(--green); box-shadow: 0 0 0 2px rgba(86,69,212,.12); }
+.word-count-warning { margin: 10px 0 0; padding: 9px 11px; border: 1px solid rgba(180,122,18,.24); border-radius: 7px; background: rgba(180,122,18,.07); color: var(--warning); font-size: 11px; line-height: 1.6; }
 .final-editor-footer { margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .final-editor-footer > span { color: var(--muted); font-size: 11px; }
 .final-editor-footer > span.unsaved { color: var(--warning); }
-.final-editor-footer > span.word-count-ok { color: var(--green); }
-.final-editor-footer > span.word-count-warning { color: var(--error); }
-.final-editor-footer > span.unsaved.word-count-ok,
-.final-editor-footer > span.unsaved.word-count-warning { font-weight: 600; }
 .final-editor-footer > div { display: flex; gap: 8px; }
 .inspector-empty { padding: 40px 10px; color: var(--muted); text-align: center; font-size: 12px; }
 .evidence-list { display: grid; gap: 6px; }
