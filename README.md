@@ -54,6 +54,16 @@ npm run studio
 
 然后打开 [http://localhost:3000](http://localhost:3000)。前端使用 3000 端口，FastAPI 使用 8000 端口。
 
+Apple Silicon Mac 上，统一启动脚本会优先使用 `/opt/homebrew/bin` 中的原生
+arm64 Node，避免与 `/usr/local` 下的 Rosetta/x64 Node 混用。启动时会显示实际
+Node 版本、架构和路径。若提示缺少 Rolldown 原生绑定，请在项目根目录执行：
+
+```bash
+PATH=/opt/homebrew/bin:$PATH npm install --include=optional
+```
+
+然后重新运行 `npm run studio`。启动脚本不会自动联网安装依赖。
+
 点击拆书、生成思维导图/专辑大纲或生成声音后，请求会立即进入后台。左侧“运行记录”和当前书籍、项目、声音工作台会持续显示当前阶段、进度、耗时和已完成阶段的完整输出。刷新或关闭网页不会停止任务；重新打开后会恢复上次工作区和活动任务。应用进程意外退出后，再次运行 `npm run studio` 会从已保存的阶段检查点继续。
 
 如果希望分别启动：

@@ -840,3 +840,36 @@
 - 后端全量回归 `89 passed`；仅保留既有 FastAPI `on_event` 弃用警告。
 - 前端 ESLint、vinext 生产构建和 4 项渲染结构测试全部通过。
 - README 已补充确定性结构化与无模型历史恢复接口说明。
+
+## 2026-07-31 Phase 38 Apple Silicon Node 运行时统一
+
+- 读取用户启动日志并定位 Rolldown arm64 原生绑定缺失。
+- 核对机器和两套 Node：`/usr/local` 为 x64 Node 24.7.0，
+  `/opt/homebrew` 为 arm64 Node 26.0.0。
+- 用户确认统一使用原生 arm64 Node 的设计。
+- 设计规格已提交为 `c1f8b2f`，用户已审核确认。
+- 当前会话未提供 brainstorming 指定的 writing-plans 技能，改用
+  planning-with-files 编写并跟踪实施计划。
+- 已先增加 Node 运行时预检的 3 个契约测试；实现前按预期全部失败，
+  原因为预检脚本尚不存在。
+- 已实现 Node 架构/绑定预检并接入统一启动脚本；真实 arm64 预检能够输出
+  缺失绑定及精确修复命令。
+- 首次实现后测试因中文路径未从 file URL 解码而失败，已改用
+  `fileURLToPath`。
+- 预检契约测试 3 项通过。
+- 原生 npm 全量可选依赖安装仍遗漏绑定；随后通过受控网络显式安装锁定版本
+  `@rolldown/binding-darwin-arm64@1.0.1`。
+- arm64 预检成功，原生二进制架构验证为 Mach-O arm64。
+- 清理 npm 11.12.1 造成的无关锁文件元数据变化，`package-lock.json` 回到零差异。
+- 使用原生 Node 26 运行预检与前端结构测试，共 7 项通过。
+- 原生 Node 26 下 ESLint 和 vinext 生产构建通过；构建仅有 Node 26 的
+  `module.register()` 上游弃用警告。
+- 后端全量回归 89 项通过，仅保留既有 FastAPI `on_event` 弃用警告。
+- `npm run studio` 已成功启动：日志显示 Node 26/arm64、前端 3000 和后端 8000。
+- 沙箱内 curl 无法跨到受控本机服务，后续健康检查改用相同权限环境。
+- 通过应用内浏览器完成运行态验收：前端显示真实本地数据和“本地服务已连接”，
+  控制台 0 条错误；后端 Swagger UI 正常显示 API 0.1.0。
+- 已保留 `http://localhost:3000/` 项目页面供用户直接使用。
+- README 已补充 Apple Silicon 原生 Node 选择和缺失绑定的修复命令。
+- 原生 Node 26 下 `npm test` 通过：生产构建成功，Node/页面结构测试共 7 项。
+- 最终预检显示 Node 26.0.0、darwin/arm64、npm 11.12.1；Git 锁文件零差异。

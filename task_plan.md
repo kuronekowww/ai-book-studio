@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Phase 37: 专辑大纲确定性结构化与“专辑5”恢复（已完成）
+Phase 38: Apple Silicon Node 运行时统一（已完成）
 
 ## Phases
 
@@ -413,6 +413,19 @@ Phase 37: 专辑大纲确定性结构化与“专辑5”恢复（已完成）
 - [x] 完成全量回归、运行态检查与提交
 - **Status:** complete
 
+### Phase 38: Apple Silicon Node 运行时统一
+
+- [x] 定位 x64 Node 24 与 arm64 Node 26 混用问题
+- [x] 比较方案并确认统一使用原生 arm64 Node
+- [x] 写入、提交并审核设计规格
+- [x] 写入实施计划
+- [x] 增加 Node 架构与 Rolldown 绑定预检
+- [x] 统一 `npm run studio` 的原生 Node 运行时
+- [x] 使用原生 npm 修复本机可选依赖
+- [x] 完成构建、启动和接口验收
+- [x] 更新文档、全量回归并提交
+- **Status:** complete
+
 ## Key Questions
 
 1. 如何在无真实 API Key 的自动化环境中完成可重复验收？使用确定性演示供应商，真实供应商走同一接口。
@@ -522,6 +535,11 @@ Phase 37: 专辑大纲确定性结构化与“专辑5”恢复（已完成）
 | Phase 37 首次定向测试使用系统 Python，环境没有 pytest | 1 | 改用项目根目录 `.venv/bin/python -m pytest`，24 项通过 |
 | 查询真实思维导图时 SQLite JSON path 被 shell 解释破坏 | 1 | 拆为先读取项目 `book_ids`、再按明确书籍 ID 查询，避免命令行 `$[0]` |
 | 恢复前本机 3000/8000 服务均未监听 | 1 | 不依赖未启动的服务，使用 FastAPI TestClient 在同一应用进程调用受控恢复接口 |
+| Phase 38 预检测试首次运行 3 项失败 | 1 | 符合测试优先预期：`scripts/check-node-runtime.mjs` 尚未实现 |
+| 预检实现后测试仍找不到脚本 | 1 | 测试把含中文路径的 URL pathname 直接传给 Node；改用 `fileURLToPath` 解码 |
+| 原生 `npm install --include=optional` 仍未安装 Rolldown arm64 包 | 1 | 使用受控网络按锁定版本单独补装 `@rolldown/binding-darwin-arm64@1.0.1` |
+| 原生 npm 11.12.1 重写 package-lock 的 25 个 dev 标记 | 1 | 使用项目原 npm 11.5.1 离线执行 `--package-lock-only`，恢复原锁文件语义 |
+| 沙箱内 curl 无法访问已启动的 3000/8000 | 1 | 服务运行在受控本机环境；改用同权限级别执行只读健康检查 |
 
 ## Notes
 

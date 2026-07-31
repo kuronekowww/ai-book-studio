@@ -477,3 +477,21 @@
 - 系统 `/Library/Frameworks/.../python3` 未安装 `pytest`；后续测试必须使用项目隔离虚拟环境，避免全局 Python 架构和依赖污染。
 - “专辑5”真实模块 Markdown 可被新解析器完整转换为 15 集；第 7 集的“深度解读”是唯一需要别名归一的内容类型问题。
 - 恢复后的 15 集均保留原模块键和一级章节标识，不涉及知识资产 ID 或段落索引，符合专辑策划阶段的来源粒度约定。
+
+## 2026-07-31 Phase 38 Node 运行时发现
+
+- 机器为 Apple Silicon arm64，但当前自动化 shell 优先使用 `/usr/local/bin/node`：
+  x86_64 Node 24.7.0。
+- 用户终端启动日志来自 `/opt/homebrew` 的 arm64 Node 26.0.0。
+- 现有 `node_modules/@rolldown` 只有 `binding-darwin-x64`，因此 arm64 Node
+  启动 Vite/Rolldown 时找不到 `@rolldown/binding-darwin-arm64`。
+- `package-lock.json` 已锁定 Rolldown 1.0.1 的 Darwin arm64 和 x64 可选包，
+  修复不需要升级依赖版本或删除锁文件。
+- npm 11.12.1 的全量可选依赖安装仍会遗漏 Rolldown arm64 包，符合日志中提到的
+  npm optionalDependencies 已知问题；显式安装锁定版本后原生二进制可正常解析。
+- 安装后的 `rolldown-binding.darwin-arm64.node` 经 `file` 确认是 Mach-O arm64。
+- 原生 npm 会改写旧锁文件的 `dev` 元数据；使用原 npm 离线重算后可恢复为零差异。
+- 本地前端加载后显示 5 本书、10 个内容项目、6 个提示词环节和
+  “本地服务已连接”；前端控制台无错误。
+- 后端 Swagger 页面标题为 `AI Book Studio API - Swagger UI`，并正常列出
+  `/health`、书籍和其他接口。
