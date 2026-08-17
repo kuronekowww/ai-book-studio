@@ -260,6 +260,7 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 .batch-card-title span { margin-top: 2px; color: var(--muted); font-size: 10px; }
 .batch-card-title .batch-model-summary { max-width: 220px; line-height: 1.45; }
 .batch-card-title em { color: var(--green); font-size: 12px; font-style: normal; font-weight: 650; }
+.batch-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .task-progress-card { margin: 16px 0; padding: 18px; border: 1px solid #d9d5ef; border-radius: 12px; background: #fbfaff; box-shadow: 0 8px 30px rgba(57, 45, 104, .06); color: var(--text); }
 .task-progress-card.compact { margin: 12px 0; padding: 14px; border-radius: 9px; }
 .task-progress-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

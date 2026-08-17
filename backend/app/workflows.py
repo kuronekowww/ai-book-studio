@@ -3612,6 +3612,51 @@ class WorkflowService:
             )
         return project
 
+    def export_project_finals_markdown(self, project_id: str) -> str:
+        project = self.database.row(
+            "SELECT id, title FROM projects WHERE id = ?", (project_id,)
+        )
+        if not project:
+            raise KeyError(project_id)
+        project_title = re.sub(
+            r"\s+", " ", str(project.get("title") or "")
+        ).strip() or "未命名专辑"
+        episodes = self.database.rows(
+            """
+            SELECT episode.id, episode.position, episode.title,
+                   (
+                     SELECT artifact.content
+                     FROM artifact_versions artifact
+                     WHERE artifact.episode_id = episode.id
+                       AND artifact.stage = 'final'
+                     ORDER BY artifact.version DESC
+                     LIMIT 1
+                   ) AS final_content
+            FROM episodes episode
+            WHERE episode.project_id = ?
+            ORDER BY episode.position, episode.id
+            """,
+            (project_id,),
+        )
+        lines = [f"# {project_title}", ""]
+        if not episodes:
+            lines.extend(["> 当前专辑尚未创建声音。", ""])
+        for episode in episodes:
+            title = re.sub(
+                r"\s+", " ", str(episode.get("title") or "")
+            ).strip() or "未命名声音"
+            position = int(episode.get("position") or 0)
+            content = str(episode.get("final_content") or "").strip()
+            lines.extend(
+                [
+                    f"## 第 {position:02d} 集：{title}",
+                    "",
+                    content or "> 本集终稿尚未生成",
+                    "",
+                ]
+            )
+        return "\n".join(lines).rstrip() + "\n"
+
     def episode_detail(self, episode_id: str) -> dict[str, Any]:
         episode = self.database.row("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         if not episode:

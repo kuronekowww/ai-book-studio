@@ -399,6 +399,14 @@ function countSpokenWords(text: string) {
   );
 }
 
+function projectFinalsFilename(title: string) {
+  const safeTitle = title
+    .replace(/[\/\\:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${safeTitle || "讲书专辑"}_全部终稿.md`;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("library");
   const [books, setBooks] = useState<Book[]>([]);
@@ -878,6 +886,37 @@ export default function Home() {
       return `已启动 ${result.summary.total} 条声音，最多 5 条并行生产`;
     });
 
+  const exportProjectFinals = () =>
+    selectedProject &&
+    runAction("导出全部终稿", async () => {
+      const response = await fetch(
+        `${API_BASE}/api/projects/${selectedProject.id}/finals/export`,
+      );
+      if (!response.ok) {
+        let message = "导出全部终稿失败";
+        try {
+          const payload = await response.json();
+          message = payload.detail || message;
+        } catch {
+          message = `${message}（${response.status}）`;
+        }
+        throw new Error(message);
+      }
+      const markdown = await response.text();
+      const blob = new Blob([markdown], {
+        type: "text/markdown;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = projectFinalsFilename(selectedProject.title);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      return "已导出全部终稿";
+    });
+
   const generateEpisode = (fromStage: "outline" | "draft" | "final") =>
     selectedEpisode &&
     runAction(fromStage === "outline" ? "启动声音生成" : `启动${stageLabels[fromStage]}重跑`, async () => {
@@ -1118,6 +1157,7 @@ export default function Home() {
                 onOpenEpisode={openEpisode}
                 onGenerate={generateEpisode}
                 onGenerateAll={() => void generateAll()}
+                onExportAll={() => void exportProjectFinals()}
                 onGenerateOutline={(requirements, count, wordMin, wordMax) =>
                   void generateProjectOutline(
                     requirements,
@@ -1860,6 +1900,7 @@ function ProjectWorkspace({
   onOpenEpisode,
   onGenerate,
   onGenerateAll,
+  onExportAll,
   onGenerateOutline,
   onUpdateModel,
   models,
@@ -1879,6 +1920,7 @@ function ProjectWorkspace({
   onOpenEpisode: (id: string) => Promise<void>;
   onGenerate: (stage: "outline" | "draft" | "final") => void;
   onGenerateAll: () => void;
+  onExportAll: () => void;
   onGenerateOutline: (
     specialRequirements: string,
     desiredEpisodeCount: number | null,
@@ -1974,6 +2016,17 @@ function ProjectWorkspace({
   const saveDraft = async () => {
     const saved = await onSaveFinal(finalDraft);
     if (saved) setDirty(false);
+  };
+  const exportAllFinals = () => {
+    if (
+      dirty &&
+      !window.confirm(
+        "当前终稿还有未保存修改，导出文件将使用最近一次已保存版本。是否继续？",
+      )
+    ) {
+      return;
+    }
+    onExportAll();
   };
   const finalWordCount = useMemo(
     () => countSpokenWords(finalDraft),
@@ -2204,17 +2257,26 @@ function ProjectWorkspace({
                   <span>进行 <strong>{batch?.summary.running || 0}</strong></span>
                   <span>失败 <strong>{batch?.summary.failed || 0}</strong></span>
                 </div>
-                <button
-                  className="primary-button batch-button"
-                  disabled={busy || batchActive || allFinalsReady}
-                  onClick={onGenerateAll}
-                >
-                  {batchActive
-                    ? "正在生成全部终稿…"
-                    : allFinalsReady
-                      ? "全部终稿已生成"
-                      : "生成全部终稿"}
-                </button>
+                <div className="batch-actions">
+                  <button
+                    className="primary-button batch-button"
+                    disabled={busy || batchActive || allFinalsReady}
+                    onClick={onGenerateAll}
+                  >
+                    {batchActive
+                      ? "正在生成全部终稿…"
+                      : allFinalsReady
+                        ? "全部终稿已生成"
+                        : "生成全部终稿"}
+                  </button>
+                  <button
+                    className="quiet-button batch-button"
+                    disabled={busy}
+                    onClick={exportAllFinals}
+                  >
+                    导出全部终稿
+                  </button>
+                </div>
               </div>
               <div className="episode-list">
                 {(project.episodes || []).map((item) => {

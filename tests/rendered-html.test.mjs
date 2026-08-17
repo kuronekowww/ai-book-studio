@@ -28,6 +28,12 @@ test("keeps the final-first Notion review workspace in source", async () => {
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   assert.match(page, /生成全部终稿/);
+  assert.match(page, /导出全部终稿/);
+  assert.match(page, /\/api\/projects\/\$\{selectedProject\.id\}\/finals\/export/);
+  assert.match(page, /new Blob/);
+  assert.match(page, /URL\.createObjectURL/);
+  assert.match(page, /_全部终稿\.md/);
+  assert.match(page, /当前终稿还有未保存修改/);
   assert.match(page, /保存修改 · 新建版本/);
   assert.match(page, /supporting-artifacts/);
   assert.match(page, /review-inspector/);

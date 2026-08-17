@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -1435,6 +1435,19 @@ def project_detail(project_id: str) -> dict[str, Any]:
         return project
     except KeyError as error:
         raise not_found("项目") from error
+
+
+@app.get("/api/projects/{project_id}/finals/export")
+def export_project_finals(project_id: str) -> Response:
+    try:
+        markdown = workflows.export_project_finals_markdown(project_id)
+    except KeyError as error:
+        raise not_found("项目") from error
+    return Response(
+        content=markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": "attachment"},
+    )
 
 
 @app.get("/api/projects/{project_id}/prompt-modules")
